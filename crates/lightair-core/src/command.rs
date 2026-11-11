@@ -163,6 +163,26 @@ pub enum Command {
         settings: TransitionSettings,
     },
 
+    AddInputEffect {
+        input: Id,
+        effect: Effect,
+        index: Option<usize>,
+    },
+    RemoveInputEffect {
+        input: Id,
+        effect: Id,
+    },
+    SetInputEffectEnabled {
+        input: Id,
+        effect: Id,
+        enabled: bool,
+    },
+    SetInputEffectSettings {
+        input: Id,
+        effect: Id,
+        settings: serde_json::Value,
+    },
+
     /// Several commands applied as one undo step.
     Batch {
         label: String,
@@ -237,6 +257,11 @@ impl Command {
             Command::SetRecordingSettings { .. } => "Change recording settings".into(),
             Command::SetStreamBitrate { .. } => "Change stream bitrate".into(),
             Command::SetTransition { .. } => "Change transition".into(),
+            Command::AddInputEffect { .. } => "Add effect".into(),
+            Command::RemoveInputEffect { .. } => "Remove effect".into(),
+            Command::SetInputEffectEnabled { enabled: true, .. } => "Turn effect on".into(),
+            Command::SetInputEffectEnabled { enabled: false, .. } => "Turn effect off".into(),
+            Command::SetInputEffectSettings { .. } => "Change effect".into(),
             Command::Batch { label, .. } => label.clone(),
         }
     }
@@ -249,6 +274,7 @@ impl Command {
             Command::SetInputSettings { input, .. } => Some(("settings", *input, *input)),
             Command::SetTrackVolume { track, .. } => Some(("volume", *track, *track)),
             Command::SetEffectSettings { track, effect, .. } => Some(("effect", *track, *effect)),
+            Command::SetInputEffectSettings { input, effect, .. } => Some(("input-effect", *input, *effect)),
             _ => None,
         }
     }
@@ -466,6 +492,25 @@ impl Command {
                 project.transition =
                     TransitionSettings { duration_ms: settings.duration_ms.clamp(50, 5000), ..*settings }
             }
+            Command::AddInputEffect { input, effect, index } => {
+                let i = Arc::make_mut(project.inputs.get_mut(input).ok_or(CommandError::NoInput(*input))?);
+                if i.effects.iter().any(|e| e.id == effect.id) {
+                    return Err(CommandError::Duplicate(effect.id));
+                }
+                let at = index.unwrap_or(i.effects.len()).min(i.effects.len());
+                i.effects.insert(at, effect.clone());
+            }
+            Command::RemoveInputEffect { input, effect } => {
+                let i = Arc::make_mut(project.inputs.get_mut(input).ok_or(CommandError::NoInput(*input))?);
+                let idx = i.effects.iter().position(|e| e.id == *effect).ok_or(CommandError::NoEffect(*effect))?;
+                i.effects.remove(idx);
+            }
+            Command::SetInputEffectEnabled { input, effect, enabled } => {
+                input_effect_mut(project, *input, *effect)?.enabled = *enabled
+            }
+            Command::SetInputEffectSettings { input, effect, settings } => {
+                input_effect_mut(project, *input, *effect)?.settings = settings.clone()
+            }
             Command::Batch { commands, .. } => {
                 // Apply to a scratch copy so a failing step leaves the project untouched.
                 let mut scratch = project.clone();
@@ -482,6 +527,14 @@ impl Command {
 fn track_mut(project: &mut Project, id: Id) -> Result<&mut Track, CommandError> {
     let idx = project.track_index(id).ok_or(CommandError::NoTrack(id))?;
     Ok(Arc::make_mut(&mut project.tracks[idx]))
+}
+
+fn input_effect_mut(project: &mut Project, input: Id, effect: Id) -> Result<&mut Effect, CommandError> {
+    Arc::make_mut(project.inputs.get_mut(&input).ok_or(CommandError::NoInput(input))?)
+        .effects
+        .iter_mut()
+        .find(|e| e.id == effect)
+        .ok_or(CommandError::NoEffect(effect))
 }
 
 fn effect_mut(project: &mut Project, track: Id, effect: Id) -> Result<&mut Effect, CommandError> {
@@ -509,7 +562,7 @@ fn layer_mut(project: &mut Project, scene: Id, layer: Id) -> Result<&mut Layer, 
 
 impl Input {
     pub fn new(name: impl Into<String>, kind: impl Into<String>, settings: serde_json::Value) -> Self {
-        Self { id: Id::new(), name: name.into(), kind: kind.into(), settings }
+        Self { id: Id::new(), name: name.into(), kind: kind.into(), settings, effects: Vec::new() }
     }
 }
 

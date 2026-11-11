@@ -16,7 +16,10 @@ pub enum Patch {
     FormatChanged(Format),
     FormatRemoved(Id),
     InputAdded(Arc<Input>),
-    InputChanged(Arc<Input>),
+    InputChanged {
+        before: Arc<Input>,
+        after: Arc<Input>,
+    },
     InputRemoved(Id),
     SceneAdded(Arc<Scene>),
     /// Layers changed in an existing scene (added, removed, reordered or re-laid-out).
@@ -52,7 +55,9 @@ pub fn diff(before: &Project, after: &Project) -> Vec<Patch> {
     for (id, input) in &after.inputs {
         match before.inputs.get(id) {
             None => out.push(Patch::InputAdded(input.clone())),
-            Some(old) if !Arc::ptr_eq(old, input) && old != input => out.push(Patch::InputChanged(input.clone())),
+            Some(old) if !Arc::ptr_eq(old, input) && old != input => {
+                out.push(Patch::InputChanged { before: old.clone(), after: input.clone() })
+            }
             _ => {}
         }
     }

@@ -146,6 +146,9 @@ pub struct Input {
     pub kind: String,
     /// Source settings as libobs `obs_data` JSON (opaque for plugin sources).
     pub settings: serde_json::Value,
+    /// Input effects: applied wherever the input appears (docs/08-video-effects.md).
+    #[serde(default)]
+    pub effects: Vec<Effect>,
 }
 
 /// An ordered stack of layers. Index 0 is the bottom.
