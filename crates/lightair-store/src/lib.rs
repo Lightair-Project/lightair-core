@@ -14,6 +14,10 @@
 //! writes the JSON files atomically and truncates the journal. Opening a package replays any
 //! journal tail, which is how a crash is recovered.
 
+pub mod import_obs;
+
+pub use import_obs::{ImportError, ImportReport, import_obs_collection};
+
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
