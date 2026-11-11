@@ -16,7 +16,7 @@
 
 pub mod import_obs;
 
-pub use import_obs::{ImportError, ImportReport, import_obs_collection};
+pub use import_obs::{EstimatedLayer, ImportError, ImportReport, import_obs_collection};
 
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};

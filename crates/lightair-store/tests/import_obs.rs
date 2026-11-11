@@ -92,6 +92,19 @@ fn names_stay_unique_and_import_is_one_undo_step() {
 }
 
 #[test]
+fn estimated_layers_refit_to_the_real_size() {
+    let (cmd, report) = import_obs_collection(FIXTURE, &Project::new("Mine")).unwrap();
+    drop(cmd);
+    // Viz is a plugin source at scale 0.25 with top-left alignment at (100,100); its size was
+    // guessed as 1920x1080. The colour backdrop's size is in its settings, so it's exact.
+    let names: Vec<_> = report.estimated.iter().map(|e| e.layout.width).collect();
+    assert_eq!(names, [480.0], "only Viz was guessed");
+    let viz = &report.estimated[0];
+    let real = viz.refit((800, 400));
+    assert_eq!((real.x, real.y, real.width, real.height), (100.0, 100.0, 200.0, 100.0));
+}
+
+#[test]
 fn rejects_garbage() {
     assert!(import_obs_collection("{}", &Project::new("x")).is_err());
     assert!(import_obs_collection("nope", &Project::new("x")).is_err());

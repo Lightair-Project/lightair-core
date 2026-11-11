@@ -24,6 +24,29 @@ pub struct ImportReport {
     pub kept_plugin: Vec<String>,
     /// Imported with an approximation, or not imported; the user should look.
     pub attention: Vec<String>,
+    /// Layers whose box was computed from a guessed source size; `refit` corrects them once
+    /// the real size is known.
+    pub estimated: Vec<EstimatedLayer>,
+}
+
+/// A layer imported from an OBS item whose source size had to be guessed.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EstimatedLayer {
+    pub scene: Id,
+    pub layer: Id,
+    pub input: Id,
+    pub format: Id,
+    /// The layout as imported (a layer the user has since changed is left alone).
+    pub layout: Layout,
+    /// The OBS scene item, for recomputing the box.
+    item: Value,
+}
+
+impl EstimatedLayer {
+    /// The layer's layout for the source's real pixel size.
+    pub fn refit(&self, size: (u32, u32)) -> Layout {
+        layout_of(&self.item, (size.0 as f32, size.1 as f32))
+    }
 }
 
 impl ImportReport {
@@ -334,16 +357,27 @@ pub fn import_obs_collection(json: &str, project: &Project) -> Result<(Command, 
             }
             let (size, exact) = source_size(kind, settings, canvas);
             let layout = layout_of(item, size);
-            if (item["bounds_type"].as_i64().unwrap_or(0) == 0 && !exact) || layout.rotation != 0.0 {
+            let guessed = item["bounds_type"].as_i64().unwrap_or(0) == 0 && !exact;
+            if guessed || layout.rotation != 0.0 {
                 estimated.push(name_of(item));
             }
             let mut layer = Layer::new(name_of(item), *input_id, [(format.id, layout)]);
+            if guessed {
+                report.estimated.push(EstimatedLayer {
+                    scene: scene.id,
+                    layer: layer.id,
+                    input: *input_id,
+                    format: format.id,
+                    layout,
+                    item: item.clone(),
+                });
+            }
             layer.locked = item["locked"].as_bool().unwrap_or(false);
             scene.layers.push(layer);
         }
         if !estimated.is_empty() {
             report.attention.push(format!(
-                "{scene_name}: sizes estimated for {} (OBS doesn't save source sizes); check their boxes",
+                "{scene_name}: sizes estimated for {} (OBS doesn't save source sizes); corrected once the sources start",
                 estimated.join(", ")
             ));
         }
