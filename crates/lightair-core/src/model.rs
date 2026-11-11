@@ -287,11 +287,14 @@ pub struct RecordingSettings {
     /// `mp4` (hybrid, crash-safe), `mkv` or `mov`.
     pub container: String,
     pub bitrate_kbps: u32,
+    /// Format to record; `None` = the primary format.
+    #[serde(default)]
+    pub format: Option<Id>,
 }
 
 impl Default for RecordingSettings {
     fn default() -> Self {
-        Self { folder: None, container: "mp4".into(), bitrate_kbps: 12_000 }
+        Self { folder: None, container: "mp4".into(), bitrate_kbps: 12_000, format: None }
     }
 }
 
@@ -303,4 +306,7 @@ pub struct Destination {
     pub server: String,
     /// Included when going live.
     pub enabled: bool,
+    /// Format to send (e.g. vertical for TikTok); `None` = the primary format.
+    #[serde(default)]
+    pub format: Option<Id>,
 }

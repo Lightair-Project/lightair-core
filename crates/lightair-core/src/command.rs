@@ -146,6 +146,10 @@ pub enum Command {
         destination: Id,
         enabled: bool,
     },
+    SetDestinationFormat {
+        destination: Id,
+        format: Option<Id>,
+    },
     SetRecordingSettings {
         settings: RecordingSettings,
     },
@@ -223,6 +227,7 @@ impl Command {
             Command::AddDestination { .. } => "Add destination".into(),
             Command::RemoveDestination { .. } => "Remove destination".into(),
             Command::SetDestinationEnabled { .. } => "Toggle destination".into(),
+            Command::SetDestinationFormat { .. } => "Change destination format".into(),
             Command::SetRecordingSettings { .. } => "Change recording settings".into(),
             Command::SetStreamBitrate { .. } => "Change stream bitrate".into(),
             Command::Batch { label, .. } => label.clone(),
@@ -263,6 +268,14 @@ impl Command {
                     return Err(CommandError::LastFormat);
                 }
                 project.formats.remove(idx);
+                for d in &mut project.outputs.destinations {
+                    if d.format == Some(*format) {
+                        d.format = None;
+                    }
+                }
+                if project.outputs.recording.format == Some(*format) {
+                    project.outputs.recording.format = None;
+                }
                 for scene in &mut project.scenes {
                     for layer in &mut Arc::make_mut(scene).layers {
                         layer.layouts.remove(format);
@@ -427,6 +440,18 @@ impl Command {
                     .find(|d| d.id == *destination)
                     .ok_or(CommandError::NoDestination(*destination))?
                     .enabled = *enabled;
+            }
+            Command::SetDestinationFormat { destination, format } => {
+                if let Some(f) = format {
+                    project.format(*f).ok_or(CommandError::NoFormat(*f))?;
+                }
+                project
+                    .outputs
+                    .destinations
+                    .iter_mut()
+                    .find(|d| d.id == *destination)
+                    .ok_or(CommandError::NoDestination(*destination))?
+                    .format = *format;
             }
             Command::SetRecordingSettings { settings } => project.outputs.recording = settings.clone(),
             Command::SetStreamBitrate { kbps } => project.outputs.stream_bitrate_kbps = (*kbps).clamp(500, 51_000),
