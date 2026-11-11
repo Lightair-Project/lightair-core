@@ -7,7 +7,8 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    Destination, Effect, Format, Id, Input, Layer, Layout, Project, RecordingSettings, Scene, Track, TransitionSettings,
+    ClipSettings, Destination, Effect, Format, Id, Input, Layer, Layout, Project, RecordingSettings, Scene, Track,
+    TransitionSettings,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -162,6 +163,9 @@ pub enum Command {
     SetTransition {
         settings: TransitionSettings,
     },
+    SetClipSettings {
+        settings: ClipSettings,
+    },
 
     AddInputEffect {
         input: Id,
@@ -257,6 +261,7 @@ impl Command {
             Command::SetRecordingSettings { .. } => "Change recording settings".into(),
             Command::SetStreamBitrate { .. } => "Change stream bitrate".into(),
             Command::SetTransition { .. } => "Change transition".into(),
+            Command::SetClipSettings { .. } => "Change clip settings".into(),
             Command::AddInputEffect { .. } => "Add effect".into(),
             Command::RemoveInputEffect { .. } => "Remove effect".into(),
             Command::SetInputEffectEnabled { enabled: true, .. } => "Turn effect on".into(),
@@ -488,6 +493,12 @@ impl Command {
             }
             Command::SetRecordingSettings { settings } => project.outputs.recording = settings.clone(),
             Command::SetStreamBitrate { kbps } => project.outputs.stream_bitrate_kbps = (*kbps).clamp(500, 51_000),
+            Command::SetClipSettings { settings } => {
+                if let Some(f) = settings.format {
+                    project.format(f).ok_or(CommandError::NoFormat(f))?;
+                }
+                project.outputs.clips = ClipSettings { seconds: settings.seconds.clamp(10, 300), ..*settings }
+            }
             Command::SetTransition { settings } => {
                 project.transition =
                     TransitionSettings { duration_ms: settings.duration_ms.clamp(50, 5000), ..*settings }

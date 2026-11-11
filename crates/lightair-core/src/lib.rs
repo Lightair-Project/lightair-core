@@ -9,6 +9,6 @@ pub use command::{Command, CommandError};
 pub use diff::{LayerPatch, Patch, diff, diff_layers};
 pub use document::{Change, Document};
 pub use model::{
-    Crop, Destination, Effect, Fit, Format, Id, Input, Layer, Layout, OutputSettings, Project, RecordingSettings,
-    Scene, Track, TransitionKind, TransitionSettings,
+    ClipSettings, Crop, Destination, Effect, Fit, Format, Id, Input, Layer, Layout, OutputSettings, Project,
+    RecordingSettings, Scene, Track, TransitionKind, TransitionSettings,
 };

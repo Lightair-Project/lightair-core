@@ -280,11 +280,34 @@ pub struct OutputSettings {
     pub destinations: Vec<Destination>,
     /// Streaming video bitrate shared by destinations (kbps).
     pub stream_bitrate_kbps: u32,
+    #[serde(default)]
+    pub clips: ClipSettings,
 }
 
 impl Default for OutputSettings {
     fn default() -> Self {
-        Self { recording: RecordingSettings::default(), destinations: Vec::new(), stream_bitrate_kbps: 6000 }
+        Self {
+            recording: RecordingSettings::default(),
+            destinations: Vec::new(),
+            stream_bitrate_kbps: 6000,
+            clips: ClipSettings::default(),
+        }
+    }
+}
+
+/// The replay buffer behind the Clip button.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ClipSettings {
+    pub enabled: bool,
+    /// Seconds kept in the buffer (and saved per clip).
+    pub seconds: u32,
+    /// Format to clip; `None` = the primary format.
+    pub format: Option<Id>,
+}
+
+impl Default for ClipSettings {
+    fn default() -> Self {
+        Self { enabled: false, seconds: 60, format: None }
     }
 }
 
