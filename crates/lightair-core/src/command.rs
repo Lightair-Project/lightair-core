@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Effect, Format, Id, Input, Layer, Layout, Project, Scene, Track};
+use crate::model::{Destination, Effect, Format, Id, Input, Layer, Layout, Project, RecordingSettings, Scene, Track};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Command {
@@ -136,6 +136,23 @@ pub enum Command {
         settings: serde_json::Value,
     },
 
+    AddDestination {
+        destination: Destination,
+    },
+    RemoveDestination {
+        destination: Id,
+    },
+    SetDestinationEnabled {
+        destination: Id,
+        enabled: bool,
+    },
+    SetRecordingSettings {
+        settings: RecordingSettings,
+    },
+    SetStreamBitrate {
+        kbps: u32,
+    },
+
     /// Several commands applied as one undo step.
     Batch {
         label: String,
@@ -163,6 +180,8 @@ pub enum CommandError {
     NoTrack(Id),
     #[error("no effect {0}")]
     NoEffect(Id),
+    #[error("no destination {0}")]
+    NoDestination(Id),
 }
 
 impl Command {
@@ -201,6 +220,11 @@ impl Command {
             Command::SetEffectEnabled { enabled: true, .. } => "Turn effect on".into(),
             Command::SetEffectEnabled { enabled: false, .. } => "Bypass effect".into(),
             Command::SetEffectSettings { .. } => "Change effect".into(),
+            Command::AddDestination { .. } => "Add destination".into(),
+            Command::RemoveDestination { .. } => "Remove destination".into(),
+            Command::SetDestinationEnabled { .. } => "Toggle destination".into(),
+            Command::SetRecordingSettings { .. } => "Change recording settings".into(),
+            Command::SetStreamBitrate { .. } => "Change stream bitrate".into(),
             Command::Batch { label, .. } => label.clone(),
         }
     }
@@ -382,6 +406,30 @@ impl Command {
             Command::SetEffectSettings { track, effect, settings } => {
                 effect_mut(project, *track, *effect)?.settings = settings.clone()
             }
+            Command::AddDestination { destination } => {
+                if project.outputs.destinations.iter().any(|d| d.id == destination.id) {
+                    return Err(CommandError::Duplicate(destination.id));
+                }
+                project.outputs.destinations.push(destination.clone());
+            }
+            Command::RemoveDestination { destination } => {
+                let before = project.outputs.destinations.len();
+                project.outputs.destinations.retain(|d| d.id != *destination);
+                if project.outputs.destinations.len() == before {
+                    return Err(CommandError::NoDestination(*destination));
+                }
+            }
+            Command::SetDestinationEnabled { destination, enabled } => {
+                project
+                    .outputs
+                    .destinations
+                    .iter_mut()
+                    .find(|d| d.id == *destination)
+                    .ok_or(CommandError::NoDestination(*destination))?
+                    .enabled = *enabled;
+            }
+            Command::SetRecordingSettings { settings } => project.outputs.recording = settings.clone(),
+            Command::SetStreamBitrate { kbps } => project.outputs.stream_bitrate_kbps = (*kbps).clamp(500, 51_000),
             Command::Batch { commands, .. } => {
                 // Apply to a scratch copy so a failing step leaves the project untouched.
                 let mut scratch = project.clone();

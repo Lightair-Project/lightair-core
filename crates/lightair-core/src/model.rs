@@ -47,6 +47,10 @@ pub struct Project {
     /// Global audio tracks in mixer order (docs/10-audio.md).
     #[serde(default)]
     pub tracks: Vec<Arc<Track>>,
+    /// Recording and streaming settings (docs/11-outputs-streaming-recording.md). Stream keys
+    /// are not here: they live in the OS credential store, keyed by destination id.
+    #[serde(default)]
+    pub outputs: OutputSettings,
 }
 
 impl Project {
@@ -59,6 +63,7 @@ impl Project {
             scenes: Vec::new(),
             program: None,
             tracks: Vec::new(),
+            outputs: OutputSettings::default(),
         }
     }
 
@@ -73,6 +78,7 @@ impl Project {
             scenes: Vec::new(),
             program: None,
             tracks: Vec::new(),
+            outputs: self.outputs.clone(),
         }
     }
 
@@ -258,4 +264,43 @@ mod db {
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
         Ok(Option::<f32>::deserialize(d)?.unwrap_or(f32::NEG_INFINITY))
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OutputSettings {
+    pub recording: RecordingSettings,
+    pub destinations: Vec<Destination>,
+    /// Streaming video bitrate shared by destinations (kbps).
+    pub stream_bitrate_kbps: u32,
+}
+
+impl Default for OutputSettings {
+    fn default() -> Self {
+        Self { recording: RecordingSettings::default(), destinations: Vec::new(), stream_bitrate_kbps: 6000 }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RecordingSettings {
+    /// Folder for recordings; `None` means the default (`~/Movies/Lightair`).
+    pub folder: Option<std::path::PathBuf>,
+    /// `mp4` (hybrid, crash-safe), `mkv` or `mov`.
+    pub container: String,
+    pub bitrate_kbps: u32,
+}
+
+impl Default for RecordingSettings {
+    fn default() -> Self {
+        Self { folder: None, container: "mp4".into(), bitrate_kbps: 12_000 }
+    }
+}
+
+/// A streaming destination. Custom RTMP(S) for now; platform sign-in arrives with M11.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Destination {
+    pub id: Id,
+    pub name: String,
+    pub server: String,
+    /// Included when going live.
+    pub enabled: bool,
 }

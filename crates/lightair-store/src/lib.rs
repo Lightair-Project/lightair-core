@@ -5,6 +5,7 @@
 //! ├─ project.json     manifest: format version, id, name, formats, program, scene order
 //! ├─ inputs.json      media inputs
 //! ├─ audio.json       mixer tracks and their effects
+//! ├─ outputs.json     recording and streaming settings (no secrets)
 //! ├─ scenes/<id>.json one file per scene (diff-friendly)
 //! └─ journal/current.log   committed commands since the last compaction (JSON lines)
 //! ```
@@ -19,7 +20,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use lightair_core::{Command, Format, Id, Input, Project, Scene, Track};
+use lightair_core::{Command, Format, Id, Input, OutputSettings, Project, Scene, Track};
 use serde::{Deserialize, Serialize};
 
 /// Current on-disk format. Bump it and add a migration in [`migrate`] when the schema changes.
@@ -93,6 +94,7 @@ pub fn save(dir: &Path, project: &Project) -> Result<(), StoreError> {
     write_json(&dir.join("inputs.json"), &inputs)?;
     let tracks: Vec<&Track> = project.tracks.iter().map(|t| &**t).collect();
     write_json(&dir.join("audio.json"), &tracks)?;
+    write_json(&dir.join("outputs.json"), &project.outputs)?;
     // The manifest goes last: it is what makes the new scene files "current".
     write_json(
         &dir.join("project.json"),
@@ -119,6 +121,9 @@ pub fn load_snapshot(dir: &Path) -> Result<Project, StoreError> {
     let inputs: Vec<Input> = read_json(&dir.join("inputs.json"))?;
     let audio = dir.join("audio.json");
     let tracks: Vec<Track> = if audio.exists() { read_json(&audio)? } else { Vec::new() };
+    let outputs_path = dir.join("outputs.json");
+    let outputs: OutputSettings =
+        if outputs_path.exists() { read_json(&outputs_path)? } else { OutputSettings::default() };
     let mut scenes = Vec::with_capacity(manifest.scenes.len());
     for id in &manifest.scenes {
         let path = dir.join("scenes").join(format!("{id}.json"));
@@ -135,6 +140,7 @@ pub fn load_snapshot(dir: &Path) -> Result<Project, StoreError> {
         scenes,
         program: manifest.program,
         tracks: tracks.into_iter().map(Arc::new).collect(),
+        outputs,
     })
 }
 
