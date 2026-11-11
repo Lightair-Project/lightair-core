@@ -8,7 +8,7 @@
 use std::collections::{HashMap, HashSet};
 
 use lightair_core::{
-    Command, Crop, Effect, Fit, Format, Id, Input, Layer, Layout, Project, Scene, Track, TransitionKind,
+    Command, Crop, Direction, Effect, Fit, Format, Id, Input, Layer, Layout, Project, Scene, Track, TransitionKind,
     TransitionSettings,
 };
 use serde_json::Value;
@@ -379,19 +379,37 @@ pub fn import_obs_collection(json: &str, project: &Project) -> Result<(Command, 
         commands.push(Command::AddTrack { track: track.clone(), index: None });
     }
 
-    // Transition.
+    // Transition: OBS saves the current one by name; custom ones are listed with their type.
     if let Some(name) = root["current_transition"].as_str() {
+        let saved = root["transitions"].as_array().and_then(|a| a.iter().find(|t| name_of(t) == name));
         let lower = name.to_lowercase();
-        let kind = if lower.contains("cut") {
-            TransitionKind::Cut
-        } else if lower.contains("move") {
-            report.replaced.push(format!("transition {name}: Move plugin → built-in Move"));
-            TransitionKind::Move
-        } else {
-            TransitionKind::Fade
+        let id = saved
+            .map(kind_of)
+            .unwrap_or_else(|| if lower.contains("cut") { "cut_transition" } else { "fade_transition" }.to_string());
+        let settings = saved.map(|t| t["settings"].clone()).unwrap_or(Value::Null);
+        let direction = match settings["direction"].as_str() {
+            Some("right") => Direction::Right,
+            Some("up") => Direction::Up,
+            Some("down") => Direction::Down,
+            _ => Direction::Left,
+        };
+        let kind = match id.as_str() {
+            "cut_transition" => TransitionKind::Cut,
+            "slide_transition" => TransitionKind::Slide,
+            "swipe_transition" | "wipe_transition" => TransitionKind::Wipe,
+            "fade_to_color_transition" => TransitionKind::Dip,
+            "move_transition" => {
+                report.replaced.push(format!("transition {name}: Move plugin → built-in Move"));
+                TransitionKind::Move
+            }
+            "fade_transition" => TransitionKind::Fade,
+            other => {
+                report.attention.push(format!("transition {name} ({other}): not built in yet; using Fade"));
+                TransitionKind::Fade
+            }
         };
         let duration_ms = root["transition_duration"].as_u64().unwrap_or(300) as u32;
-        commands.push(Command::SetTransition { settings: TransitionSettings { kind, duration_ms } });
+        commands.push(Command::SetTransition { settings: TransitionSettings { kind, duration_ms, direction } });
     }
 
     // What was on air.

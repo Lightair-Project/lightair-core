@@ -348,16 +348,74 @@ pub enum TransitionKind {
     Fade,
     /// Matching layers glide from their old to their new layout; the rest fade.
     Move,
+    /// The new scene pushes the old one out in `direction`.
+    Slide,
+    /// The new scene wipes across the old one in `direction`.
+    Wipe,
+    /// Fade through black.
+    Dip,
+}
+
+impl TransitionKind {
+    pub const ALL: [TransitionKind; 6] = [Self::Cut, Self::Fade, Self::Move, Self::Slide, Self::Wipe, Self::Dip];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Cut => "Cut",
+            Self::Fade => "Fade",
+            Self::Move => "Move",
+            Self::Slide => "Slide",
+            Self::Wipe => "Wipe",
+            Self::Dip => "Dip",
+        }
+    }
+
+    /// Whether `direction` applies.
+    pub fn directional(self) -> bool {
+        matches!(self, Self::Slide | Self::Wipe)
+    }
+}
+
+/// Which way a directional transition travels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Direction {
+    #[default]
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+impl Direction {
+    pub fn next(self) -> Self {
+        match self {
+            Self::Left => Self::Up,
+            Self::Up => Self::Right,
+            Self::Right => Self::Down,
+            Self::Down => Self::Left,
+        }
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Right => "right",
+            Self::Up => "up",
+            Self::Down => "down",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct TransitionSettings {
     pub kind: TransitionKind,
     pub duration_ms: u32,
+    #[serde(default)]
+    pub direction: Direction,
 }
 
 impl Default for TransitionSettings {
     fn default() -> Self {
-        Self { kind: TransitionKind::Move, duration_ms: 500 }
+        Self { kind: TransitionKind::Move, duration_ms: 500, direction: Direction::Left }
     }
 }
