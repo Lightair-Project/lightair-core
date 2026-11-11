@@ -51,6 +51,9 @@ pub struct Project {
     /// are not here: they live in the OS credential store, keyed by destination id.
     #[serde(default)]
     pub outputs: OutputSettings,
+    /// How scene switches look (docs/07-scenes-layers-canvas.md, "Transitions").
+    #[serde(default)]
+    pub transition: TransitionSettings,
 }
 
 impl Project {
@@ -64,6 +67,7 @@ impl Project {
             program: None,
             tracks: Vec::new(),
             outputs: OutputSettings::default(),
+            transition: TransitionSettings::default(),
         }
     }
 
@@ -79,6 +83,7 @@ impl Project {
             program: None,
             tracks: Vec::new(),
             outputs: self.outputs.clone(),
+            transition: self.transition,
         }
     }
 
@@ -309,4 +314,24 @@ pub struct Destination {
     /// Format to send (e.g. vertical for TikTok); `None` = the primary format.
     #[serde(default)]
     pub format: Option<Id>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TransitionKind {
+    Cut,
+    Fade,
+    /// Matching layers glide from their old to their new layout; the rest fade.
+    Move,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct TransitionSettings {
+    pub kind: TransitionKind,
+    pub duration_ms: u32,
+}
+
+impl Default for TransitionSettings {
+    fn default() -> Self {
+        Self { kind: TransitionKind::Move, duration_ms: 500 }
+    }
 }

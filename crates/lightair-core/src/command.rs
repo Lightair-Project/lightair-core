@@ -6,7 +6,9 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Destination, Effect, Format, Id, Input, Layer, Layout, Project, RecordingSettings, Scene, Track};
+use crate::model::{
+    Destination, Effect, Format, Id, Input, Layer, Layout, Project, RecordingSettings, Scene, Track, TransitionSettings,
+};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Command {
@@ -157,6 +159,10 @@ pub enum Command {
         kbps: u32,
     },
 
+    SetTransition {
+        settings: TransitionSettings,
+    },
+
     /// Several commands applied as one undo step.
     Batch {
         label: String,
@@ -230,6 +236,7 @@ impl Command {
             Command::SetDestinationFormat { .. } => "Change destination format".into(),
             Command::SetRecordingSettings { .. } => "Change recording settings".into(),
             Command::SetStreamBitrate { .. } => "Change stream bitrate".into(),
+            Command::SetTransition { .. } => "Change transition".into(),
             Command::Batch { label, .. } => label.clone(),
         }
     }
@@ -455,6 +462,10 @@ impl Command {
             }
             Command::SetRecordingSettings { settings } => project.outputs.recording = settings.clone(),
             Command::SetStreamBitrate { kbps } => project.outputs.stream_bitrate_kbps = (*kbps).clamp(500, 51_000),
+            Command::SetTransition { settings } => {
+                project.transition =
+                    TransitionSettings { duration_ms: settings.duration_ms.clamp(50, 5000), ..*settings }
+            }
             Command::Batch { commands, .. } => {
                 // Apply to a scratch copy so a failing step leaves the project untouched.
                 let mut scratch = project.clone();

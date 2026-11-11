@@ -52,6 +52,8 @@ struct Manifest {
     program: Option<Id>,
     /// Scene ids in display order; scene contents live in `scenes/<id>.json`.
     scenes: Vec<Id>,
+    #[serde(default)]
+    transition: lightair_core::TransitionSettings,
 }
 
 /// Writes `bytes` to `path` atomically (temp file + rename), so a crash never leaves a torn file.
@@ -105,6 +107,7 @@ pub fn save(dir: &Path, project: &Project) -> Result<(), StoreError> {
             formats: project.formats.clone(),
             program: project.program,
             scenes: project.scenes.iter().map(|s| s.id).collect(),
+            transition: project.transition,
         },
     )
 }
@@ -141,6 +144,7 @@ pub fn load_snapshot(dir: &Path) -> Result<Project, StoreError> {
         program: manifest.program,
         tracks: tracks.into_iter().map(Arc::new).collect(),
         outputs,
+        transition: manifest.transition,
     })
 }
 
