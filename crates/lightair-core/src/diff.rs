@@ -8,7 +8,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use crate::model::{Format, Id, Input, Layer, Project, Scene};
+use crate::model::{Format, Id, Input, Layer, Project, Scene, Track};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Patch {
@@ -26,6 +26,14 @@ pub enum Patch {
     },
     SceneRemoved(Id),
     ProgramChanged(Option<Id>),
+    TrackAdded(Arc<Track>),
+    TrackChanged {
+        before: Arc<Track>,
+        after: Arc<Track>,
+    },
+    TrackRemoved(Id),
+    /// Final mixer order, sent when tracks were added, removed or moved.
+    TrackOrder(Vec<Id>),
 }
 
 /// Patches in an order that is safe to apply: formats and inputs before the scenes that use
@@ -67,6 +75,25 @@ pub fn diff(before: &Project, after: &Project) -> Vec<Patch> {
 
     if before.program != after.program {
         out.push(Patch::ProgramChanged(after.program));
+    }
+
+    for t in &before.tracks {
+        if after.track(t.id).is_none() {
+            out.push(Patch::TrackRemoved(t.id));
+        }
+    }
+    for t in &after.tracks {
+        match before.track(t.id) {
+            None => out.push(Patch::TrackAdded(t.clone())),
+            Some(old) if !Arc::ptr_eq(old, t) && old != t => {
+                out.push(Patch::TrackChanged { before: old.clone(), after: t.clone() })
+            }
+            _ => {}
+        }
+    }
+    let order = |p: &Project| p.tracks.iter().map(|t| t.id).collect::<Vec<_>>();
+    if order(before) != order(after) {
+        out.push(Patch::TrackOrder(order(after)));
     }
 
     for id in before.inputs.keys() {

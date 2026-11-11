@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Format, Id, Input, Layer, Layout, Project, Scene};
+use crate::model::{Effect, Format, Id, Input, Layer, Layout, Project, Scene, Track};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Command {
@@ -89,6 +89,53 @@ pub enum Command {
         locked: bool,
     },
 
+    AddTrack {
+        track: Track,
+        index: Option<usize>,
+    },
+    RemoveTrack {
+        track: Id,
+    },
+    RenameTrack {
+        track: Id,
+        name: String,
+    },
+    MoveTrack {
+        track: Id,
+        to: usize,
+    },
+    SetTrackVolume {
+        track: Id,
+        volume_db: f32,
+    },
+    SetTrackMuted {
+        track: Id,
+        muted: bool,
+    },
+    SetTrackCue {
+        track: Id,
+        cue: bool,
+    },
+    AddEffect {
+        track: Id,
+        effect: Effect,
+        index: Option<usize>,
+    },
+    RemoveEffect {
+        track: Id,
+        effect: Id,
+    },
+    SetEffectEnabled {
+        track: Id,
+        effect: Id,
+        enabled: bool,
+    },
+    SetEffectSettings {
+        track: Id,
+        effect: Id,
+        settings: serde_json::Value,
+    },
+
     /// Several commands applied as one undo step.
     Batch {
         label: String,
@@ -112,6 +159,10 @@ pub enum CommandError {
     InputInUse(usize),
     #[error("a project needs at least one format")]
     LastFormat,
+    #[error("no track {0}")]
+    NoTrack(Id),
+    #[error("no effect {0}")]
+    NoEffect(Id),
 }
 
 impl Command {
@@ -137,6 +188,19 @@ impl Command {
             Command::SetLayerVisible { visible: true, .. } => "Show layer".into(),
             Command::SetLayerVisible { visible: false, .. } => "Hide layer".into(),
             Command::SetLayerLocked { .. } => "Lock layer".into(),
+            Command::AddTrack { .. } => "Add track".into(),
+            Command::RemoveTrack { .. } => "Remove track".into(),
+            Command::RenameTrack { .. } => "Rename track".into(),
+            Command::MoveTrack { .. } => "Reorder tracks".into(),
+            Command::SetTrackVolume { .. } => "Change volume".into(),
+            Command::SetTrackMuted { muted: true, .. } => "Mute".into(),
+            Command::SetTrackMuted { muted: false, .. } => "Unmute".into(),
+            Command::SetTrackCue { .. } => "Cue".into(),
+            Command::AddEffect { .. } => "Add effect".into(),
+            Command::RemoveEffect { .. } => "Remove effect".into(),
+            Command::SetEffectEnabled { enabled: true, .. } => "Turn effect on".into(),
+            Command::SetEffectEnabled { enabled: false, .. } => "Bypass effect".into(),
+            Command::SetEffectSettings { .. } => "Change effect".into(),
             Command::Batch { label, .. } => label.clone(),
         }
     }
@@ -147,6 +211,8 @@ impl Command {
         match self {
             Command::SetLayout { layer, format, .. } => Some(("layout", *layer, *format)),
             Command::SetInputSettings { input, .. } => Some(("settings", *input, *input)),
+            Command::SetTrackVolume { track, .. } => Some(("volume", *track, *track)),
+            Command::SetEffectSettings { track, effect, .. } => Some(("effect", *track, *effect)),
             _ => None,
         }
     }
@@ -189,7 +255,8 @@ impl Command {
                 if !project.inputs.contains_key(input) {
                     return Err(CommandError::NoInput(*input));
                 }
-                let users = project.layers_using(*input).count();
+                let users =
+                    project.layers_using(*input).count() + project.tracks.iter().filter(|t| t.input == *input).count();
                 if users > 0 {
                     return Err(CommandError::InputInUse(users));
                 }
@@ -270,6 +337,51 @@ impl Command {
                 }
             }
             Command::SetLayerLocked { scene, layer, locked } => layer_mut(project, *scene, *layer)?.locked = *locked,
+            Command::AddTrack { track, index } => {
+                if project.track(track.id).is_some() {
+                    return Err(CommandError::Duplicate(track.id));
+                }
+                if !project.inputs.contains_key(&track.input) {
+                    return Err(CommandError::NoInput(track.input));
+                }
+                let at = index.unwrap_or(project.tracks.len()).min(project.tracks.len());
+                project.tracks.insert(at, Arc::new(track.clone()));
+            }
+            Command::RemoveTrack { track } => {
+                let idx = project.track_index(*track).ok_or(CommandError::NoTrack(*track))?;
+                project.tracks.remove(idx);
+            }
+            Command::RenameTrack { track, name } => track_mut(project, *track)?.name = name.clone(),
+            Command::MoveTrack { track, to } => {
+                let idx = project.track_index(*track).ok_or(CommandError::NoTrack(*track))?;
+                let t = project.tracks.remove(idx);
+                let to = (*to).min(project.tracks.len());
+                project.tracks.insert(to, t);
+            }
+            Command::SetTrackVolume { track, volume_db } => {
+                track_mut(project, *track)?.volume_db = volume_db.clamp(f32::NEG_INFINITY, 12.0)
+            }
+            Command::SetTrackMuted { track, muted } => track_mut(project, *track)?.muted = *muted,
+            Command::SetTrackCue { track, cue } => track_mut(project, *track)?.cue = *cue,
+            Command::AddEffect { track, effect, index } => {
+                let t = track_mut(project, *track)?;
+                if t.effects.iter().any(|e| e.id == effect.id) {
+                    return Err(CommandError::Duplicate(effect.id));
+                }
+                let at = index.unwrap_or(t.effects.len()).min(t.effects.len());
+                t.effects.insert(at, effect.clone());
+            }
+            Command::RemoveEffect { track, effect } => {
+                let t = track_mut(project, *track)?;
+                let idx = t.effects.iter().position(|e| e.id == *effect).ok_or(CommandError::NoEffect(*effect))?;
+                t.effects.remove(idx);
+            }
+            Command::SetEffectEnabled { track, effect, enabled } => {
+                effect_mut(project, *track, *effect)?.enabled = *enabled
+            }
+            Command::SetEffectSettings { track, effect, settings } => {
+                effect_mut(project, *track, *effect)?.settings = settings.clone()
+            }
             Command::Batch { commands, .. } => {
                 // Apply to a scratch copy so a failing step leaves the project untouched.
                 let mut scratch = project.clone();
@@ -281,6 +393,15 @@ impl Command {
         }
         Ok(())
     }
+}
+
+fn track_mut(project: &mut Project, id: Id) -> Result<&mut Track, CommandError> {
+    let idx = project.track_index(id).ok_or(CommandError::NoTrack(id))?;
+    Ok(Arc::make_mut(&mut project.tracks[idx]))
+}
+
+fn effect_mut(project: &mut Project, track: Id, effect: Id) -> Result<&mut Effect, CommandError> {
+    track_mut(project, track)?.effects.iter_mut().find(|e| e.id == effect).ok_or(CommandError::NoEffect(effect))
 }
 
 fn check_layer(project: &Project, layer: &Layer) -> Result<(), CommandError> {

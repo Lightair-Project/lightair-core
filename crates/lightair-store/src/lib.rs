@@ -4,6 +4,7 @@
 //! My Show.lightair/
 //! ├─ project.json     manifest: format version, id, name, formats, program, scene order
 //! ├─ inputs.json      media inputs
+//! ├─ audio.json       mixer tracks and their effects
 //! ├─ scenes/<id>.json one file per scene (diff-friendly)
 //! └─ journal/current.log   committed commands since the last compaction (JSON lines)
 //! ```
@@ -18,7 +19,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use lightair_core::{Command, Format, Id, Input, Project, Scene};
+use lightair_core::{Command, Format, Id, Input, Project, Scene, Track};
 use serde::{Deserialize, Serialize};
 
 /// Current on-disk format. Bump it and add a migration in [`migrate`] when the schema changes.
@@ -90,6 +91,8 @@ pub fn save(dir: &Path, project: &Project) -> Result<(), StoreError> {
     }
     let inputs: Vec<&Input> = project.inputs.values().map(|i| &**i).collect();
     write_json(&dir.join("inputs.json"), &inputs)?;
+    let tracks: Vec<&Track> = project.tracks.iter().map(|t| &**t).collect();
+    write_json(&dir.join("audio.json"), &tracks)?;
     // The manifest goes last: it is what makes the new scene files "current".
     write_json(
         &dir.join("project.json"),
@@ -114,6 +117,8 @@ pub fn load_snapshot(dir: &Path) -> Result<Project, StoreError> {
     let manifest: Manifest = serde_json::from_value(migrate(raw, version))
         .map_err(|source| StoreError::Json { path: dir.join("project.json"), source })?;
     let inputs: Vec<Input> = read_json(&dir.join("inputs.json"))?;
+    let audio = dir.join("audio.json");
+    let tracks: Vec<Track> = if audio.exists() { read_json(&audio)? } else { Vec::new() };
     let mut scenes = Vec::with_capacity(manifest.scenes.len());
     for id in &manifest.scenes {
         let path = dir.join("scenes").join(format!("{id}.json"));
@@ -129,6 +134,7 @@ pub fn load_snapshot(dir: &Path) -> Result<Project, StoreError> {
         inputs: inputs.into_iter().map(|i| (i.id, Arc::new(i))).collect::<BTreeMap<_, _>>(),
         scenes,
         program: manifest.program,
+        tracks: tracks.into_iter().map(Arc::new).collect(),
     })
 }
 

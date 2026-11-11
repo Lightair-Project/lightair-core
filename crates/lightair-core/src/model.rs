@@ -44,6 +44,9 @@ pub struct Project {
     pub scenes: Vec<Arc<Scene>>,
     /// The scene on air.
     pub program: Option<Id>,
+    /// Global audio tracks in mixer order (docs/10-audio.md).
+    #[serde(default)]
+    pub tracks: Vec<Arc<Track>>,
 }
 
 impl Project {
@@ -55,6 +58,21 @@ impl Project {
             inputs: BTreeMap::new(),
             scenes: Vec::new(),
             program: None,
+            tracks: Vec::new(),
+        }
+    }
+
+    /// The same project (id, name, formats) with no content: the baseline for a full rebuild,
+    /// `diff(&p.empty_like(), &p)`.
+    pub fn empty_like(&self) -> Self {
+        Self {
+            id: self.id,
+            name: self.name.clone(),
+            formats: self.formats.clone(),
+            inputs: BTreeMap::new(),
+            scenes: Vec::new(),
+            program: None,
+            tracks: Vec::new(),
         }
     }
 
@@ -72,6 +90,14 @@ impl Project {
 
     pub fn format(&self, id: Id) -> Option<&Format> {
         self.formats.iter().find(|f| f.id == id)
+    }
+
+    pub fn track(&self, id: Id) -> Option<&Arc<Track>> {
+        self.tracks.iter().find(|t| t.id == id)
+    }
+
+    pub fn track_index(&self, id: Id) -> Option<usize> {
+        self.tracks.iter().position(|t| t.id == id)
     }
 
     /// Layers anywhere in the project that use `input`.
@@ -183,4 +209,53 @@ pub enum Fit {
     Stretch,
     /// Native size, centred in the box.
     Original,
+}
+
+/// A channel strip in the mixer: one audio input, its effects, level and routing.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Track {
+    pub id: Id,
+    pub name: String,
+    pub input: Id,
+    /// Fader level in dB (−∞ is represented by `f32::NEG_INFINITY`, serialized as null).
+    #[serde(with = "db")]
+    pub volume_db: f32,
+    pub muted: bool,
+    /// Sent to the cue (monitoring) mix.
+    pub cue: bool,
+    pub effects: Vec<Effect>,
+}
+
+impl Track {
+    pub fn new(name: impl Into<String>, input: Id) -> Self {
+        Self { id: Id::new(), name: name.into(), input, volume_db: 0.0, muted: false, cue: false, effects: Vec::new() }
+    }
+}
+
+/// An audio or video processor in an effect chain. `kind` is the libobs filter id.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Effect {
+    pub id: Id,
+    pub name: String,
+    pub kind: String,
+    pub enabled: bool,
+    pub settings: serde_json::Value,
+}
+
+impl Effect {
+    pub fn new(name: impl Into<String>, kind: impl Into<String>, settings: serde_json::Value) -> Self {
+        Self { id: Id::new(), name: name.into(), kind: kind.into(), enabled: true, settings }
+    }
+}
+
+mod db {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(v: &f32, s: S) -> Result<S::Ok, S::Error> {
+        if v.is_finite() { s.serialize_f32(*v) } else { s.serialize_none() }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
+        Ok(Option::<f32>::deserialize(d)?.unwrap_or(f32::NEG_INFINITY))
+    }
 }

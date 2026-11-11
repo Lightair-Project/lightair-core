@@ -113,7 +113,7 @@ fn unchanged_scenes_share_memory() {
 #[test]
 fn diff_orders_and_detects_changes() {
     let (doc, scene, layer, format) = setup();
-    let empty = Project { scenes: vec![], inputs: Default::default(), program: None, ..(**doc.project()).clone() };
+    let empty = doc.project().empty_like();
     let patches = diff(&empty, doc.project());
     let kinds: Vec<&str> = patches
         .iter()
