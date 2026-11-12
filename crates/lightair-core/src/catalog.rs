@@ -303,6 +303,20 @@ const fn colour(key: &'static str, label: &'static str, default: u32) -> Control
 
 const FEATHER: Control = s("bg_feather", "Edge softness", 30.0);
 const SHIFT: Control = sb("bg_shift", "Edge shift");
+/// Which model finds the person, and how hard it looks (Apple Vision's levels).
+const SEGMENTATION: Control = Control::Heading("Segmentation");
+const MODEL: Control = Control::Choice {
+    key: "bg_model",
+    label: "Model",
+    options: &[("Apple Vision", Pick::Int(0)), ("MediaPipe", Pick::Int(1))],
+    default: Pick::Int(0),
+};
+const QUALITY: Control = Control::Choice {
+    key: "bg_quality",
+    label: "Quality",
+    options: &[("Fast", Pick::Int(0)), ("Balanced", Pick::Int(1)), ("Accurate", Pick::Int(2))],
+    default: Pick::Int(1),
+};
 
 /// Every effect, in catalog order.
 pub const CATALOG: &[EffectDef] = &[
@@ -428,7 +442,7 @@ pub const CATALOG: &[EffectDef] = &[
         description: "Blur everything behind you",
         icon: "aperture",
         needs: Needs::Person,
-        controls: &[s("bg_blur", "Amount", 60.0), FEATHER, SHIFT],
+        controls: &[s("bg_blur", "Amount", 60.0), FEATHER, SHIFT, SEGMENTATION, MODEL, QUALITY],
         fixed: &[("bg_mode", Pick::Int(1))],
     },
     EffectDef {
@@ -438,7 +452,7 @@ pub const CATALOG: &[EffectDef] = &[
         description: "Remove the background; the objects below show through",
         icon: "eraser",
         needs: Needs::Person,
-        controls: &[FEATHER, SHIFT],
+        controls: &[FEATHER, SHIFT, SEGMENTATION, MODEL, QUALITY],
         fixed: &[("bg_mode", Pick::Int(2))],
     },
     EffectDef {
@@ -464,6 +478,9 @@ pub const CATALOG: &[EffectDef] = &[
             FEATHER,
             SHIFT,
             s("bg_wrap", "Light wrap", 30.0),
+            SEGMENTATION,
+            MODEL,
+            QUALITY,
         ],
         fixed: &[],
     },
