@@ -32,7 +32,7 @@ fn undo_and_redo_restore_snapshots() {
     let (mut doc, scene, layer, format) = setup();
     let before = doc.project().clone();
     doc.apply(&Command::SetLayout { scene, layer, format, layout: Layout::boxed(10.0, 20.0, 640.0, 360.0) }).unwrap();
-    assert_eq!(doc.undo_label(), Some("Move layer"));
+    assert_eq!(doc.undo_label(), Some("Move object"));
     doc.undo().unwrap();
     assert_eq!(**doc.project(), *before);
     doc.redo().unwrap();

@@ -217,7 +217,7 @@ pub enum Command {
 pub enum CommandError {
     #[error("no scene {0}")]
     NoScene(Id),
-    #[error("no layer {0}")]
+    #[error("no object {0}")]
     NoLayer(Id),
     #[error("no input {0}")]
     NoInput(Id),
@@ -225,11 +225,11 @@ pub enum CommandError {
     NoFormat(Id),
     #[error("{0} already exists")]
     Duplicate(Id),
-    #[error("the input is used by {0} layer(s)")]
+    #[error("the input is used by {0} object(s)")]
     InputInUse(usize),
     #[error("a project needs at least one format")]
     LastFormat,
-    #[error("a layer can't sit inside itself, and its parent must come before it")]
+    #[error("an object can't sit inside itself, and its parent must come before it")]
     BadHierarchy,
     #[error("no track {0}")]
     NoTrack(Id),
@@ -254,18 +254,18 @@ impl Command {
             Command::RenameScene { .. } => "Rename scene".into(),
             Command::MoveScene { .. } => "Reorder scenes".into(),
             Command::SetProgram { .. } => "Switch scene".into(),
-            Command::AddLayer { .. } => "Add layer".into(),
-            Command::RemoveLayer { .. } => "Remove layer".into(),
-            Command::RenameLayer { .. } => "Rename layer".into(),
-            Command::MoveLayer { .. } => "Reorder layers".into(),
+            Command::AddLayer { .. } => "Add object".into(),
+            Command::RemoveLayer { .. } => "Remove object".into(),
+            Command::RenameLayer { .. } => "Rename object".into(),
+            Command::MoveLayer { .. } => "Reorder objects".into(),
             Command::ReparentLayer { parent: Some(_), .. } => "Move into".into(),
             Command::ReparentLayer { parent: None, .. } => "Move out".into(),
             Command::SetLayerPrefab { prefab: Some(_), .. } => "Link to prefab".into(),
             Command::SetLayerPrefab { prefab: None, .. } => "Unpack prefab".into(),
-            Command::SetLayout { .. } => "Move layer".into(),
-            Command::SetLayerVisible { visible: true, .. } => "Show layer".into(),
-            Command::SetLayerVisible { visible: false, .. } => "Hide layer".into(),
-            Command::SetLayerLocked { .. } => "Lock layer".into(),
+            Command::SetLayout { .. } => "Move object".into(),
+            Command::SetLayerVisible { visible: true, .. } => "Show object".into(),
+            Command::SetLayerVisible { visible: false, .. } => "Hide object".into(),
+            Command::SetLayerLocked { .. } => "Lock object".into(),
             Command::AddTrack { .. } => "Add track".into(),
             Command::RemoveTrack { .. } => "Remove track".into(),
             Command::RenameTrack { .. } => "Rename track".into(),

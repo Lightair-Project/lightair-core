@@ -300,7 +300,7 @@ pub fn import_obs_collection(json: &str, project: &Project) -> Result<(Command, 
         if kind == "group" {
             report
                 .attention
-                .push(format!("group {}: groups arrive in a later version; its layers were skipped", name_of(s)));
+                .push(format!("group {}: groups arrive in a later version; its objects were skipped", name_of(s)));
             continue;
         }
         let mut input = Input::new(name_of(s), kind.clone(), s["settings"].clone());
