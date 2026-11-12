@@ -85,6 +85,24 @@ fn dragging_several_layers_is_one_undo_step() {
     assert_eq!(doc.project().scene(scene).unwrap().layer(second_id).unwrap().layouts[&format].x, 0.0);
 }
 
+#[test]
+fn removing_a_format_retargets_outputs() {
+    let (mut doc, scene, layer, _) = setup();
+    let square = lightair_core::Format::square();
+    let sq = square.id;
+    doc.apply(&Command::AddFormat { format: square }).unwrap();
+    let mut clips = doc.project().outputs.clips;
+    clips.format = Some(sq);
+    doc.apply(&Command::SetClipSettings { settings: clips }).unwrap();
+    doc.apply(&Command::SetLayout { scene, layer, format: sq, layout: Layout::boxed(0.0, 0.0, 1080.0, 1080.0) })
+        .unwrap();
+    doc.apply(&Command::RemoveFormat { format: sq }).unwrap();
+    assert_eq!(doc.project().outputs.clips.format, None, "clips fall back to the primary format");
+    assert!(!doc.project().scene(scene).unwrap().layer(layer).unwrap().layouts.contains_key(&sq));
+    let odd = lightair_core::Format::custom("Odd", 1001, 99999);
+    assert_eq!((odd.width, odd.height), (1000, 7680));
+}
+
 fn doc_undo_depth(doc: &Document) -> usize {
     let mut d = doc.clone();
     let mut n = 0;

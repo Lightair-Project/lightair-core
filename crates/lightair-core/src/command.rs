@@ -323,6 +323,9 @@ impl Command {
                 if project.outputs.recording.format == Some(*format) {
                     project.outputs.recording.format = None;
                 }
+                if project.outputs.clips.format == Some(*format) {
+                    project.outputs.clips.format = None;
+                }
                 for scene in &mut project.scenes {
                     for layer in &mut Arc::make_mut(scene).layers {
                         layer.layouts.remove(format);

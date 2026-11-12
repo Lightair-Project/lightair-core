@@ -135,6 +135,18 @@ impl Format {
     pub fn vertical() -> Self {
         Self { id: Id::new(), name: "Vertical".into(), width: 1080, height: 1920, fps_num: 60, fps_den: 1 }
     }
+    pub fn square() -> Self {
+        Self { id: Id::new(), name: "Square".into(), width: 1080, height: 1080, fps_num: 60, fps_den: 1 }
+    }
+    /// 4:5, the tallest feed post most platforms show uncropped.
+    pub fn portrait() -> Self {
+        Self { id: Id::new(), name: "Portrait".into(), width: 1080, height: 1350, fps_num: 60, fps_den: 1 }
+    }
+    /// Any size, rounded to even numbers (encoders need them) and kept within 16..=7680.
+    pub fn custom(name: impl Into<String>, width: u32, height: u32) -> Self {
+        let even = |v: u32| (v.clamp(16, 7680) / 2) * 2;
+        Self { id: Id::new(), name: name.into(), width: even(width), height: even(height), fps_num: 60, fps_den: 1 }
+    }
 }
 
 /// A media source, opened once and used by any number of layers.
