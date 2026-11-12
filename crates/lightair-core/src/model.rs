@@ -126,7 +126,9 @@ impl Project {
 
     /// Layers anywhere in the project that use `input`.
     pub fn layers_using(&self, input: Id) -> impl Iterator<Item = (&Scene, &Layer)> {
-        self.scenes.iter().flat_map(move |s| s.layers.iter().filter(move |l| l.input == input).map(move |l| (&**s, l)))
+        self.scenes
+            .iter()
+            .flat_map(move |s| s.layers.iter().filter(move |l| l.input == Some(input)).map(move |l| (&**s, l)))
     }
 }
 
@@ -196,12 +198,17 @@ impl Scene {
     }
 }
 
-/// An input placed in a scene, arranged per format.
+/// An input placed in a scene, arranged per format; or, without an input, an *empty* holding
+/// other layers (see `hierarchy`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Layer {
     pub id: Id,
     pub name: String,
-    pub input: Id,
+    /// The picture; `None` for an empty.
+    pub input: Option<Id>,
+    /// The layer this one sits in (its layout is in that layer's space).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<Id>,
     /// Layout per format id. A format without an entry hides the layer in that format.
     pub layouts: BTreeMap<Id, Layout>,
     pub locked: bool,
@@ -236,6 +243,15 @@ pub struct Layout {
     pub tilt_x: f32,
     #[serde(default)]
     pub tilt_y: f32,
+    /// Scale of this layer's space: its children grow with it (an empty's size, in effect).
+    #[serde(default = "one")]
+    pub scale_x: f32,
+    #[serde(default = "one")]
+    pub scale_y: f32,
+}
+
+fn one() -> f32 {
+    1.0
 }
 
 impl Layout {
@@ -255,6 +271,8 @@ impl Layout {
             flip_v: false,
             tilt_x: 0.0,
             tilt_y: 0.0,
+            scale_x: 1.0,
+            scale_y: 1.0,
         }
     }
 

@@ -237,6 +237,8 @@ fn layout_of(item: &Value, size: (f32, f32)) -> Layout {
         flip_v: sy < 0.0,
         tilt_x: 0.0,
         tilt_y: 0.0,
+        scale_x: 1.0,
+        scale_y: 1.0,
     }
 }
 

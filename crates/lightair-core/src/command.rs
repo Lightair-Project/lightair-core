@@ -54,7 +54,8 @@ pub enum Command {
         scene: Option<Id>,
     },
 
-    /// `index` counts from the bottom; `None` puts the layer on top.
+    /// `index` counts from the back among the layer's siblings (its `parent`'s children);
+    /// `None` puts it in front of them.
     AddLayer {
         scene: Id,
         layer: Layer,
@@ -73,6 +74,15 @@ pub enum Command {
         scene: Id,
         layer: Id,
         to: usize,
+    },
+    /// Moves a layer (with everything under it) into `parent` (`None`: the top level) at
+    /// `index` among its children, back to front (`None`: in front). It stays where it is on
+    /// the canvas.
+    ReparentLayer {
+        scene: Id,
+        layer: Id,
+        parent: Option<Id>,
+        index: Option<usize>,
     },
     SetLayout {
         scene: Id,
@@ -213,6 +223,8 @@ pub enum CommandError {
     InputInUse(usize),
     #[error("a project needs at least one format")]
     LastFormat,
+    #[error("a layer can't sit inside itself, and its parent must come before it")]
+    BadHierarchy,
     #[error("no track {0}")]
     NoTrack(Id),
     #[error("no effect {0}")]
@@ -240,6 +252,8 @@ impl Command {
             Command::RemoveLayer { .. } => "Remove layer".into(),
             Command::RenameLayer { .. } => "Rename layer".into(),
             Command::MoveLayer { .. } => "Reorder layers".into(),
+            Command::ReparentLayer { parent: Some(_), .. } => "Move into".into(),
+            Command::ReparentLayer { parent: None, .. } => "Move out".into(),
             Command::SetLayout { .. } => "Move layer".into(),
             Command::SetLayerVisible { visible: true, .. } => "Show layer".into(),
             Command::SetLayerVisible { visible: false, .. } => "Hide layer".into(),
@@ -367,6 +381,9 @@ impl Command {
                 for layer in &scene.layers {
                     check_layer(project, layer)?;
                 }
+                if !scene.is_well_formed() {
+                    return Err(CommandError::BadHierarchy);
+                }
                 let at = index.unwrap_or(project.scenes.len()).min(project.scenes.len());
                 project.scenes.insert(at, Arc::new(scene.clone()));
                 if project.program.is_none() {
@@ -400,21 +417,42 @@ impl Command {
                 if s.layer(layer.id).is_some() {
                     return Err(CommandError::Duplicate(layer.id));
                 }
-                let at = index.unwrap_or(s.layers.len()).min(s.layers.len());
-                s.layers.insert(at, layer.clone());
+                if let Some(p) = layer.parent {
+                    s.layer(p).ok_or(CommandError::NoLayer(p))?;
+                }
+                s.put_subtree(vec![layer.clone()], layer.parent, *index);
             }
             Command::RemoveLayer { scene, layer } => {
-                let s = scene_mut(project, *scene)?;
-                let idx = s.layer_index(*layer).ok_or(CommandError::NoLayer(*layer))?;
-                s.layers.remove(idx);
+                // With everything under it.
+                scene_mut(project, *scene)?.take_subtree(*layer).ok_or(CommandError::NoLayer(*layer))?;
             }
             Command::RenameLayer { scene, layer, name } => layer_mut(project, *scene, *layer)?.name = name.clone(),
             Command::MoveLayer { scene, layer, to } => {
+                // Among its siblings, with everything under it.
                 let s = scene_mut(project, *scene)?;
-                let idx = s.layer_index(*layer).ok_or(CommandError::NoLayer(*layer))?;
-                let l = s.layers.remove(idx);
-                let to = (*to).min(s.layers.len());
-                s.layers.insert(to, l);
+                let parent = s.layer(*layer).ok_or(CommandError::NoLayer(*layer))?.parent;
+                let block = s.take_subtree(*layer).ok_or(CommandError::NoLayer(*layer))?;
+                s.put_subtree(block, parent, Some(*to));
+            }
+            Command::ReparentLayer { scene, layer, parent, index } => {
+                let s = scene_mut(project, *scene)?;
+                let l = s.layer(*layer).ok_or(CommandError::NoLayer(*layer))?.clone();
+                if let Some(p) = parent {
+                    s.layer(*p).ok_or(CommandError::NoLayer(*p))?;
+                    if *p == *layer || s.is_under(*p, *layer) {
+                        return Err(CommandError::BadHierarchy);
+                    }
+                }
+                // Same place on the canvas: world layouts re-expressed in the new parent's space.
+                let mut layouts = l.layouts.clone();
+                for (format, local) in layouts.iter_mut() {
+                    if let (Some(world), Some(frame)) = (s.world(*layer, *format), s.frame_of(*parent, *format)) {
+                        *local = world.to_local(&frame);
+                    }
+                }
+                let mut block = s.take_subtree(*layer).ok_or(CommandError::NoLayer(*layer))?;
+                block[0].layouts = layouts;
+                s.put_subtree(block, *parent, *index);
             }
             Command::SetLayout { scene, layer, format, layout } => {
                 project.format(*format).ok_or(CommandError::NoFormat(*format))?;
@@ -570,8 +608,10 @@ fn effect_mut(project: &mut Project, track: Id, effect: Id) -> Result<&mut Effec
 }
 
 fn check_layer(project: &Project, layer: &Layer) -> Result<(), CommandError> {
-    if !project.inputs.contains_key(&layer.input) {
-        return Err(CommandError::NoInput(layer.input));
+    if let Some(input) = layer.input
+        && !project.inputs.contains_key(&input)
+    {
+        return Err(CommandError::NoInput(input));
     }
     for format in layer.layouts.keys() {
         project.format(*format).ok_or(CommandError::NoFormat(*format))?;
@@ -597,6 +637,30 @@ impl Input {
 impl Layer {
     /// A layer for `input`, laid out the same way in every given format.
     pub fn new(name: impl Into<String>, input: Id, formats: impl IntoIterator<Item = (Id, Layout)>) -> Self {
-        Self { id: Id::new(), name: name.into(), input, layouts: formats.into_iter().collect(), locked: false }
+        Self {
+            id: Id::new(),
+            name: name.into(),
+            input: Some(input),
+            parent: None,
+            layouts: formats.into_iter().collect(),
+            locked: false,
+        }
+    }
+
+    /// An empty with its pivot at `at` in every given format.
+    pub fn empty(name: impl Into<String>, formats: impl IntoIterator<Item = (Id, (f32, f32))>) -> Self {
+        Self {
+            id: Id::new(),
+            name: name.into(),
+            input: None,
+            parent: None,
+            layouts: formats.into_iter().map(|(f, (x, y))| (f, Layout::boxed(x, y, 0.0, 0.0))).collect(),
+            locked: false,
+        }
+    }
+
+    /// This layer under `parent`.
+    pub fn under(self, parent: Id) -> Self {
+        Self { parent: Some(parent), ..self }
     }
 }

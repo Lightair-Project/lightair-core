@@ -62,7 +62,7 @@ fn a_drag_gesture_is_one_undo_step() {
 #[test]
 fn dragging_several_layers_is_one_undo_step() {
     let (mut doc, scene, first, format) = setup();
-    let cam = doc.project().scene(scene).unwrap().layer(first).unwrap().input;
+    let cam = doc.project().scene(scene).unwrap().layer(first).unwrap().input.unwrap();
     let second = Layer::new("Copy", cam, [(format, Layout::boxed(0.0, 0.0, 100.0, 100.0))]);
     let second_id = second.id;
     doc.apply(&Command::AddLayer { scene, layer: second, index: None }).unwrap();
