@@ -4,7 +4,6 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
-use lightair_audio::dsp::{GainParams, Params};
 use lightair_audio::{Channels, Dest, EffectSpec, Engine, GraphSpec, InputBlock, Mix, Send, Strip};
 
 struct Counting;
@@ -33,11 +32,26 @@ unsafe impl GlobalAlloc for Counting {
 static ALLOC: Counting = Counting;
 
 fn spec(gain_db: f32) -> GraphSpec {
+    use lightair_audio::dsp::*;
     let mut mic = Strip::track(1, 100, Channels::Mono(0));
-    mic.inserts = vec![EffectSpec { id: 7, enabled: true, params: Params::Gain(GainParams { db: gain_db, ..Default::default() }) }];
+    let e = |id, params| EffectSpec { id, enabled: true, params };
+    mic.inserts = vec![
+        e(7, Params::Gain(GainParams { db: gain_db, ..Default::default() })),
+        e(8, Params::Voice(VoiceParams::default())),
+        e(9, Params::Eq(EqParams::default())),
+        e(10, Params::Compressor(CompressorParams::default())),
+        e(11, Params::Gate(GateParams::default())),
+        e(12, Params::Limiter(LimiterParams::default())),
+        e(13, Params::DeEsser(DeEsserParams::default())),
+        e(14, Params::Noise(NoiseParams::default())),
+        e(15, Params::Reverb(ReverbParams::default())),
+        e(16, Params::Delay(DelayParams::default())),
+        e(17, Params::Channel(ChannelParams { width: 1.5, bass_mono_hz: 120.0 })),
+    ];
     mic.dest = Dest::Bus(10);
     mic.sends = vec![Send { mix: 50, level_db: -3.0, pre_fader: true }];
-    let music = Strip::track(2, 101, Channels::Stereo(0, 1));
+    let mut music = Strip::track(2, 101, Channels::Stereo(0, 1));
+    music.inserts = vec![e(20, Params::Ducker(DuckerParams { source: 1, ..Default::default() }))];
     GraphSpec { strips: vec![mic, music, Strip::bus(10)], mixes: vec![Mix::new(50)], ..Default::default() }
 }
 

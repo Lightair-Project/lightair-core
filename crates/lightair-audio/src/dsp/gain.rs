@@ -40,7 +40,6 @@ impl Processor for Gain {
     }
 
     fn set(&mut self, params: &Params) {
-        #[allow(irrefutable_let_patterns)] // more kinds come
         let Params::Gain(p) = params else { return };
         self.p = *p;
         self.gain.set(Self::linear(p));

@@ -52,11 +52,14 @@ struct Slot {
     enabled: bool,
     params: Params,
     proc: Box<dyn Processor>,
+    /// The sidechain key it listens to (an index into the graph's keys).
+    key: Option<usize>,
 }
 
 impl Slot {
-    fn new(e: &EffectSpec, sample_rate: f32) -> Self {
-        Self { id: e.id, enabled: e.enabled, params: e.params.clone(), proc: e.params.make(sample_rate) }
+    fn new(e: &EffectSpec, sample_rate: f32, keys: &HashMap<NodeId, usize>) -> Self {
+        let key = e.params.sidechain().and_then(|src| keys.get(&src).copied());
+        Self { id: e.id, enabled: e.enabled, params: e.params.clone(), proc: e.params.make(sample_rate), key }
     }
 }
 
@@ -93,6 +96,8 @@ struct StripRt {
     pre: Stereo,
     post: Stereo,
     meter: Arc<Meter>,
+    /// Others duck from this strip: its signal is published here each block.
+    key_out: Option<usize>,
 }
 
 struct MixRt {
@@ -111,6 +116,8 @@ pub struct Graph {
     bus_sums: Vec<Stereo>,
     mixes: Vec<MixRt>,
     program: MixRt,
+    /// Sidechain keys (mono post-fader signals of strips something listens to).
+    keys: Vec<Box<[f32]>>,
     scratch: [Box<[f32]>; 4],
     frames: usize,
     pub(crate) warnings: Vec<Warning>,
@@ -176,7 +183,20 @@ impl Graph {
             }
             n
         };
+        // Sidechain sources: strips some effect listens to. They're processed first among the
+        // tracks, so their key is this block's (a source processed later is a block behind).
+        let mut keys: HashMap<NodeId, usize> = HashMap::new();
+        let all_inserts = spec.strips.iter().flat_map(|s| &s.inserts).chain(&spec.program.inserts);
+        for e in all_inserts.chain(spec.mixes.iter().flat_map(|m| &m.inserts)) {
+            if let Some(src) = e.params.sidechain()
+                && spec.strips.iter().any(|s| s.id == src)
+            {
+                let next = keys.len();
+                keys.entry(src).or_insert(next);
+            }
+        }
         let mut order: Vec<usize> = (0..spec.strips.len()).filter(|&i| spec.strips[i].role != Role::Bus).collect();
+        order.sort_by_key(|&i| !keys.contains_key(&spec.strips[i].id));
         let mut bus_order: Vec<usize> = (0..spec.strips.len()).filter(|&i| spec.strips[i].role == Role::Bus).collect();
         bus_order.sort_by_key(|&i| std::cmp::Reverse(depth(spec.strips[i].id)));
         order.extend(bus_order);
@@ -214,7 +234,7 @@ impl Graph {
                     },
                     trim: Smoothed::new(db_to_gain(s.trim_db) * if s.invert { -1.0 } else { 1.0 }, ramp),
                     mono: s.mono,
-                    inserts: s.inserts.iter().map(|e| Slot::new(e, sr)).collect(),
+                    inserts: s.inserts.iter().map(|e| Slot::new(e, sr, &keys)).collect(),
                     fader: Smoothed::new(if s.mute { 0.0 } else { db_to_gain(s.gain_db) }, ramp),
                     pan_l: Smoothed::new(gl, ramp),
                     pan_r: Smoothed::new(gr, ramp),
@@ -227,12 +247,13 @@ impl Graph {
                     pre: Stereo::new(),
                     post: Stereo::new(),
                     meter: meter(s.id),
+                    key_out: keys.get(&s.id).copied(),
                 }
             })
             .collect();
         let mix_rt = |id: NodeId, inserts: &[EffectSpec], gain_db: f32, mute: bool, meter: Arc<Meter>| MixRt {
             id,
-            inserts: inserts.iter().map(|e| Slot::new(e, sr)).collect(),
+            inserts: inserts.iter().map(|e| Slot::new(e, sr, &keys)).collect(),
             fader: Smoothed::new(if mute { 0.0 } else { db_to_gain(gain_db) }, ramp),
             sum: Stereo::new(),
             meter,
@@ -247,6 +268,7 @@ impl Graph {
             bus_sums: (0..buses.len()).map(|_| Stereo::new()).collect(),
             mixes,
             program,
+            keys: (0..keys.len()).map(|_| vec![0.0; MAX_BLOCK].into_boxed_slice()).collect(),
             scratch: std::array::from_fn(|_| vec![0.0; MAX_BLOCK].into_boxed_slice()),
             frames: 0,
             warnings,
@@ -294,16 +316,17 @@ impl Graph {
     pub fn process(&mut self, inputs: &[InputBlock], frames: usize) {
         let n = frames.min(MAX_BLOCK);
         self.frames = n;
-        let ctx = Ctx { sample_rate: self.sample_rate, key: None };
-        self.program.sum.clear(n);
-        for m in &mut self.mixes {
+        let sr = self.sample_rate;
+        let Self { strips, bus_sums, mixes, program, keys, scratch, .. } = self;
+        program.sum.clear(n);
+        for m in mixes.iter_mut() {
             m.sum.clear(n);
         }
-        for b in &mut self.bus_sums {
+        for b in bus_sums.iter_mut() {
             b.clear(n);
         }
-        let [g0, g1, g2, g3] = &mut self.scratch;
-        for s in &mut self.strips {
+        let [g0, g1, g2, g3] = scratch;
+        for s in strips.iter_mut() {
             // source
             match &s.source {
                 Source::Track { input, channels } => {
@@ -323,8 +346,8 @@ impl Graph {
                     }
                 }
                 Source::Bus(b) => {
-                    s.pre.l[..n].copy_from_slice(&self.bus_sums[*b].l[..n]);
-                    s.pre.r[..n].copy_from_slice(&self.bus_sums[*b].r[..n]);
+                    s.pre.l[..n].copy_from_slice(&bus_sums[*b].l[..n]);
+                    s.pre.r[..n].copy_from_slice(&bus_sums[*b].r[..n]);
                 }
             }
             // trim (and polarity), mono
@@ -342,6 +365,7 @@ impl Graph {
             // inserts
             let mut reduction = 0f32;
             for slot in s.inserts.iter_mut().filter(|e| e.enabled) {
+                let ctx = Ctx { sample_rate: sr, key: slot.key.map(|k| &keys[k][..n]) };
                 slot.proc.process(&mut s.pre.l[..n], &mut s.pre.r[..n], &ctx);
                 reduction += slot.proc.reduction_db();
             }
@@ -355,21 +379,27 @@ impl Graph {
             }
             s.meter.feed(&s.post.l[..n], &s.post.r[..n]);
             s.meter.feed_reduction(reduction);
+            if let Some(k) = s.key_out {
+                for ((key, l), r) in keys[k][..n].iter_mut().zip(&s.post.l[..n]).zip(&s.post.r[..n]) {
+                    *key = (l + r) * 0.5;
+                }
+            }
             // route
             g3[..n].fill(1.0);
             match s.out {
-                Out::Program => add_scaled(&mut self.program.sum, &s.post.l[..n], &s.post.r[..n], &g3[..n]),
-                Out::Bus(b) => add_scaled(&mut self.bus_sums[b], &s.post.l[..n], &s.post.r[..n], &g3[..n]),
+                Out::Program => add_scaled(&mut program.sum, &s.post.l[..n], &s.post.r[..n], &g3[..n]),
+                Out::Bus(b) => add_scaled(&mut bus_sums[b], &s.post.l[..n], &s.post.r[..n], &g3[..n]),
                 Out::Nowhere => {}
             }
             for send in &mut s.sends {
                 send.level.fill(&mut g1[..n]);
                 let src = if send.pre { &s.pre } else { &s.post };
-                add_scaled(&mut self.mixes[send.mix].sum, &src.l[..n], &src.r[..n], &g1[..n]);
+                add_scaled(&mut mixes[send.mix].sum, &src.l[..n], &src.r[..n], &g1[..n]);
             }
         }
         let master = |m: &mut MixRt, g: &mut [f32]| {
             for slot in m.inserts.iter_mut().filter(|e| e.enabled) {
+                let ctx = Ctx { sample_rate: sr, key: slot.key.map(|k| &keys[k][..n]) };
                 slot.proc.process(&mut m.sum.l[..n], &mut m.sum.r[..n], &ctx);
             }
             m.fader.fill(&mut g[..n]);
@@ -380,8 +410,8 @@ impl Graph {
             m.meter.feed(&m.sum.l[..n], &m.sum.r[..n]);
             m.loudness.feed(&m.sum.l[..n], &m.sum.r[..n], &m.meter);
         };
-        master(&mut self.program, g0);
-        for m in &mut self.mixes {
+        master(program, g0);
+        for m in mixes.iter_mut() {
             master(m, g0);
         }
     }
