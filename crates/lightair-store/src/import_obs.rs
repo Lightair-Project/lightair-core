@@ -232,6 +232,11 @@ fn layout_of(item: &Value, size: (f32, f32)) -> Layout {
         visible: item["visible"].as_bool().unwrap_or(true),
         opacity: 1.0,
         shape: None,
+        // OBS flips with a negative scale.
+        flip_h: sx < 0.0,
+        flip_v: sy < 0.0,
+        tilt_x: 0.0,
+        tilt_y: 0.0,
     }
 }
 

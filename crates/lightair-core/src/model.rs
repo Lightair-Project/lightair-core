@@ -225,6 +225,17 @@ pub struct Layout {
     /// A cut-out of the (cropped) picture: rounded box, circle or pill.
     #[serde(default)]
     pub shape: Option<Shape>,
+    /// Mirror the picture left↔right / top↔bottom.
+    #[serde(default)]
+    pub flip_h: bool,
+    #[serde(default)]
+    pub flip_v: bool,
+    /// 3D tilt in degrees, with perspective: around the horizontal axis (positive: the bottom
+    /// recedes) and around the vertical axis (positive: the left side recedes).
+    #[serde(default)]
+    pub tilt_x: f32,
+    #[serde(default)]
+    pub tilt_y: f32,
 }
 
 impl Layout {
@@ -240,7 +251,21 @@ impl Layout {
             visible: true,
             opacity: 1.0,
             shape: None,
+            flip_h: false,
+            flip_v: false,
+            tilt_x: 0.0,
+            tilt_y: 0.0,
         }
+    }
+
+    /// Whether libobs draws this layer through a group with Lightair's filters (shape, flip, 3D).
+    pub fn needs_filters(&self) -> bool {
+        self.shape.is_some() || self.has_transform()
+    }
+
+    /// Flip or 3D tilt.
+    pub fn has_transform(&self) -> bool {
+        self.flip_h || self.flip_v || self.tilt_x.abs() > 0.01 || self.tilt_y.abs() > 0.01
     }
 }
 
