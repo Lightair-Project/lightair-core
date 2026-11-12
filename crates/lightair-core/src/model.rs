@@ -222,11 +222,85 @@ pub struct Layout {
     pub fit: Fit,
     pub visible: bool,
     pub opacity: f32,
+    /// A cut-out of the (cropped) picture: rounded box, circle or pill.
+    #[serde(default)]
+    pub shape: Option<Shape>,
 }
 
 impl Layout {
     pub fn boxed(x: f32, y: f32, width: f32, height: f32) -> Self {
-        Self { x, y, width, height, rotation: 0.0, crop: Crop::default(), fit: Fit::Fit, visible: true, opacity: 1.0 }
+        Self {
+            x,
+            y,
+            width,
+            height,
+            rotation: 0.0,
+            crop: Crop::default(),
+            fit: Fit::Fit,
+            visible: true,
+            opacity: 1.0,
+            shape: None,
+        }
+    }
+}
+
+impl Layout {
+    /// Where the whole, uncropped source would sit at this layer's scale: what crop mode shows
+    /// (dimmed outside the crop). `source` is the source's pixel size. The result is stretched
+    /// to its box, uncropped and unshaped.
+    pub fn uncropped(&self, source: (f32, f32)) -> Layout {
+        let c = self.crop;
+        let vis_w = (source.0 - (c.left + c.right) as f32).max(1.0);
+        let vis_h = (source.1 - (c.top + c.bottom) as f32).max(1.0);
+        // Canvas pixels per source pixel.
+        let (sx, sy) = (self.width / vis_w, self.height / vis_h);
+        let (l, r) = (c.left as f32 * sx, c.right as f32 * sx);
+        let (t, b) = (c.top as f32 * sy, c.bottom as f32 * sy);
+        let (w, h) = (self.width + l + r, self.height + t + b);
+        // The centre moves by half the difference, in the layer's own (rotated) frame.
+        let (ox, oy) = ((r - l) / 2.0, (b - t) / 2.0);
+        let (sin, cos) = self.rotation.to_radians().sin_cos();
+        let (wx, wy) = (ox * cos - oy * sin, ox * sin + oy * cos);
+        let (cx, cy) = (self.x + self.width / 2.0 + wx, self.y + self.height / 2.0 + wy);
+        Layout {
+            x: cx - w / 2.0,
+            y: cy - h / 2.0,
+            width: w,
+            height: h,
+            crop: Crop::default(),
+            fit: Fit::Stretch,
+            shape: None,
+            ..*self
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ShapeKind {
+    Rounded,
+    /// The largest circle that fits, centred.
+    Circle,
+    /// Fully rounded short ends.
+    Pill,
+}
+
+/// How a layer is cut out (docs/07-scenes-layers-canvas.md, "Masks").
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Shape {
+    pub kind: ShapeKind,
+    /// Rounded: corner radius as a fraction of half the short side (0..1).
+    pub radius: f32,
+    /// Soft edge, in source pixels.
+    pub feather: f32,
+    /// Border width in source pixels (0 = none) and its colour (0xAABBGGRR).
+    pub border: f32,
+    pub border_color: u32,
+}
+
+impl Shape {
+    pub fn new(kind: ShapeKind) -> Self {
+        Self { kind, radius: 0.25, feather: 1.0, border: 0.0, border_color: 0xFFFF_FFFF }
     }
 }
 

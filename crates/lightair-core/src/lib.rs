@@ -10,5 +10,5 @@ pub use diff::{LayerPatch, Patch, diff, diff_layers};
 pub use document::{Change, Document};
 pub use model::{
     ClipSettings, Crop, Destination, Direction, Effect, Fit, Format, Id, Input, Layer, Layout, OutputSettings, Project,
-    RecordingSettings, Scene, Stinger, Track, TransitionKind, TransitionSettings,
+    RecordingSettings, Scene, Shape, ShapeKind, Stinger, Track, TransitionKind, TransitionSettings,
 };

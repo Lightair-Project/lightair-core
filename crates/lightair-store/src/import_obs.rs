@@ -231,6 +231,7 @@ fn layout_of(item: &Value, size: (f32, f32)) -> Layout {
         fit,
         visible: item["visible"].as_bool().unwrap_or(true),
         opacity: 1.0,
+        shape: None,
     }
 }
 

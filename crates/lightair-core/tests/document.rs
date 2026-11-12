@@ -103,6 +103,27 @@ fn removing_a_format_retargets_outputs() {
     assert_eq!((odd.width, odd.height), (1000, 7680));
 }
 
+#[test]
+fn uncropped_box() {
+    use lightair_core::Crop;
+    // 1920×1080 source shown at half size with 200 px cropped off the left and 100 off the top.
+    let l =
+        Layout { crop: Crop { left: 200, top: 100, right: 0, bottom: 0 }, ..Layout::boxed(100.0, 50.0, 860.0, 490.0) };
+    let u = l.uncropped((1920.0, 1080.0));
+    assert!((u.x - 0.0).abs() < 0.01 && (u.y - 0.0).abs() < 0.01, "{u:?}");
+    assert!((u.width - 960.0).abs() < 0.01 && (u.height - 540.0).abs() < 0.01, "{u:?}");
+    assert_eq!(u.crop, Crop::default());
+    // No crop: the same box.
+    let plain = Layout::boxed(10.0, 20.0, 300.0, 200.0);
+    let p = plain.uncropped((600.0, 400.0));
+    assert_eq!((p.x, p.y, p.width, p.height), (10.0, 20.0, 300.0, 200.0));
+    // Turned half a turn, the cropped-off left and top are on screen right and bottom: the box
+    // keeps its top-left at (100, 50) and grows to (1060, 590).
+    let r = Layout { rotation: 180.0, ..l };
+    let ur = r.uncropped((1920.0, 1080.0));
+    assert!((ur.x - 100.0).abs() < 0.05 && (ur.y - 50.0).abs() < 0.05, "{ur:?}");
+}
+
 fn doc_undo_depth(doc: &Document) -> usize {
     let mut d = doc.clone();
     let mut n = 0;
