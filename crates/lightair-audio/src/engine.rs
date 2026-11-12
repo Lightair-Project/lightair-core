@@ -39,7 +39,7 @@ impl Engine {
 
     fn compile(&mut self, spec: &GraphSpec) -> Graph {
         let meters = &mut self.meters;
-        Graph::compile(spec, self.sample_rate, |id| meters.entry(id).or_insert_with(Meter::new).clone())
+        Graph::compile(spec, self.sample_rate, |id| meters.entry(id).or_insert_with(Meter::shared).clone())
     }
 
     /// Changes the mixer. Compiles here; the renderer swaps it in at its next block, keeping
@@ -61,7 +61,7 @@ impl Engine {
 
     /// A strip's, mix's or the program's meter ([`PROGRAM`]); the same handle for its life.
     pub fn meter(&mut self, id: NodeId) -> Arc<Meter> {
-        self.meters.entry(id).or_insert_with(Meter::new).clone()
+        self.meters.entry(id).or_insert_with(Meter::shared).clone()
     }
 
     /// Frees graphs the renderer has finished with (call now and then; `set` does).

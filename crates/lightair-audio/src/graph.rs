@@ -373,9 +373,9 @@ impl Graph {
                 slot.proc.process(&mut m.sum.l[..n], &mut m.sum.r[..n], &ctx);
             }
             m.fader.fill(&mut g[..n]);
-            for i in 0..n {
-                m.sum.l[i] *= g[i];
-                m.sum.r[i] *= g[i];
+            for (i, g) in g[..n].iter().enumerate() {
+                m.sum.l[i] *= g;
+                m.sum.r[i] *= g;
             }
             m.meter.feed(&m.sum.l[..n], &m.sum.r[..n]);
             m.loudness.feed(&m.sum.l[..n], &m.sum.r[..n], &m.meter);

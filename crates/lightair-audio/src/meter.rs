@@ -60,7 +60,8 @@ pub struct Loudness {
 }
 
 impl Meter {
-    pub fn new() -> Arc<Self> {
+    /// A new meter, silent (LUFS at −∞).
+    pub fn shared() -> Arc<Self> {
         let m = Arc::new(Self::default());
         for f in [&m.momentary, &m.short, &m.integrated, &m.true_peak] {
             f.store(f32::NEG_INFINITY);
@@ -133,7 +134,7 @@ impl LoudnessMeter {
         let _ = self.r128.add_frames_planar_f32(&[l, r]);
         self.blocks += 1;
         // integrated loudness walks a histogram: every ~100 ms is plenty
-        if self.blocks % 16 == 0 {
+        if self.blocks.is_multiple_of(16) {
             let lufs = |v: Result<f64, ebur128::Error>| v.map_or(f32::NEG_INFINITY, |v| v as f32);
             let tp = (0..2)
                 .filter_map(|c| self.r128.true_peak(c).ok())
