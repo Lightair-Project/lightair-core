@@ -1,5 +1,6 @@
 //! Lightair's document model. Pure: no I/O, no libobs.
 
+pub mod catalog;
 pub mod clipboard;
 pub mod command;
 pub mod diff;
