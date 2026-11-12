@@ -311,6 +311,14 @@ const MODEL: Control = Control::Choice {
     options: &[("Apple Vision", Pick::Int(0)), ("MediaPipe", Pick::Int(1))],
     default: Pick::Int(0),
 };
+/// With macOS's own camera effect too (Portrait blurs, Backgrounds replaces; it can't remove).
+pub const BG_MODEL_SYSTEM: i64 = 2;
+const MODEL_OR_SYSTEM: Control = Control::Choice {
+    key: "bg_model",
+    label: "Model",
+    options: &[("Apple Vision", Pick::Int(0)), ("MediaPipe", Pick::Int(1)), ("macOS", Pick::Int(BG_MODEL_SYSTEM))],
+    default: Pick::Int(0),
+};
 const QUALITY: Control = Control::Choice {
     key: "bg_quality",
     label: "Quality",
@@ -442,7 +450,7 @@ pub const CATALOG: &[EffectDef] = &[
         description: "Blur everything behind you",
         icon: "aperture",
         needs: Needs::Person,
-        controls: &[s("bg_blur", "Amount", 60.0), FEATHER, SHIFT, SEGMENTATION, MODEL, QUALITY],
+        controls: &[s("bg_blur", "Amount", 60.0), FEATHER, SHIFT, SEGMENTATION, MODEL_OR_SYSTEM, QUALITY],
         fixed: &[("bg_mode", Pick::Int(1))],
     },
     EffectDef {
@@ -479,7 +487,7 @@ pub const CATALOG: &[EffectDef] = &[
             SHIFT,
             s("bg_wrap", "Light wrap", 30.0),
             SEGMENTATION,
-            MODEL,
+            MODEL_OR_SYSTEM,
             QUALITY,
         ],
         fixed: &[],
