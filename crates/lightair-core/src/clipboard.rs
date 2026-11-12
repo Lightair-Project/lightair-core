@@ -140,6 +140,43 @@ impl Clip {
         (commands, roots)
     }
 
+    /// The commands that place this clip as an instance of prefab `name` (its root linked to
+    /// it), and the new root's id.
+    pub fn instantiate(
+        &self,
+        project: &Project,
+        scene: Id,
+        name: &str,
+        parent: Option<Id>,
+        index: Option<usize>,
+    ) -> (Vec<Command>, Option<Id>) {
+        let mut clip = self.clone();
+        if let Some(root) = clip.layers.first_mut() {
+            root.prefab = Some(name.to_string());
+        }
+        let (commands, roots) = clip.paste(project, scene, parent, index);
+        (commands, roots.first().copied())
+    }
+
+    /// The commands that rebuild instance `root` from this clip (a prefab's contents): it keeps
+    /// its place in the tree, where it sits on the canvas and its name; everything under it is
+    /// the prefab's. Returns the rebuilt root's id.
+    pub fn replace_instance(&self, project: &Project, scene: Id, root: Id) -> (Vec<Command>, Option<Id>) {
+        let Some(sc) = project.scene(scene) else { return (vec![], None) };
+        let Some(old) = sc.layer(root) else { return (vec![], None) };
+        let siblings: Vec<Id> = sc.children(old.parent).map(|l| l.id).collect();
+        let at = siblings.iter().position(|s| *s == root);
+        let mut clip = self.clone();
+        let Some(first) = clip.layers.first_mut() else { return (vec![], None) };
+        first.layouts = old.layouts.keys().filter_map(|f| Some((*f, sc.world(root, *f)?))).collect();
+        first.name = old.name.clone();
+        first.prefab = old.prefab.clone();
+        let (paste, roots) = clip.paste(project, scene, old.parent, at);
+        let mut commands = vec![Command::RemoveLayer { scene, layer: root }];
+        commands.extend(paste);
+        (commands, roots.first().copied())
+    }
+
     /// The clipboard text for this clip.
     pub fn to_text(&self) -> String {
         format!("{TAG}{}", serde_json::to_string(self).unwrap_or_default())

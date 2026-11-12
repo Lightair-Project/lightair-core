@@ -118,3 +118,47 @@ fn pasting_into_another_project_brings_the_inputs() {
     // Its format ids differ: the layout lands in the primary format.
     assert!(layer.layouts.contains_key(&p.primary_format().id));
 }
+
+#[test]
+fn prefab_instances_link_and_rebuild_in_place() {
+    let mut s = setup();
+    let f = s.format;
+    let gid = s.add(Layer::empty("Badge", [(f, (100.0, 100.0))]));
+    s.add(Layer::new("Label", s.text, [(f, Layout::boxed(0.0, 0.0, 200.0, 40.0))]).under(gid));
+    // The prefab's contents, as saved.
+    let mut prefab = Clip::copy(s.doc.project(), s.scene, &[gid]).unwrap();
+    prefab.layers[0].prefab = None;
+
+    // Place an instance elsewhere: its root is linked.
+    let (commands, root) = prefab.instantiate(s.doc.project(), s.scene, "Badge.prefab", None, None);
+    s.doc.apply(&Command::Batch { label: "Place".into(), commands }).unwrap();
+    let root = root.unwrap();
+    let sc = s.doc.project().scene(s.scene).unwrap();
+    assert_eq!(sc.layer(root).unwrap().prefab.as_deref(), Some("Badge.prefab"));
+
+    // Move and rename the instance, then change the prefab (a second label) and rebuild it.
+    let mut layout = sc.layer(root).unwrap().layouts[&f];
+    layout.x = 700.0;
+    let scene = s.scene;
+    s.doc.apply(&Command::SetLayout { scene, layer: root, format: f, layout }).unwrap();
+    s.doc.apply(&Command::RenameLayer { scene, layer: root, name: "Guest badge".into() }).unwrap();
+    let mut changed = prefab.clone();
+    let mut second = changed.layers[1].clone();
+    second.id = Id::new();
+    second.name = "Subtitle".into();
+    changed.layers.push(second);
+    let (commands, rebuilt) = changed.replace_instance(s.doc.project(), scene, root);
+    s.doc.apply(&Command::Batch { label: "Revert".into(), commands }).unwrap();
+    let rebuilt = rebuilt.unwrap();
+    let sc = s.doc.project().scene(scene).unwrap();
+    assert!(sc.layer(root).is_none(), "the old instance is gone");
+    let r = sc.layer(rebuilt).unwrap();
+    assert_eq!(r.name, "Guest badge", "keeps its name");
+    assert_eq!(r.prefab.as_deref(), Some("Badge.prefab"), "still linked");
+    assert!(close(sc.world(rebuilt, f).unwrap().x, 700.0), "keeps its place");
+    let kids: Vec<String> = sc.children(Some(rebuilt)).map(|l| l.name.clone()).collect();
+    assert_eq!(kids, ["Label", "Subtitle"], "takes the prefab's contents");
+    assert!(sc.is_well_formed());
+    // The original it was saved from isn't an instance and is untouched.
+    assert!(sc.layer(gid).unwrap().prefab.is_none());
+}

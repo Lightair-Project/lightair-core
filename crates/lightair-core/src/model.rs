@@ -209,6 +209,10 @@ pub struct Layer {
     /// The layer this one sits in (its layout is in that layer's space).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<Id>,
+    /// The prefab this layer (and what's under it) was placed from: the asset's file name in
+    /// the project's `assets` folder. Only an instance's root carries it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefab: Option<String>,
     /// Layout per format id. A format without an entry hides the layer in that format.
     pub layouts: BTreeMap<Id, Layout>,
     pub locked: bool,

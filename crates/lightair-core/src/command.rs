@@ -84,6 +84,12 @@ pub enum Command {
         parent: Option<Id>,
         index: Option<usize>,
     },
+    /// Links a layer to a prefab asset, or unlinks it (`None`: it becomes ordinary layers).
+    SetLayerPrefab {
+        scene: Id,
+        layer: Id,
+        prefab: Option<String>,
+    },
     SetLayout {
         scene: Id,
         layer: Id,
@@ -254,6 +260,8 @@ impl Command {
             Command::MoveLayer { .. } => "Reorder layers".into(),
             Command::ReparentLayer { parent: Some(_), .. } => "Move into".into(),
             Command::ReparentLayer { parent: None, .. } => "Move out".into(),
+            Command::SetLayerPrefab { prefab: Some(_), .. } => "Link to prefab".into(),
+            Command::SetLayerPrefab { prefab: None, .. } => "Unpack prefab".into(),
             Command::SetLayout { .. } => "Move layer".into(),
             Command::SetLayerVisible { visible: true, .. } => "Show layer".into(),
             Command::SetLayerVisible { visible: false, .. } => "Hide layer".into(),
@@ -466,6 +474,9 @@ impl Command {
                 }
             }
             Command::SetLayerLocked { scene, layer, locked } => layer_mut(project, *scene, *layer)?.locked = *locked,
+            Command::SetLayerPrefab { scene, layer, prefab } => {
+                layer_mut(project, *scene, *layer)?.prefab = prefab.clone()
+            }
             Command::AddTrack { track, index } => {
                 if project.track(track.id).is_some() {
                     return Err(CommandError::Duplicate(track.id));
@@ -642,6 +653,7 @@ impl Layer {
             name: name.into(),
             input: Some(input),
             parent: None,
+            prefab: None,
             layouts: formats.into_iter().collect(),
             locked: false,
         }
@@ -654,6 +666,7 @@ impl Layer {
             name: name.into(),
             input: None,
             parent: None,
+            prefab: None,
             layouts: formats.into_iter().map(|(f, (x, y))| (f, Layout::boxed(x, y, 0.0, 0.0))).collect(),
             locked: false,
         }
