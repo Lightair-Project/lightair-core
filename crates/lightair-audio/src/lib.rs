@@ -17,7 +17,7 @@ mod smooth;
 mod spec;
 
 pub use engine::{Engine, PROGRAM, Renderer};
-pub use graph::{Graph, InputBlock, Tap};
+pub use graph::{Graph, InputBlock, Inputs, Tap};
 pub use spec::*;
 
 /// The most frames processed in one call.

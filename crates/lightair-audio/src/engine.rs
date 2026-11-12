@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::graph::{Graph, InputBlock};
+use crate::graph::{Graph, Inputs};
 use crate::meter::Meter;
 use crate::spec::{GraphSpec, NodeId, Warning};
 
@@ -72,7 +72,7 @@ impl Engine {
 
 impl Renderer {
     /// Processes one block: takes up the newest graph first. Real-time safe.
-    pub fn process(&mut self, inputs: &[InputBlock], frames: usize) -> &Graph {
+    pub fn process(&mut self, inputs: &(impl Inputs + ?Sized), frames: usize) -> &Graph {
         while let Ok(mut next) = self.incoming.pop() {
             next.adopt(&mut self.graph);
             let old = std::mem::replace(&mut self.graph, next);

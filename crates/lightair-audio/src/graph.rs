@@ -15,6 +15,25 @@ pub struct InputBlock<'a> {
     pub channels: &'a [&'a [f32]],
 }
 
+/// Where the graph finds its inputs' audio for a block. Implemented by a slice of
+/// [`InputBlock`]s, and by the real-time host's input table (no per-block allocation).
+pub trait Inputs {
+    /// Channel `ch` of input `input`, at least `frames` long; `None` when it has none.
+    fn channel(&self, input: NodeId, ch: u16) -> Option<&[f32]>;
+}
+
+impl Inputs for [InputBlock<'_>] {
+    fn channel(&self, input: NodeId, ch: u16) -> Option<&[f32]> {
+        self.iter().find(|b| b.id == input).and_then(|b| b.channels.get(ch as usize).copied())
+    }
+}
+
+impl<const N: usize> Inputs for [InputBlock<'_>; N] {
+    fn channel(&self, input: NodeId, ch: u16) -> Option<&[f32]> {
+        self.as_slice().channel(input, ch)
+    }
+}
+
 /// Where to listen to a strip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tap {
@@ -313,7 +332,7 @@ impl Graph {
     }
 
     /// Mixes one block of `frames` (≤ [`MAX_BLOCK`]) from `inputs`. Real-time safe.
-    pub fn process(&mut self, inputs: &[InputBlock], frames: usize) {
+    pub fn process(&mut self, inputs: &(impl Inputs + ?Sized), frames: usize) {
         let n = frames.min(MAX_BLOCK);
         self.frames = n;
         let sr = self.sample_rate;
@@ -330,8 +349,7 @@ impl Graph {
             // source
             match &s.source {
                 Source::Track { input, channels } => {
-                    let block = inputs.iter().find(|b| b.id == *input);
-                    let ch = |c: u16| block.and_then(|b| b.channels.get(c as usize)).map(|c| &c[..n]);
+                    let ch = |c: u16| inputs.channel(*input, c).map(|c| &c[..n]);
                     let (l, r) = match *channels {
                         Channels::Mono(c) => (ch(c), ch(c)),
                         Channels::Stereo(a, b) => (ch(a), ch(b)),
