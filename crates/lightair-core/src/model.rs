@@ -424,10 +424,69 @@ mod db {
 pub struct OutputSettings {
     pub recording: RecordingSettings,
     pub destinations: Vec<Destination>,
-    /// Streaming video bitrate shared by destinations (kbps).
+    /// Streaming video bitrate for destinations on Automatic (kbps).
     pub stream_bitrate_kbps: u32,
     #[serde(default)]
     pub clips: ClipSettings,
+    /// When a stream drops: try again this many times, this many seconds apart (0: don't).
+    #[serde(default)]
+    pub reconnect: Reconnect,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Reconnect {
+    pub retries: u32,
+    pub delay_s: u32,
+}
+
+impl Default for Reconnect {
+    fn default() -> Self {
+        Self { retries: 20, delay_s: 2 }
+    }
+}
+
+/// Which video encoder. The hardware ones are Apple's (VideoToolbox).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VideoEncoder {
+    /// H.264 on the Mac's media engine: works everywhere.
+    #[default]
+    H264,
+    /// HEVC (H.265) on the media engine: smaller files; YouTube takes it live, most don't.
+    Hevc,
+    /// ProRes 422: editing quality, large files, MOV only, no bitrate.
+    ProRes,
+    /// x264 in software: uses the CPU.
+    X264,
+}
+
+impl VideoEncoder {
+    pub fn label(self) -> &'static str {
+        match self {
+            VideoEncoder::H264 => "H.264",
+            VideoEncoder::Hevc => "HEVC",
+            VideoEncoder::ProRes => "ProRes 422",
+            VideoEncoder::X264 => "x264",
+        }
+    }
+}
+
+/// How a destination is encoded when not on Automatic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Encoding {
+    pub encoder: VideoEncoder,
+    pub bitrate_kbps: u32,
+    /// Seconds between keyframes (platforms want 2).
+    pub keyframe_s: u32,
+    /// Output height; the width follows the canvas. `None`: the canvas's own size.
+    pub height: Option<u32>,
+    pub audio_kbps: u32,
+}
+
+impl Default for Encoding {
+    fn default() -> Self {
+        Self { encoder: VideoEncoder::H264, bitrate_kbps: 6000, keyframe_s: 2, height: None, audio_kbps: 160 }
+    }
 }
 
 impl Default for OutputSettings {
@@ -437,6 +496,7 @@ impl Default for OutputSettings {
             destinations: Vec::new(),
             stream_bitrate_kbps: 6000,
             clips: ClipSettings::default(),
+            reconnect: Reconnect::default(),
         }
     }
 }
@@ -471,11 +531,35 @@ pub struct RecordingSettings {
     /// The canvases recorded together, each to its own file. Empty: `format`, or else all.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub formats: Vec<Id>,
+    #[serde(default)]
+    pub encoder: VideoEncoder,
+    /// Recorded height; the width follows the canvas. `None`: the canvas's own size.
+    #[serde(default)]
+    pub height: Option<u32>,
+    #[serde(default = "default_record_audio")]
+    pub audio_kbps: u32,
+    /// Start a new file every this many minutes (`None`: one file).
+    #[serde(default)]
+    pub split_minutes: Option<u32>,
+}
+
+fn default_record_audio() -> u32 {
+    192
 }
 
 impl Default for RecordingSettings {
     fn default() -> Self {
-        Self { folder: None, container: "mp4".into(), bitrate_kbps: 12_000, format: None, formats: Vec::new() }
+        Self {
+            folder: None,
+            container: "mp4".into(),
+            bitrate_kbps: 12_000,
+            format: None,
+            formats: Vec::new(),
+            encoder: VideoEncoder::H264,
+            height: None,
+            audio_kbps: 192,
+            split_minutes: None,
+        }
     }
 }
 
@@ -518,6 +602,9 @@ pub struct Destination {
     /// Which platform it is ("youtube", "twitch", …, "custom"), for its badge and help.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub platform: Option<String>,
+    /// Its own encoding; `None`: Automatic (the shared bitrate, capped for the platform).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encoding: Option<Encoding>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -7,8 +7,8 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    ClipSettings, Destination, Effect, Format, Id, Input, Layer, Layout, Project, RecordingSettings, Scene, Stinger,
-    Track, TransitionSettings,
+    ClipSettings, Destination, Effect, Format, Id, Input, Layer, Layout, Project, Reconnect, RecordingSettings, Scene,
+    Stinger, Track, TransitionSettings,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -185,6 +185,13 @@ pub enum Command {
     SetClipSettings {
         settings: ClipSettings,
     },
+    /// Replaces a destination's settings (matched by id).
+    UpdateDestination {
+        destination: Destination,
+    },
+    SetReconnect {
+        reconnect: Reconnect,
+    },
 
     AddInputEffect {
         input: Id,
@@ -288,6 +295,8 @@ impl Command {
             Command::SetTransition { .. } => "Change transition".into(),
             Command::SetStinger { .. } => "Change stinger".into(),
             Command::SetClipSettings { .. } => "Change clip settings".into(),
+            Command::UpdateDestination { .. } => "Change destination".into(),
+            Command::SetReconnect { .. } => "Change reconnecting".into(),
             Command::AddInputEffect { .. } => "Add effect".into(),
             Command::RemoveInputEffect { .. } => "Remove effect".into(),
             Command::SetInputEffectEnabled { enabled: true, .. } => "Turn effect on".into(),
@@ -557,6 +566,22 @@ impl Command {
                     .format = *format;
             }
             Command::SetRecordingSettings { settings } => project.outputs.recording = settings.clone(),
+            Command::UpdateDestination { destination } => {
+                if let Some(f) = destination.format {
+                    project.format(f).ok_or(CommandError::NoFormat(f))?;
+                }
+                let d = project
+                    .outputs
+                    .destinations
+                    .iter_mut()
+                    .find(|d| d.id == destination.id)
+                    .ok_or(CommandError::NoDestination(destination.id))?;
+                *d = destination.clone();
+            }
+            Command::SetReconnect { reconnect } => {
+                project.outputs.reconnect =
+                    Reconnect { retries: reconnect.retries.min(100), delay_s: reconnect.delay_s.clamp(1, 60) }
+            }
             Command::SetStreamBitrate { kbps } => project.outputs.stream_bitrate_kbps = (*kbps).clamp(500, 51_000),
             Command::SetClipSettings { settings } => {
                 if let Some(f) = settings.format {
