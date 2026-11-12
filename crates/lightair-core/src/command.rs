@@ -16,6 +16,10 @@ pub enum Command {
     AddFormat {
         format: Format,
     },
+    /// A canvas's new name, size or frame rate (sizes even, 16–7680; 1–240 fps).
+    UpdateFormat {
+        format: Format,
+    },
     RemoveFormat {
         format: Id,
     },
@@ -236,6 +240,8 @@ pub enum CommandError {
     InputInUse(usize),
     #[error("a project needs at least one format")]
     LastFormat,
+    #[error("a canvas is 16 to 7680 pixels each way, at 1 to 240 fps")]
+    BadFormat,
     #[error("an object can't sit inside itself, and its parent must come before it")]
     BadHierarchy,
     #[error("no track {0}")]
@@ -252,6 +258,7 @@ impl Command {
         match self {
             Command::AddFormat { .. } => "Add format".into(),
             Command::RemoveFormat { .. } => "Remove format".into(),
+            Command::UpdateFormat { .. } => "Change canvas".into(),
             Command::AddInput { .. } => "Add input".into(),
             Command::RemoveInput { .. } => "Remove input".into(),
             Command::RenameInput { .. } => "Rename input".into(),
@@ -366,6 +373,23 @@ impl Command {
                         layer.layouts.remove(format);
                     }
                 }
+            }
+            Command::UpdateFormat { format } => {
+                let f =
+                    project.formats.iter_mut().find(|f| f.id == format.id).ok_or(CommandError::NoFormat(format.id))?;
+                let fps = format.fps_num as f32 / format.fps_den.max(1) as f32;
+                if !(16..=7680).contains(&format.width)
+                    || !(16..=7680).contains(&format.height)
+                    || !(1.0..=240.0).contains(&fps)
+                {
+                    return Err(CommandError::BadFormat);
+                }
+                *f = Format {
+                    width: format.width & !1,
+                    height: format.height & !1,
+                    name: if format.name.trim().is_empty() { f.name.clone() } else { format.name.clone() },
+                    ..format.clone()
+                };
             }
             Command::AddInput { input } => {
                 if project.inputs.contains_key(&input.id) {
