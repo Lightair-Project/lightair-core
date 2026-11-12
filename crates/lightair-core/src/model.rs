@@ -464,14 +464,43 @@ pub struct RecordingSettings {
     /// `mp4` (hybrid, crash-safe), `mkv` or `mov`.
     pub container: String,
     pub bitrate_kbps: u32,
-    /// Format to record; `None` = the primary format.
+    /// Format to record; `None` = the primary format. Superseded by `formats`, kept so older
+    /// projects record what they did.
     #[serde(default)]
     pub format: Option<Id>,
+    /// The canvases recorded together, each to its own file. Empty: `format`, or else all.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub formats: Vec<Id>,
 }
 
 impl Default for RecordingSettings {
     fn default() -> Self {
-        Self { folder: None, container: "mp4".into(), bitrate_kbps: 12_000, format: None }
+        Self { folder: None, container: "mp4".into(), bitrate_kbps: 12_000, format: None, formats: Vec::new() }
+    }
+}
+
+impl RecordingSettings {
+    /// The formats Record records, in the project's order (at least one). Until a choice is
+    /// made, every canvas; an older project's single `format` stays its choice.
+    pub fn targets(&self, project: &Project) -> Vec<Id> {
+        let chosen: Vec<Id> = match (self.formats.is_empty(), self.format) {
+            (false, _) => self.formats.clone(),
+            (true, Some(f)) => vec![f],
+            (true, None) => project.formats.iter().map(|f| f.id).collect(),
+        };
+        let out: Vec<Id> = project.formats.iter().map(|f| f.id).filter(|id| chosen.contains(id)).collect();
+        if out.is_empty() { vec![project.primary_format().id] } else { out }
+    }
+
+    /// These settings with `format` recorded or not (never none at all).
+    pub fn with_format(&self, project: &Project, format: Id, on: bool) -> RecordingSettings {
+        let mut formats = self.targets(project);
+        if on && !formats.contains(&format) {
+            formats.push(format);
+        } else if !on && formats.len() > 1 {
+            formats.retain(|f| *f != format);
+        }
+        RecordingSettings { formats, format: None, ..self.clone() }
     }
 }
 
