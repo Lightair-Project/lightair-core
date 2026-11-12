@@ -29,8 +29,10 @@ fn podcast_graph_cost() {
     ];
     strips.push(music);
     strips.push(Strip::bus(50));
-    let mut program = lightair_audio::Master::default();
-    program.inserts = vec![e(3000, Params::Limiter(LimiterParams::default()))];
+    let program = lightair_audio::Master {
+        inserts: vec![e(3000, Params::Limiter(LimiterParams::default()))],
+        ..Default::default()
+    };
     let spec = GraphSpec { strips, mixes: vec![Mix::new(60), Mix::new(61)], program };
     let (_, mut r) = Engine::new(spec, 48_000);
     let chans: Vec<Vec<f32>> = (0..8).map(|c| (0..256).map(|i| ((i * (c + 3)) as f32 * 0.01).sin() * 0.2).collect()).collect();

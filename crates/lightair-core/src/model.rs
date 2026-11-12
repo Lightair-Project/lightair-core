@@ -47,6 +47,9 @@ pub struct Project {
     /// Global audio tracks in mixer order (docs/10-audio.md).
     #[serde(default)]
     pub tracks: Vec<Arc<Track>>,
+    /// Buses, mixes and the master.
+    #[serde(default)]
+    pub audio: AudioSetup,
     /// Recording and streaming settings (docs/11-outputs-streaming-recording.md). Stream keys
     /// are not here: they live in the OS credential store, keyed by destination id.
     #[serde(default)]
@@ -77,6 +80,7 @@ impl Project {
             scenes: Vec::new(),
             program: None,
             tracks: Vec::new(),
+            audio: AudioSetup::default(),
             outputs: OutputSettings::default(),
             transition: TransitionSettings::default(),
             stinger: None,
@@ -94,6 +98,7 @@ impl Project {
             scenes: Vec::new(),
             program: None,
             tracks: Vec::new(),
+            audio: AudioSetup::default(),
             outputs: self.outputs.clone(),
             transition: self.transition,
             stinger: self.stinger.clone(),
@@ -383,12 +388,182 @@ pub struct Track {
     pub muted: bool,
     /// Sent to the cue (monitoring) mix.
     pub cue: bool,
+    /// Insert effects, in order.
     pub effects: Vec<Effect>,
+    /// Which of the input's channels (a multi-channel interface: one mic per channel).
+    #[serde(default)]
+    pub channels: TrackChannels,
+    /// −1 (left) .. 1 (right).
+    #[serde(default)]
+    pub pan: f32,
+    /// Input trim (dB), before the effects.
+    #[serde(default)]
+    pub trim_db: f32,
+    /// Polarity.
+    #[serde(default)]
+    pub invert: bool,
+    /// Sum to mono.
+    #[serde(default)]
+    pub mono: bool,
+    /// Shift against the video (ms, ±2000).
+    #[serde(default)]
+    pub sync_ms: i32,
+    /// Where the fader's output goes.
+    #[serde(default)]
+    pub route: Route,
+    /// Sends to mixes (headphones, VOD, mix-minus).
+    #[serde(default)]
+    pub sends: Vec<Send>,
+    /// Recorded to its own audio file in multitrack recordings.
+    #[serde(default)]
+    pub record: bool,
 }
 
 impl Track {
     pub fn new(name: impl Into<String>, input: Id) -> Self {
-        Self { id: Id::new(), name: name.into(), input, volume_db: 0.0, muted: false, cue: false, effects: Vec::new() }
+        Self {
+            id: Id::new(),
+            name: name.into(),
+            input,
+            volume_db: 0.0,
+            muted: false,
+            cue: false,
+            effects: Vec::new(),
+            channels: TrackChannels::All,
+            pan: 0.0,
+            trim_db: 0.0,
+            invert: false,
+            mono: false,
+            sync_ms: 0,
+            route: Route::Program,
+            sends: Vec::new(),
+            record: false,
+        }
+    }
+}
+
+/// Which channels of its input a track takes (0-based).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TrackChannels {
+    /// The input as it comes (mono inputs on both sides).
+    #[default]
+    All,
+    Mono(u16),
+    Stereo(u16, u16),
+}
+
+/// Where a strip's output goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Route {
+    /// The master: what the stream and the recording's main track carry.
+    #[default]
+    Program,
+    /// A bus (a group, or an FX return).
+    Bus(Id),
+    /// Only its sends (heard in a mix, never on air).
+    None,
+}
+
+/// A send to a mix.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Send {
+    pub mix: Id,
+    pub level_db: f32,
+    /// Before the fader (a monitor mix that doesn't follow the main faders) or after.
+    #[serde(default)]
+    pub pre_fader: bool,
+}
+
+/// A bus: a strip fed by tracks routed to it ("Guests", "Music") or by sends (an FX return).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Bus {
+    pub id: Id,
+    pub name: String,
+    #[serde(with = "db")]
+    pub volume_db: f32,
+    pub muted: bool,
+    #[serde(default)]
+    pub pan: f32,
+    #[serde(default)]
+    pub effects: Vec<Effect>,
+    #[serde(default)]
+    pub route: Route,
+    #[serde(default)]
+    pub sends: Vec<Send>,
+    #[serde(default)]
+    pub record: bool,
+}
+
+impl Bus {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            id: Id::new(),
+            name: name.into(),
+            volume_db: 0.0,
+            muted: false,
+            pan: 0.0,
+            effects: Vec::new(),
+            route: Route::Program,
+            sends: Vec::new(),
+            record: false,
+        }
+    }
+}
+
+/// A mix: what the sends to it add up to, through its own effects and fader (headphones, a
+/// Twitch VOD mix, a mix-minus for a remote guest, a music-free stream).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AudioMix {
+    pub id: Id,
+    pub name: String,
+    #[serde(with = "db")]
+    pub volume_db: f32,
+    pub muted: bool,
+    #[serde(default)]
+    pub effects: Vec<Effect>,
+}
+
+impl AudioMix {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self { id: Id::new(), name: name.into(), volume_db: 0.0, muted: false, effects: Vec::new() }
+    }
+}
+
+/// The master strip (Program).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Master {
+    #[serde(with = "db")]
+    pub volume_db: f32,
+    pub muted: bool,
+    #[serde(default)]
+    pub effects: Vec<Effect>,
+}
+
+impl Default for Master {
+    fn default() -> Self {
+        Self { volume_db: 0.0, muted: false, effects: Vec::new() }
+    }
+}
+
+/// The mixer beyond its tracks (docs/plans/audio-engine.md).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct AudioSetup {
+    #[serde(default)]
+    pub buses: Vec<Bus>,
+    #[serde(default)]
+    pub mixes: Vec<AudioMix>,
+    #[serde(default)]
+    pub master: Master,
+}
+
+impl AudioSetup {
+    pub fn bus(&self, id: Id) -> Option<&Bus> {
+        self.buses.iter().find(|b| b.id == id)
+    }
+    pub fn mix(&self, id: Id) -> Option<&AudioMix> {
+        self.mixes.iter().find(|m| m.id == id)
     }
 }
 

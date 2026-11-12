@@ -27,6 +27,12 @@ pub enum Category {
     Blur,
     Distort,
     Keying,
+    // audio
+    Voice,
+    Dynamics,
+    Tone,
+    Space,
+    Utility,
 }
 
 impl Category {
@@ -40,8 +46,17 @@ impl Category {
         Category::Keying,
     ];
 
+    /// The audio effects' categories, in catalog order.
+    pub const AUDIO: [Category; 5] =
+        [Category::Voice, Category::Dynamics, Category::Tone, Category::Space, Category::Utility];
+
     pub fn name(self) -> &'static str {
         match self {
+            Category::Voice => "Voice",
+            Category::Dynamics => "Dynamics",
+            Category::Tone => "EQ & tone",
+            Category::Space => "Space",
+            Category::Utility => "Utility",
             Category::Face => "Face",
             Category::Background => "Background",
             Category::Colour => "Colour",
@@ -74,6 +89,10 @@ pub enum Unit {
     Radians,
     /// Stored and shown in degrees.
     Degrees,
+    Db,
+    Hz,
+    /// "4:1"
+    Ratio,
 }
 
 /// A fixed choice's value.
@@ -121,6 +140,8 @@ pub struct Slider {
     pub unit: Unit,
     /// Stored as an integer (Camera Studio's settings are whole numbers).
     pub int: bool,
+    /// Moves on a logarithmic scale (frequencies).
+    pub log: bool,
 }
 
 impl Slider {
@@ -142,7 +163,8 @@ impl Slider {
         let sign = if self.bipolar() && v > 0.0 { "+" } else { "" };
         match self.unit {
             Unit::Percent => {
-                let of = self.max.abs().max(self.min.abs());
+                // a 0..1 (or 0..0.95) control is a plain fraction; others, of their larger end
+                let of = if self.max <= 1.0 { 1.0 } else { self.max.abs().max(self.min.abs()) };
                 format!("{sign}{:.0}%", v / of * 100.0)
             }
             Unit::Number if self.step >= 1.0 || self.int => format!("{sign}{v:.0}"),
@@ -151,6 +173,11 @@ impl Slider {
             Unit::Ms => format!("{v:.0} ms"),
             Unit::Radians => format!("{sign}{:.0}°", v.to_degrees()),
             Unit::Degrees => format!("{sign}{v:.0}°"),
+            Unit::Db if v <= -144.0 => "−∞ dB".into(),
+            Unit::Db => format!("{sign}{v:.1} dB"),
+            Unit::Hz if v >= 1000.0 => format!("{:.1} kHz", v / 1000.0),
+            Unit::Hz => format!("{v:.0} Hz"),
+            Unit::Ratio => format!("{v:.1}:1"),
         }
     }
 }
@@ -166,6 +193,8 @@ pub enum Control {
     Presets { key: &'static str, label: &'static str, set: Presets, default: &'static str },
     File { key: &'static str, label: &'static str, extensions: &'static [&'static str] },
     Switch { key: &'static str, label: &'static str, default: bool },
+    /// Another mixer track (a ducker's source), stored as its id.
+    Track { key: &'static str, label: &'static str },
 }
 
 impl Control {
@@ -177,7 +206,8 @@ impl Control {
             | Control::Colour { key, .. }
             | Control::Presets { key, .. }
             | Control::File { key, .. }
-            | Control::Switch { key, .. } => Some(key),
+            | Control::Switch { key, .. }
+            | Control::Track { key, .. } => Some(key),
         }
     }
 
@@ -188,7 +218,7 @@ impl Control {
             Control::Choice { default, .. } => default.json(),
             Control::Colour { default, .. } => json!(default),
             Control::Presets { default, .. } => json!(default),
-            Control::File { .. } => json!(""),
+            Control::File { .. } | Control::Track { .. } => json!(""),
             Control::Switch { default, .. } => json!(default),
         })
     }
@@ -280,17 +310,17 @@ impl EffectDef {
 
 const fn s(key: &'static str, label: &'static str, default: f64) -> Control {
     // Camera Studio: 0..100
-    Control::Slider(Slider { key, label, min: 0.0, max: 100.0, step: 1.0, default, unit: Unit::Percent, int: true })
+    Control::Slider(Slider { key, label, min: 0.0, max: 100.0, step: 1.0, default, unit: Unit::Percent, int: true, log: false })
 }
 
 const fn sb(key: &'static str, label: &'static str) -> Control {
     // Camera Studio, bipolar: -100..100
-    Control::Slider(Slider { key, label, min: -100.0, max: 100.0, step: 1.0, default: 0.0, unit: Unit::Percent, int: true })
+    Control::Slider(Slider { key, label, min: -100.0, max: 100.0, step: 1.0, default: 0.0, unit: Unit::Percent, int: true, log: false })
 }
 
 const fn f(key: &'static str, label: &'static str, min: f64, max: f64, default: f64, unit: Unit) -> Control {
     // Shader and libobs values: floats
-    Control::Slider(Slider { key, label, min, max, step: (max - min) / 100.0, default, unit, int: false })
+    Control::Slider(Slider { key, label, min, max, step: (max - min) / 100.0, default, unit, int: false, log: false })
 }
 
 const fn amount(default: f64) -> Control {
@@ -527,6 +557,7 @@ pub const CATALOG: &[EffectDef] = &[
                 default: 0.0,
                 unit: Unit::Degrees,
                 int: false,
+                log: false,
             }),
             f("opacity", "Opacity", 0.0, 1.0, 1.0, Unit::Percent),
         ],
@@ -581,6 +612,7 @@ pub const CATALOG: &[EffectDef] = &[
             default: 5.0,
             unit: Unit::Number,
             int: false,
+            log: false,
         })],
         fixed: &[],
     },
@@ -829,6 +861,7 @@ pub const CATALOG: &[EffectDef] = &[
                 default: 6.0,
                 unit: Unit::Number,
                 int: false,
+                log: false,
             }),
             f("rotation", "Rotation", 0.0, std::f64::consts::TAU, 0.0, Unit::Radians),
         ],
@@ -885,6 +918,7 @@ pub const CATALOG: &[EffectDef] = &[
                 default: 50.0,
                 unit: Unit::Number,
                 int: false,
+                log: false,
             }),
             Control::Slider(Slider {
                 key: "speed_y",
@@ -895,6 +929,7 @@ pub const CATALOG: &[EffectDef] = &[
                 default: 0.0,
                 unit: Unit::Number,
                 int: false,
+                log: false,
             }),
         ],
         fixed: &[("loop", Pick::Int(1))],
@@ -929,6 +964,7 @@ pub const CATALOG: &[EffectDef] = &[
                 default: 400.0,
                 unit: Unit::Number,
                 int: true,
+                log: false,
             }),
             Control::Slider(Slider {
                 key: "smoothness",
@@ -939,6 +975,7 @@ pub const CATALOG: &[EffectDef] = &[
                 default: 80.0,
                 unit: Unit::Number,
                 int: true,
+                log: false,
             }),
             Control::Slider(Slider {
                 key: "spill",
@@ -949,6 +986,7 @@ pub const CATALOG: &[EffectDef] = &[
                 default: 100.0,
                 unit: Unit::Number,
                 int: true,
+                log: false,
             }),
         ],
         fixed: &[],
@@ -971,6 +1009,7 @@ pub const CATALOG: &[EffectDef] = &[
                 default: 80.0,
                 unit: Unit::Number,
                 int: true,
+                log: false,
             }),
             Control::Slider(Slider {
                 key: "smoothness",
@@ -981,6 +1020,7 @@ pub const CATALOG: &[EffectDef] = &[
                 default: 50.0,
                 unit: Unit::Number,
                 int: true,
+                log: false,
             }),
         ],
         fixed: &[("key_color_type", Pick::Str("custom"))],
@@ -1014,6 +1054,7 @@ pub const CATALOG: &[EffectDef] = &[
             default: 0.0,
             unit: Unit::Ms,
             int: true,
+            log: false,
         })],
         fixed: &[],
     },
@@ -1022,8 +1063,273 @@ pub const CATALOG: &[EffectDef] = &[
 use Needs::Nothing;
 
 pub fn def(kind: &str) -> Option<&'static EffectDef> {
-    CATALOG.iter().find(|d| d.kind == kind)
+    CATALOG.iter().chain(AUDIO).find(|d| d.kind == kind)
 }
+
+pub fn audio_in_category(category: Category) -> impl Iterator<Item = &'static EffectDef> {
+    AUDIO.iter().filter(move |d| d.category == category)
+}
+
+// ------------------------------------------------------------------ audio
+
+const fn a(key: &'static str, label: &'static str, min: f64, max: f64, default: f64, unit: Unit) -> Control {
+    Control::Slider(Slider { key, label, min, max, step: (max - min) / 200.0, default, unit, int: false, log: false })
+}
+
+const fn hz(key: &'static str, label: &'static str, min: f64, max: f64, default: f64) -> Control {
+    Control::Slider(Slider { key, label, min, max, step: 1.0, default, unit: Unit::Hz, int: false, log: true })
+}
+
+const fn ms(key: &'static str, label: &'static str, min: f64, max: f64, default: f64) -> Control {
+    Control::Slider(Slider { key, label, min, max, step: 0.1, default, unit: Unit::Ms, int: false, log: true })
+}
+
+const fn on(key: &'static str, label: &'static str, default: bool) -> Control {
+    Control::Switch { key, label, default }
+}
+
+/// An EQ band's shapes, as stored in "b<n>_type".
+pub const EQ_TYPES: &[(&str, Pick)] = &[
+    ("High pass", Pick::Str("hp")),
+    ("Low shelf", Pick::Str("ls")),
+    ("Bell", Pick::Str("bell")),
+    ("Notch", Pick::Str("notch")),
+    ("High shelf", Pick::Str("hs")),
+    ("Low pass", Pick::Str("lp")),
+];
+
+macro_rules! eq_band {
+    ($n:literal, $kind:literal, $freq:literal) => {
+        [
+            Control::Heading(concat!("Band ", $n)),
+            Control::Switch { key: concat!("b", $n, "_on"), label: "On", default: false },
+            Control::Choice { key: concat!("b", $n, "_type"), label: "Shape", options: EQ_TYPES, default: Pick::Str($kind) },
+            Control::Choice {
+                key: concat!("b", $n, "_slope"),
+                label: "Slope",
+                options: &[("12", Pick::Int(12)), ("24", Pick::Int(24)), ("36", Pick::Int(36)), ("48", Pick::Int(48))],
+                default: Pick::Int(24),
+            },
+            hz(concat!("b", $n, "_freq"), "Frequency", 20.0, 20_000.0, $freq),
+            a(concat!("b", $n, "_gain"), "Gain", -24.0, 24.0, 0.0, Unit::Db),
+            a(concat!("b", $n, "_q"), "Q", 0.1, 10.0, 0.9, Unit::Number),
+        ]
+    };
+}
+
+const EQ_CONTROLS: [Control; 57] = {
+    let bands = [
+        eq_band!("1", "hp", 80.0),
+        eq_band!("2", "ls", 150.0),
+        eq_band!("3", "bell", 300.0),
+        eq_band!("4", "bell", 1000.0),
+        eq_band!("5", "bell", 3000.0),
+        eq_band!("6", "bell", 6000.0),
+        eq_band!("7", "hs", 10_000.0),
+        eq_band!("8", "lp", 18_000.0),
+    ];
+    let mut out = [Control::Heading(""); 57];
+    let mut i = 0;
+    while i < 56 {
+        out[i] = bands[i / 7][i % 7];
+        i += 1;
+    }
+    out[56] = a("output_db", "Output", -24.0, 24.0, 0.0, Unit::Db);
+    out
+};
+
+/// Every built-in audio effect (docs/plans/audio-engine.md), in catalog order.
+pub const AUDIO: &[EffectDef] = &[
+    EffectDef {
+        kind: "audio.voice",
+        name: "Voice Clarity",
+        category: Category::Voice,
+        description: "One knob for a clean, present voice",
+        icon: "mic-vocal",
+        needs: Nothing,
+        controls: &[
+            a("amount", "Amount", 0.0, 1.0, 0.5, Unit::Percent),
+            Control::Heading("Stages"),
+            on("noise", "Noise suppression", true),
+            on("gate", "Expander", true),
+            on("deess", "De-esser", true),
+            on("eq", "EQ", true),
+            on("compress", "Compressor", true),
+            on("limit", "Limiter", true),
+        ],
+        fixed: &[],
+    },
+    EffectDef {
+        kind: "audio.noise",
+        name: "Noise suppression",
+        category: Category::Voice,
+        description: "Removes fans, hum, keyboards and room noise (neural)",
+        icon: "audio-waveform",
+        needs: Nothing,
+        controls: &[
+            a("strength", "Strength", 0.0, 1.0, 1.0, Unit::Percent),
+            a("vad_threshold", "Voice gate", 0.0, 0.95, 0.0, Unit::Percent),
+        ],
+        fixed: &[],
+    },
+    EffectDef {
+        kind: "audio.deesser",
+        name: "De-esser",
+        category: Category::Voice,
+        description: "Tames harsh s and sh sounds",
+        icon: "wind",
+        needs: Nothing,
+        controls: &[
+            hz("freq", "Frequency", 2000.0, 12_000.0, 6000.0),
+            a("threshold_db", "Threshold", -60.0, 0.0, -30.0, Unit::Db),
+            a("range_db", "Range", 0.0, 24.0, 8.0, Unit::Db),
+            on("split", "Only the highs", true),
+            on("listen", "Listen to what it takes", false),
+        ],
+        fixed: &[],
+    },
+    EffectDef {
+        kind: "audio.compressor",
+        name: "Compressor",
+        category: Category::Dynamics,
+        description: "Evens out loud and quiet",
+        icon: "chevrons-down-up",
+        needs: Nothing,
+        controls: &[
+            a("threshold_db", "Threshold", -60.0, 0.0, -18.0, Unit::Db),
+            a("ratio", "Ratio", 1.0, 20.0, 3.0, Unit::Ratio),
+            ms("attack_ms", "Attack", 0.1, 200.0, 10.0),
+            ms("release_ms", "Release", 10.0, 2000.0, 120.0),
+            a("makeup_db", "Makeup", -12.0, 24.0, 0.0, Unit::Db),
+            on("auto_makeup", "Auto makeup", true),
+            Control::Heading("More"),
+            a("knee_db", "Knee", 0.0, 24.0, 6.0, Unit::Db),
+            a("mix", "Mix", 0.0, 1.0, 1.0, Unit::Percent),
+            hz("sidechain_hpf", "Detector high-pass", 20.0, 400.0, 80.0),
+        ],
+        fixed: &[],
+    },
+    EffectDef {
+        kind: "audio.gate",
+        name: "Noise gate",
+        category: Category::Dynamics,
+        description: "Silences the gaps between words",
+        icon: "door-closed",
+        needs: Nothing,
+        controls: &[
+            a("threshold_db", "Threshold", -80.0, 0.0, -45.0, Unit::Db),
+            a("range_db", "Range", 0.0, 80.0, 40.0, Unit::Db),
+            ms("attack_ms", "Attack", 0.1, 50.0, 1.0),
+            ms("hold_ms", "Hold", 1.0, 500.0, 80.0),
+            ms("release_ms", "Release", 5.0, 1000.0, 150.0),
+            Control::Heading("More"),
+            a("ratio", "Ratio", 1.0, 20.0, 10.0, Unit::Ratio),
+            a("hysteresis_db", "Hysteresis", 0.0, 12.0, 4.0, Unit::Db),
+        ],
+        fixed: &[],
+    },
+    EffectDef {
+        kind: "audio.limiter",
+        name: "Limiter",
+        category: Category::Dynamics,
+        description: "A ceiling nothing gets past",
+        icon: "arrow-up-to-line",
+        needs: Nothing,
+        controls: &[
+            a("ceiling_db", "Ceiling", -12.0, 0.0, -1.0, Unit::Db),
+            a("input_db", "Input", 0.0, 24.0, 0.0, Unit::Db),
+            ms("release_ms", "Release", 1.0, 500.0, 80.0),
+        ],
+        fixed: &[],
+    },
+    EffectDef {
+        kind: "audio.ducker",
+        name: "Ducking",
+        category: Category::Dynamics,
+        description: "Lowers this when another track is active (music under the mic)",
+        icon: "arrow-down-wide-narrow",
+        needs: Nothing,
+        controls: &[
+            Control::Track { key: "source", label: "When this plays" },
+            a("amount_db", "Amount", 0.0, 40.0, 12.0, Unit::Db),
+            a("threshold_db", "Threshold", -60.0, 0.0, -40.0, Unit::Db),
+            ms("attack_ms", "Attack", 1.0, 500.0, 30.0),
+            ms("hold_ms", "Hold", 1.0, 2000.0, 300.0),
+            ms("release_ms", "Release", 10.0, 3000.0, 600.0),
+        ],
+        fixed: &[],
+    },
+    EffectDef {
+        kind: "audio.eq",
+        name: "EQ",
+        category: Category::Tone,
+        description: "Eight bands: cut rumble, warm up, add presence",
+        icon: "sliders-vertical",
+        needs: Nothing,
+        controls: &EQ_CONTROLS,
+        fixed: &[],
+    },
+    EffectDef {
+        kind: "audio.reverb",
+        name: "Reverb",
+        category: Category::Space,
+        description: "A room, a plate, a hall",
+        icon: "waves",
+        needs: Nothing,
+        controls: &[
+            a("size", "Size", 0.0, 1.0, 0.5, Unit::Percent),
+            a("damping", "Damping", 0.0, 1.0, 0.5, Unit::Percent),
+            ms("pre_delay_ms", "Pre-delay", 0.0, 200.0, 15.0),
+            a("width", "Width", 0.0, 1.0, 1.0, Unit::Percent),
+            a("mix", "Mix", 0.0, 1.0, 0.25, Unit::Percent),
+        ],
+        fixed: &[],
+    },
+    EffectDef {
+        kind: "audio.delay",
+        name: "Delay",
+        category: Category::Space,
+        description: "Echoes, slapback, ping-pong",
+        icon: "repeat",
+        needs: Nothing,
+        controls: &[
+            ms("time_ms", "Time", 1.0, 2000.0, 350.0),
+            a("feedback", "Feedback", 0.0, 0.95, 0.35, Unit::Percent),
+            hz("tone_hz", "Tone", 500.0, 18_000.0, 6000.0),
+            on("ping_pong", "Ping-pong", false),
+            a("mix", "Mix", 0.0, 1.0, 0.25, Unit::Percent),
+        ],
+        fixed: &[],
+    },
+    EffectDef {
+        kind: "audio.gain",
+        name: "Gain",
+        category: Category::Utility,
+        description: "Level, polarity, mono, swap left and right",
+        icon: "volume-2",
+        needs: Nothing,
+        controls: &[
+            a("db", "Gain", -30.0, 30.0, 0.0, Unit::Db),
+            on("invert", "Invert polarity", false),
+            on("mono", "Mono", false),
+            on("swap", "Swap left and right", false),
+        ],
+        fixed: &[],
+    },
+    EffectDef {
+        kind: "audio.channel",
+        name: "Stereo tools",
+        category: Category::Utility,
+        description: "Width, and mono bass",
+        icon: "move-horizontal",
+        needs: Nothing,
+        controls: &[
+            a("width", "Width", 0.0, 2.0, 1.0, Unit::Number),
+            a("bass_mono_hz", "Mono below (0: off)", 0.0, 300.0, 0.0, Unit::Hz),
+        ],
+        fixed: &[],
+    },
+];
 
 pub fn in_category(category: Category) -> impl Iterator<Item = &'static EffectDef> {
     CATALOG.iter().filter(move |d| d.category == category)
@@ -1203,6 +1509,65 @@ pub fn split_camera_studio(e: &Effect) -> Option<Vec<Effect>> {
     Some(out)
 }
 
+/// An older track effect (a libobs audio filter) as the audio engine's equivalent, keeping its
+/// id, name and switch; `None` when it already is one, or has no equivalent.
+pub fn migrate_audio_effect(e: &Effect) -> Option<Effect> {
+    let s = &e.settings;
+    let n = |k: &str, d: f64| s.get(k).and_then(Value::as_f64).unwrap_or(d);
+    let (kind, settings) = match e.kind.as_str() {
+        "noise_suppress_filter_v2" | "noise_suppress_filter" => ("audio.noise", json!({"strength": 1.0})),
+        "noise_gate_filter" => {
+            let open = n("open_threshold", -26.0);
+            (
+                "audio.gate",
+                json!({
+                    "threshold_db": open,
+                    "hysteresis_db": (open - n("close_threshold", -32.0)).max(0.0),
+                    "attack_ms": n("attack_time", 25.0),
+                    "hold_ms": n("hold_time", 200.0),
+                    "release_ms": n("release_time", 150.0),
+                }),
+            )
+        }
+        "compressor_filter" => (
+            "audio.compressor",
+            json!({
+                "threshold_db": n("threshold", -18.0),
+                "ratio": n("ratio", 10.0),
+                "attack_ms": n("attack_time", 6.0),
+                "release_ms": n("release_time", 60.0),
+                "makeup_db": n("output_gain", 0.0),
+                "auto_makeup": false,
+            }),
+        ),
+        "limiter_filter" => {
+            ("audio.limiter", json!({"ceiling_db": n("threshold", -6.0), "release_ms": n("release_time", 60.0)}))
+        }
+        "gain_filter" => ("audio.gain", json!({"db": n("db", 0.0)})),
+        _ => return None,
+    };
+    Some(Effect { kind: kind.into(), settings, ..e.clone() })
+}
+
+/// Commands that turn tracks' libobs audio filters into the audio engine's effects. Run once the
+/// engine plays the mixer (until then the libobs filters are what process the sound).
+pub fn migrate_audio(project: &crate::model::Project) -> Vec<crate::command::Command> {
+    use crate::command::Command;
+    let mut out = Vec::new();
+    for t in &project.tracks {
+        if t.effects.iter().any(|e| migrate_audio_effect(e).is_some()) {
+            let mut track = (**t).clone();
+            for e in &mut track.effects {
+                if let Some(new) = migrate_audio_effect(e) {
+                    *e = new;
+                }
+            }
+            out.push(Command::UpdateTrack { track });
+        }
+    }
+    out
+}
+
 /// Commands that bring an older project's effects up to date: each input's single Camera
 /// Studio effect becomes the face effects it was doing, in its place.
 pub fn migrate(project: &crate::model::Project) -> Vec<crate::command::Command> {
@@ -1234,7 +1599,7 @@ mod tests {
     #[test]
     fn every_entry_is_well_formed() {
         let mut kinds = std::collections::HashSet::new();
-        for d in CATALOG {
+        for d in CATALOG.iter().chain(AUDIO) {
             assert!(kinds.insert(d.kind), "{} listed twice", d.kind);
             assert!(!d.description.is_empty() && !d.controls.is_empty(), "{}", d.kind);
             let mut keys = std::collections::HashSet::new();
@@ -1249,6 +1614,9 @@ mod tests {
         }
         for c in Category::ALL {
             assert!(in_category(c).count() > 0, "{} is empty", c.name());
+        }
+        for c in Category::AUDIO {
+            assert!(audio_in_category(c).count() > 0, "{} is empty", c.name());
         }
     }
 

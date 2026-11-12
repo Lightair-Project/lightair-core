@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{
     ClipSettings, Destination, Effect, Format, Id, Input, Layer, Layout, Project, Reconnect, RecordingSettings, Scene,
-    Stinger, Track, TransitionSettings,
+    Stinger, Track, TransitionSettings, AudioMix, Bus, Master, Route,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -139,6 +139,34 @@ pub enum Command {
         track: Id,
         cue: bool,
     },
+    /// Replaces a track (its strip: channels, pan, trim, routing, sends, effects…).
+    UpdateTrack {
+        track: Track,
+    },
+    AddBus {
+        bus: Bus,
+        index: Option<usize>,
+    },
+    /// Strips routed to it go to Program.
+    RemoveBus {
+        bus: Id,
+    },
+    UpdateBus {
+        bus: Bus,
+    },
+    AddMix {
+        mix: AudioMix,
+    },
+    /// Sends to it are dropped.
+    RemoveMix {
+        mix: Id,
+    },
+    UpdateMix {
+        mix: AudioMix,
+    },
+    UpdateMaster {
+        master: Master,
+    },
     AddEffect {
         track: Id,
         effect: Effect,
@@ -250,6 +278,12 @@ pub enum CommandError {
     NoEffect(Id),
     #[error("no destination {0}")]
     NoDestination(Id),
+    #[error("no bus {0}")]
+    NoBus(Id),
+    #[error("no mix {0}")]
+    NoMix(Id),
+    #[error("buses can't feed each other in a loop")]
+    AudioLoop,
 }
 
 impl Command {
@@ -288,6 +322,14 @@ impl Command {
             Command::SetTrackMuted { muted: true, .. } => "Mute".into(),
             Command::SetTrackMuted { muted: false, .. } => "Unmute".into(),
             Command::SetTrackCue { .. } => "Listen in headphones".into(),
+            Command::UpdateTrack { track } => format!("Change {}", track.name),
+            Command::AddBus { .. } => "Add bus".into(),
+            Command::RemoveBus { .. } => "Remove bus".into(),
+            Command::UpdateBus { bus } => format!("Change {}", bus.name),
+            Command::AddMix { .. } => "Add mix".into(),
+            Command::RemoveMix { .. } => "Remove mix".into(),
+            Command::UpdateMix { mix } => format!("Change {}", mix.name),
+            Command::UpdateMaster { .. } => "Change master".into(),
             Command::AddEffect { .. } => "Add effect".into(),
             Command::RemoveEffect { .. } => "Remove effect".into(),
             Command::SetEffectEnabled { enabled: true, .. } => "Turn effect on".into(),
@@ -320,6 +362,10 @@ impl Command {
             Command::SetLayout { layer, format, .. } => Some(("layout", *layer, *format)),
             Command::SetInputSettings { input, .. } => Some(("settings", *input, *input)),
             Command::SetTrackVolume { track, .. } => Some(("volume", *track, *track)),
+            Command::UpdateTrack { track } => Some(("track", track.id, track.id)),
+            Command::UpdateBus { bus } => Some(("bus", bus.id, bus.id)),
+            Command::UpdateMix { mix } => Some(("mix", mix.id, mix.id)),
+            Command::UpdateMaster { .. } => Some(("master", Id(uuid::Uuid::nil()), Id(uuid::Uuid::nil()))),
             Command::SetEffectSettings { track, effect, .. } => Some(("effect", *track, *effect)),
             Command::SetInputEffectSettings { input, effect, .. } => Some(("input-effect", *input, *effect)),
             // Moving several layers together: one step per gesture, like a single layer.
@@ -536,6 +582,63 @@ impl Command {
             }
             Command::SetTrackMuted { track, muted } => track_mut(project, *track)?.muted = *muted,
             Command::SetTrackCue { track, cue } => track_mut(project, *track)?.cue = *cue,
+            Command::UpdateTrack { track } => {
+                if !project.inputs.contains_key(&track.input) {
+                    return Err(CommandError::NoInput(track.input));
+                }
+                *track_mut(project, track.id)? = track.clone();
+                check_audio(project)?;
+            }
+            Command::AddBus { bus, index } => {
+                if project.audio.bus(bus.id).is_some() {
+                    return Err(CommandError::Duplicate(bus.id));
+                }
+                let buses = &mut project.audio.buses;
+                buses.insert(index.unwrap_or(buses.len()).min(buses.len()), bus.clone());
+                check_audio(project)?;
+            }
+            Command::RemoveBus { bus } => {
+                let idx = project.audio.buses.iter().position(|b| b.id == *bus).ok_or(CommandError::NoBus(*bus))?;
+                project.audio.buses.remove(idx);
+                for t in &mut project.tracks {
+                    if t.route == Route::Bus(*bus) {
+                        Arc::make_mut(t).route = Route::Program;
+                    }
+                }
+                for b in &mut project.audio.buses {
+                    if b.route == Route::Bus(*bus) {
+                        b.route = Route::Program;
+                    }
+                }
+            }
+            Command::UpdateBus { bus } => {
+                let b = project.audio.buses.iter_mut().find(|b| b.id == bus.id).ok_or(CommandError::NoBus(bus.id))?;
+                *b = bus.clone();
+                check_audio(project)?;
+            }
+            Command::AddMix { mix } => {
+                if project.audio.mix(mix.id).is_some() {
+                    return Err(CommandError::Duplicate(mix.id));
+                }
+                project.audio.mixes.push(mix.clone());
+            }
+            Command::RemoveMix { mix } => {
+                let idx = project.audio.mixes.iter().position(|m| m.id == *mix).ok_or(CommandError::NoMix(*mix))?;
+                project.audio.mixes.remove(idx);
+                for t in &mut project.tracks {
+                    if t.sends.iter().any(|s| s.mix == *mix) {
+                        Arc::make_mut(t).sends.retain(|s| s.mix != *mix);
+                    }
+                }
+                for b in &mut project.audio.buses {
+                    b.sends.retain(|s| s.mix != *mix);
+                }
+            }
+            Command::UpdateMix { mix } => {
+                let m = project.audio.mixes.iter_mut().find(|m| m.id == mix.id).ok_or(CommandError::NoMix(mix.id))?;
+                *m = mix.clone();
+            }
+            Command::UpdateMaster { master } => project.audio.master = master.clone(),
             Command::AddEffect { track, effect, index } => {
                 let t = track_mut(project, *track)?;
                 if t.effects.iter().any(|e| e.id == effect.id) {
@@ -648,6 +751,40 @@ impl Command {
         }
         Ok(())
     }
+}
+
+/// Routes go to buses that exist, without loops; sends go to mixes that exist.
+fn check_audio(project: &Project) -> Result<(), CommandError> {
+    let a = &project.audio;
+    let strips = project
+        .tracks
+        .iter()
+        .map(|t| (t.id, t.route, &t.sends))
+        .chain(a.buses.iter().map(|b| (b.id, b.route, &b.sends)));
+    for (id, route, sends) in strips {
+        if let Route::Bus(b) = route {
+            if a.bus(b).is_none() {
+                return Err(CommandError::NoBus(b));
+            }
+            // follow the chain of buses: it must reach Program without coming back
+            let mut seen = vec![id];
+            let mut cur = b;
+            while let Some(bus) = a.bus(cur) {
+                if seen.contains(&cur) {
+                    return Err(CommandError::AudioLoop);
+                }
+                seen.push(cur);
+                match bus.route {
+                    Route::Bus(next) => cur = next,
+                    _ => break,
+                }
+            }
+        }
+        if let Some(s) = sends.iter().find(|s| a.mix(s.mix).is_none()) {
+            return Err(CommandError::NoMix(s.mix));
+        }
+    }
+    Ok(())
 }
 
 fn track_mut(project: &mut Project, id: Id) -> Result<&mut Track, CommandError> {

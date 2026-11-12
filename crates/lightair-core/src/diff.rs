@@ -37,6 +37,8 @@ pub enum Patch {
     TrackRemoved(Id),
     /// Final mixer order, sent when tracks were added, removed or moved.
     TrackOrder(Vec<Id>),
+    /// Buses, mixes or the master changed (the mixer is rebuilt from the project).
+    AudioSetup,
 }
 
 /// Patches in an order that is safe to apply: formats and inputs before the scenes that use
@@ -99,6 +101,9 @@ pub fn diff(before: &Project, after: &Project) -> Vec<Patch> {
     let order = |p: &Project| p.tracks.iter().map(|t| t.id).collect::<Vec<_>>();
     if order(before) != order(after) {
         out.push(Patch::TrackOrder(order(after)));
+    }
+    if before.audio != after.audio {
+        out.push(Patch::AudioSetup);
     }
 
     for id in before.inputs.keys() {

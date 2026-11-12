@@ -5,6 +5,7 @@
 //! ├─ project.json     manifest: format version, id, name, formats, program, scene order
 //! ├─ inputs.json      media inputs
 //! ├─ audio.json       mixer tracks and their effects
+//! ├─ mixer.json       buses, mixes and the master
 //! ├─ outputs.json     recording and streaming settings (no secrets)
 //! ├─ scenes/<id>.json one file per scene (diff-friendly)
 //! └─ journal/current.log   committed commands since the last compaction (JSON lines)
@@ -102,6 +103,7 @@ pub fn save(dir: &Path, project: &Project) -> Result<(), StoreError> {
     write_json(&dir.join("inputs.json"), &inputs)?;
     let tracks: Vec<&Track> = project.tracks.iter().map(|t| &**t).collect();
     write_json(&dir.join("audio.json"), &tracks)?;
+    write_json(&dir.join("mixer.json"), &project.audio)?;
     write_json(&dir.join("outputs.json"), &project.outputs)?;
     // The manifest goes last: it is what makes the new scene files "current".
     write_json(
@@ -131,6 +133,8 @@ pub fn load_snapshot(dir: &Path) -> Result<Project, StoreError> {
     let inputs: Vec<Input> = read_json(&dir.join("inputs.json"))?;
     let audio = dir.join("audio.json");
     let tracks: Vec<Track> = if audio.exists() { read_json(&audio)? } else { Vec::new() };
+    let mixer = dir.join("mixer.json");
+    let audio_setup: lightair_core::AudioSetup = if mixer.exists() { read_json(&mixer)? } else { Default::default() };
     let outputs_path = dir.join("outputs.json");
     let outputs: OutputSettings =
         if outputs_path.exists() { read_json(&outputs_path)? } else { OutputSettings::default() };
@@ -150,6 +154,7 @@ pub fn load_snapshot(dir: &Path) -> Result<Project, StoreError> {
         scenes,
         program: manifest.program,
         tracks: tracks.into_iter().map(Arc::new).collect(),
+        audio: audio_setup,
         outputs,
         transition: manifest.transition,
         stinger: manifest.stinger,
