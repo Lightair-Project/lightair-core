@@ -486,6 +486,9 @@ pub struct Destination {
     /// Format to send (e.g. vertical for TikTok); `None` = the primary format.
     #[serde(default)]
     pub format: Option<Id>,
+    /// Which platform it is ("youtube", "twitch", …, "custom"), for its badge and help.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
