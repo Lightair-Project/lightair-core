@@ -273,7 +273,7 @@ impl Command {
             Command::SetTrackVolume { .. } => "Change volume".into(),
             Command::SetTrackMuted { muted: true, .. } => "Mute".into(),
             Command::SetTrackMuted { muted: false, .. } => "Unmute".into(),
-            Command::SetTrackCue { .. } => "Cue".into(),
+            Command::SetTrackCue { .. } => "Listen in headphones".into(),
             Command::AddEffect { .. } => "Add effect".into(),
             Command::RemoveEffect { .. } => "Remove effect".into(),
             Command::SetEffectEnabled { enabled: true, .. } => "Turn effect on".into(),
