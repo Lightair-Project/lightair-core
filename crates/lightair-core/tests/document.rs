@@ -59,6 +59,32 @@ fn a_drag_gesture_is_one_undo_step() {
     assert_eq!(doc_undo_depth(&doc), steps + 1);
 }
 
+#[test]
+fn dragging_several_layers_is_one_undo_step() {
+    let (mut doc, scene, first, format) = setup();
+    let cam = doc.project().scene(scene).unwrap().layer(first).unwrap().input;
+    let second = Layer::new("Copy", cam, [(format, Layout::boxed(0.0, 0.0, 100.0, 100.0))]);
+    let second_id = second.id;
+    doc.apply(&Command::AddLayer { scene, layer: second, index: None }).unwrap();
+    let steps = doc_undo_depth(&doc);
+    doc.begin_gesture();
+    for x in 1..20 {
+        let commands = [first, second_id]
+            .map(|layer| Command::SetLayout {
+                scene,
+                layer,
+                format,
+                layout: Layout::boxed(x as f32, 0.0, 100.0, 100.0),
+            })
+            .to_vec();
+        doc.apply(&Command::Batch { label: "Move layers".into(), commands }).unwrap();
+    }
+    doc.end_gesture();
+    assert_eq!(doc_undo_depth(&doc), steps + 1);
+    doc.undo().unwrap();
+    assert_eq!(doc.project().scene(scene).unwrap().layer(second_id).unwrap().layouts[&format].x, 0.0);
+}
+
 fn doc_undo_depth(doc: &Document) -> usize {
     let mut d = doc.clone();
     let mut n = 0;

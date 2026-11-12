@@ -280,6 +280,15 @@ impl Command {
             Command::SetTrackVolume { track, .. } => Some(("volume", *track, *track)),
             Command::SetEffectSettings { track, effect, .. } => Some(("effect", *track, *effect)),
             Command::SetInputEffectSettings { input, effect, .. } => Some(("input-effect", *input, *effect)),
+            // Moving several layers together: one step per gesture, like a single layer.
+            Command::Batch { commands, .. }
+                if !commands.is_empty() && commands.iter().all(|c| matches!(c, Command::SetLayout { .. })) =>
+            {
+                match &commands[0] {
+                    Command::SetLayout { layer, format, .. } => Some(("layouts", *layer, *format)),
+                    _ => None,
+                }
+            }
             _ => None,
         }
     }
