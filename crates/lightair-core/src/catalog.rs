@@ -904,16 +904,22 @@ pub const CATALOG: &[EffectDef] = &[
         kind: "chroma_key_filter_v2",
         name: "Green screen",
         category: Category::Keying,
-        description: "Key out a green, blue or magenta screen",
+        description: "Key out a green, blue, magenta or any colour screen",
         icon: "square-dashed",
         needs: Nothing,
         controls: &[
             Control::Choice {
                 key: "key_color_type",
                 label: "Screen",
-                options: &[("Green", Pick::Str("green")), ("Blue", Pick::Str("blue")), ("Magenta", Pick::Str("magenta"))],
+                options: &[
+                    ("Green", Pick::Str("green")),
+                    ("Blue", Pick::Str("blue")),
+                    ("Magenta", Pick::Str("magenta")),
+                    ("Custom", Pick::Str("custom")),
+                ],
                 default: Pick::Str("green"),
             },
+            colour("key_color", "Key colour", 0xFF00FF00),
             Control::Slider(Slider {
                 key: "similarity",
                 label: "Similarity",
