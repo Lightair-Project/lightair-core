@@ -105,6 +105,19 @@ fn estimated_layers_refit_to_the_real_size() {
 }
 
 #[test]
+fn stinger_transition_carries_over() {
+    let json = r#"{"name": "S", "sources": [], "current_transition": "Swoosh",
+        "transitions": [{"id": "obs_stinger_transition", "name": "Swoosh",
+                         "settings": {"path": "/tmp/swoosh.webm", "transition_point": 650, "tp_type": 0}}]}"#;
+    let mut doc = Document::new(Project::new("Mine"));
+    let (cmd, _) = import_obs_collection(json, doc.project()).unwrap();
+    doc.apply(&cmd).unwrap();
+    assert_eq!(doc.project().transition.kind, TransitionKind::Stinger);
+    let st = doc.project().stinger.clone().unwrap();
+    assert_eq!((st.path.as_str(), st.cut_ms), ("/tmp/swoosh.webm", 650));
+}
+
+#[test]
 fn rejects_garbage() {
     assert!(import_obs_collection("{}", &Project::new("x")).is_err());
     assert!(import_obs_collection("nope", &Project::new("x")).is_err());

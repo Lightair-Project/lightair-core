@@ -7,8 +7,8 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    ClipSettings, Destination, Effect, Format, Id, Input, Layer, Layout, Project, RecordingSettings, Scene, Track,
-    TransitionSettings,
+    ClipSettings, Destination, Effect, Format, Id, Input, Layer, Layout, Project, RecordingSettings, Scene, Stinger,
+    Track, TransitionSettings,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -163,6 +163,9 @@ pub enum Command {
     SetTransition {
         settings: TransitionSettings,
     },
+    SetStinger {
+        stinger: Option<Stinger>,
+    },
     SetClipSettings {
         settings: ClipSettings,
     },
@@ -261,6 +264,7 @@ impl Command {
             Command::SetRecordingSettings { .. } => "Change recording settings".into(),
             Command::SetStreamBitrate { .. } => "Change stream bitrate".into(),
             Command::SetTransition { .. } => "Change transition".into(),
+            Command::SetStinger { .. } => "Change stinger".into(),
             Command::SetClipSettings { .. } => "Change clip settings".into(),
             Command::AddInputEffect { .. } => "Add effect".into(),
             Command::RemoveInputEffect { .. } => "Remove effect".into(),
@@ -515,6 +519,7 @@ impl Command {
                 project.transition =
                     TransitionSettings { duration_ms: settings.duration_ms.clamp(50, 5000), ..*settings }
             }
+            Command::SetStinger { stinger } => project.stinger = stinger.clone(),
             Command::AddInputEffect { input, effect, index } => {
                 let i = Arc::make_mut(project.inputs.get_mut(input).ok_or(CommandError::NoInput(*input))?);
                 if i.effects.iter().any(|e| e.id == effect.id) {

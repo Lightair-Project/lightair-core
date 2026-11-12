@@ -58,6 +58,8 @@ struct Manifest {
     scenes: Vec<Id>,
     #[serde(default)]
     transition: lightair_core::TransitionSettings,
+    #[serde(default)]
+    stinger: Option<lightair_core::Stinger>,
 }
 
 /// Writes `bytes` to `path` atomically (temp file + rename), so a crash never leaves a torn file.
@@ -112,6 +114,7 @@ pub fn save(dir: &Path, project: &Project) -> Result<(), StoreError> {
             program: project.program,
             scenes: project.scenes.iter().map(|s| s.id).collect(),
             transition: project.transition,
+            stinger: project.stinger.clone(),
         },
     )
 }
@@ -149,6 +152,7 @@ pub fn load_snapshot(dir: &Path) -> Result<Project, StoreError> {
         tracks: tracks.into_iter().map(Arc::new).collect(),
         outputs,
         transition: manifest.transition,
+        stinger: manifest.stinger,
     })
 }
 

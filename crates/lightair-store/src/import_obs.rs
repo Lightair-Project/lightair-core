@@ -437,6 +437,19 @@ pub fn import_obs_collection(json: &str, project: &Project) -> Result<(Command, 
                 TransitionKind::Move
             }
             "fade_transition" => TransitionKind::Fade,
+            "obs_stinger_transition" => match settings["path"].as_str().filter(|p| !p.is_empty()) {
+                Some(path) => {
+                    // OBS times the cut in ms or frames; frames are approximated at 30 fps.
+                    let point = settings["transition_point"].as_u64().unwrap_or(0);
+                    let cut_ms = if settings["tp_type"].as_i64() == Some(1) { point * 1000 / 30 } else { point };
+                    commands.push(Command::SetStinger {
+                        stinger: Some(lightair_core::Stinger { path: path.to_string(), cut_ms: cut_ms as u32 }),
+                    });
+                    report.converted.push(format!("transition {name}: stinger"));
+                    TransitionKind::Stinger
+                }
+                None => TransitionKind::Fade,
+            },
             other => {
                 report.attention.push(format!("transition {name} ({other}): not built in yet; using Fade"));
                 TransitionKind::Fade

@@ -54,6 +54,17 @@ pub struct Project {
     /// How scene switches look (docs/07-scenes-layers-canvas.md, "Transitions").
     #[serde(default)]
     pub transition: TransitionSettings,
+    /// The stinger video used by the Stinger transition.
+    #[serde(default)]
+    pub stinger: Option<Stinger>,
+}
+
+/// A stinger: a video (usually with alpha) that plays over the switch; the scene changes
+/// underneath at `cut_ms`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Stinger {
+    pub path: String,
+    pub cut_ms: u32,
 }
 
 impl Project {
@@ -68,6 +79,7 @@ impl Project {
             tracks: Vec::new(),
             outputs: OutputSettings::default(),
             transition: TransitionSettings::default(),
+            stinger: None,
         }
     }
 
@@ -84,6 +96,7 @@ impl Project {
             tracks: Vec::new(),
             outputs: self.outputs.clone(),
             transition: self.transition,
+            stinger: self.stinger.clone(),
         }
     }
 
@@ -366,10 +379,13 @@ pub enum TransitionKind {
     Wipe,
     /// Fade through black.
     Dip,
+    /// Plays the project's stinger video over the switch.
+    Stinger,
 }
 
 impl TransitionKind {
-    pub const ALL: [TransitionKind; 6] = [Self::Cut, Self::Fade, Self::Move, Self::Slide, Self::Wipe, Self::Dip];
+    pub const ALL: [TransitionKind; 7] =
+        [Self::Cut, Self::Fade, Self::Move, Self::Slide, Self::Wipe, Self::Dip, Self::Stinger];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -379,6 +395,7 @@ impl TransitionKind {
             Self::Slide => "Slide",
             Self::Wipe => "Wipe",
             Self::Dip => "Dip",
+            Self::Stinger => "Stinger",
         }
     }
 
