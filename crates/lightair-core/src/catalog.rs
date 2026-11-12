@@ -280,6 +280,9 @@ impl EffectDef {
     /// A one-line summary of what the effect is doing: its preset, then the sliders away
     /// from neutral ("Soft Box · Intensity 60%").
     pub fn summary(&self, settings: &Value) -> String {
+        if self.kind == "audio.eq" {
+            return eq_summary(self, settings);
+        }
         let mut parts = Vec::new();
         for c in self.controls {
             match c {
@@ -306,6 +309,31 @@ impl EffectDef {
         }
         parts.join(" · ")
     }
+}
+
+/// The EQ's bands that are on: "High pass 80 Hz · Bell 3.0 kHz +3.0 dB".
+fn eq_summary(def: &EffectDef, settings: &Value) -> String {
+    let get = |key: String| {
+        settings.get(&key).cloned().or_else(|| def.controls.iter().find(|c| c.key() == Some(&key)).and_then(|c| c.default_json()))
+    };
+    let slider = |key: &str| def.sliders().find(|s| s.key == key).copied();
+    let mut parts = Vec::new();
+    for n in 1..=8 {
+        if get(format!("b{n}_on")).and_then(|v| v.as_bool()) != Some(true) {
+            continue;
+        }
+        let kind = get(format!("b{n}_type")).and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
+        let label = EQ_TYPES.iter().find(|(_, p)| p.matches(&json!(kind))).map_or("Band", |(l, _)| *l);
+        let freq_key = format!("b{n}_freq");
+        let freq = slider(&freq_key).map(|s| s.display(get(freq_key.clone()).and_then(|v| v.as_f64()).unwrap_or(s.default)));
+        let gain = get(format!("b{n}_gain")).and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let mut part = format!("{label} {}", freq.unwrap_or_default());
+        if matches!(kind.as_str(), "bell" | "ls" | "hs") && gain.abs() > 0.05 {
+            part.push_str(&format!(" {gain:+.1} dB"));
+        }
+        parts.push(part);
+    }
+    if parts.is_empty() { "Flat".into() } else { parts.join(" · ") }
 }
 
 const fn s(key: &'static str, label: &'static str, default: f64) -> Control {
@@ -1112,7 +1140,17 @@ macro_rules! eq_band {
             },
             hz(concat!("b", $n, "_freq"), "Frequency", 20.0, 20_000.0, $freq),
             a(concat!("b", $n, "_gain"), "Gain", -24.0, 24.0, 0.0, Unit::Db),
-            a(concat!("b", $n, "_q"), "Q", 0.1, 10.0, 0.9, Unit::Number),
+            Control::Slider(Slider {
+                key: concat!("b", $n, "_q"),
+                label: "Q",
+                min: 0.1,
+                max: 10.0,
+                step: 0.01,
+                default: 0.9,
+                unit: Unit::Number,
+                int: false,
+                log: true,
+            }),
         ]
     };
 }
@@ -1274,12 +1312,12 @@ pub const AUDIO: &[EffectDef] = &[
         name: "Reverb",
         category: Category::Space,
         description: "A room, a plate, a hall",
-        icon: "waves",
+        icon: "waves-horizontal",
         needs: Nothing,
         controls: &[
             a("size", "Size", 0.0, 1.0, 0.5, Unit::Percent),
             a("damping", "Damping", 0.0, 1.0, 0.5, Unit::Percent),
-            ms("pre_delay_ms", "Pre-delay", 0.0, 200.0, 15.0),
+            a("pre_delay_ms", "Pre-delay", 0.0, 200.0, 15.0, Unit::Ms),
             a("width", "Width", 0.0, 1.0, 1.0, Unit::Percent),
             a("mix", "Mix", 0.0, 1.0, 0.25, Unit::Percent),
         ],
