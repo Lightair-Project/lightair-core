@@ -283,6 +283,11 @@ impl EffectDef {
         if self.kind == "audio.eq" {
             return eq_summary(self, settings);
         }
+        if self.kind == PLUGIN_KIND {
+            let vendor = settings.get("vendor").and_then(Value::as_str).unwrap_or("");
+            let format = plugin_format_name(settings.get("format").and_then(Value::as_str).unwrap_or(""));
+            return if vendor.is_empty() { format.into() } else { format!("{vendor} · {format}") };
+        }
         let mut parts = Vec::new();
         for c in self.controls {
             match c {
@@ -1091,7 +1096,42 @@ pub const CATALOG: &[EffectDef] = &[
 use Needs::Nothing;
 
 pub fn def(kind: &str) -> Option<&'static EffectDef> {
-    CATALOG.iter().chain(AUDIO).find(|d| d.kind == kind)
+    CATALOG.iter().chain(AUDIO).chain(std::iter::once(&PLUGIN)).find(|d| d.kind == kind)
+}
+
+/// The kind of a hosted plugin insert.
+pub const PLUGIN_KIND: &str = "audio.plugin";
+
+/// A hosted plugin (Audio Unit, VST3). Not a catalog tile: the sheet lists the installed
+/// plugins. Settings: "format" ("au", "vst3"), "id" (the format's identifier), "name", "vendor",
+/// and "state" (the plugin's own state, base64) once it has been edited.
+pub static PLUGIN: EffectDef = EffectDef {
+    kind: PLUGIN_KIND,
+    name: "Plugin",
+    category: Category::Utility,
+    description: "An Audio Unit or VST3 plugin",
+    icon: "plug",
+    needs: Nothing,
+    controls: &[],
+    fixed: &[],
+};
+
+/// A plugin insert for an installed plugin.
+pub fn plugin_effect(format: &str, id: &str, name: &str, vendor: &str) -> Effect {
+    Effect::new(
+        name,
+        PLUGIN_KIND,
+        serde_json::json!({ "format": format, "id": id, "name": name, "vendor": vendor }),
+    )
+}
+
+/// What a plugin format is called.
+pub fn plugin_format_name(format: &str) -> &'static str {
+    match format {
+        "au" => "Audio Unit",
+        "vst3" => "VST3",
+        _ => "Plugin",
+    }
 }
 
 pub fn audio_in_category(category: Category) -> impl Iterator<Item = &'static EffectDef> {

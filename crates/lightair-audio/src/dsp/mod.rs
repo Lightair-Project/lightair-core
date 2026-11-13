@@ -6,6 +6,7 @@ mod dynamics;
 pub mod eq;
 mod gain;
 mod noise;
+mod plugin;
 mod space;
 mod voice;
 
@@ -13,6 +14,7 @@ pub use dynamics::{CompressorParams, DeEsserParams, DuckerParams, GateParams, Li
 pub use eq::{Band, BandKind, EqParams};
 pub use gain::GainParams;
 pub use noise::NoiseParams;
+pub use plugin::{Plugin, PluginParams};
 pub use space::{ChannelParams, DelayParams, ReverbParams};
 pub use voice::VoiceParams;
 
@@ -31,6 +33,8 @@ pub enum Params {
     Delay(DelayParams),
     Channel(ChannelParams),
     Voice(VoiceParams),
+    /// A hosted plugin (AU, VST3).
+    Plugin(PluginParams),
 }
 
 impl Params {
@@ -49,24 +53,26 @@ impl Params {
             Params::Delay(_) => "audio.delay",
             Params::Channel(_) => "audio.channel",
             Params::Voice(_) => "audio.voice",
+            Params::Plugin(_) => "audio.plugin",
         }
     }
 
     /// A processor for these params at `sample_rate` (allocates: not on the audio thread).
     pub fn make(&self, sample_rate: f32) -> Box<dyn Processor> {
-        match *self {
-            Params::Gain(p) => Box::new(gain::Gain::new(p, sample_rate)),
-            Params::Eq(p) => Box::new(eq::Eq::new(p, sample_rate)),
-            Params::Compressor(p) => Box::new(dynamics::Compressor::new(p, sample_rate)),
-            Params::Gate(p) => Box::new(dynamics::Gate::new(p, sample_rate)),
-            Params::Limiter(p) => Box::new(dynamics::Limiter::new(p, sample_rate)),
-            Params::DeEsser(p) => Box::new(dynamics::DeEsser::new(p, sample_rate)),
-            Params::Ducker(p) => Box::new(dynamics::Ducker::new(p, sample_rate)),
-            Params::Noise(p) => Box::new(noise::Noise::new(p, sample_rate)),
-            Params::Reverb(p) => Box::new(space::Reverb::new(p, sample_rate)),
-            Params::Delay(p) => Box::new(space::Delay::new(p, sample_rate)),
-            Params::Channel(p) => Box::new(space::ChannelTools::new(p, sample_rate)),
-            Params::Voice(p) => Box::new(voice::Voice::new(p, sample_rate)),
+        match self {
+            Params::Plugin(p) => Box::new(plugin::Hosted::new(p)),
+            &Params::Gain(p) => Box::new(gain::Gain::new(p, sample_rate)),
+            &Params::Eq(p) => Box::new(eq::Eq::new(p, sample_rate)),
+            &Params::Compressor(p) => Box::new(dynamics::Compressor::new(p, sample_rate)),
+            &Params::Gate(p) => Box::new(dynamics::Gate::new(p, sample_rate)),
+            &Params::Limiter(p) => Box::new(dynamics::Limiter::new(p, sample_rate)),
+            &Params::DeEsser(p) => Box::new(dynamics::DeEsser::new(p, sample_rate)),
+            &Params::Ducker(p) => Box::new(dynamics::Ducker::new(p, sample_rate)),
+            &Params::Noise(p) => Box::new(noise::Noise::new(p, sample_rate)),
+            &Params::Reverb(p) => Box::new(space::Reverb::new(p, sample_rate)),
+            &Params::Delay(p) => Box::new(space::Delay::new(p, sample_rate)),
+            &Params::Channel(p) => Box::new(space::ChannelTools::new(p, sample_rate)),
+            &Params::Voice(p) => Box::new(voice::Voice::new(p, sample_rate)),
         }
     }
 
@@ -100,6 +106,11 @@ pub trait Processor: Send {
     }
     /// Frames of delay it adds (look-ahead, framing), for aligning recordings.
     fn latency(&self) -> usize {
+        0
+    }
+    /// What it is beyond its kind: a hosted plugin's instance. A graph swap keeps a processor's
+    /// state only when kind and identity match.
+    fn identity(&self) -> usize {
         0
     }
 }

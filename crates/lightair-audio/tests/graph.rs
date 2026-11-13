@@ -167,3 +167,54 @@ fn program_loudness_of_a_sine() {
     let reading = engine.meter(1).read();
     assert!((reading.peak_db[0] + 20.0).abs() < 0.1, "strip peak {}", reading.peak_db[0]);
 }
+
+/// A stand-in plugin: scales by a factor, counts its blocks.
+struct Scale(f32, std::sync::atomic::AtomicUsize);
+
+impl lightair_audio::dsp::Plugin for Scale {
+    fn process(&self, l: &mut [f32], r: &mut [f32]) -> bool {
+        l.iter_mut().chain(r.iter_mut()).for_each(|x| *x *= self.0);
+        self.1.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        true
+    }
+}
+
+#[test]
+fn a_hosted_plugin_processes_and_survives_swaps() {
+    use lightair_audio::dsp::PluginParams;
+    use std::sync::Arc;
+    let half = Arc::new(Scale(0.5, Default::default()));
+    let spec = |p: Option<Arc<Scale>>| {
+        let mut t = Strip::track(1, MIC, Channels::Mono(0));
+        t.inserts.push(EffectSpec {
+            id: 7,
+            enabled: true,
+            params: Params::Plugin(PluginParams { plugin: p.map(|p| p as Arc<dyn lightair_audio::dsp::Plugin>) }),
+        });
+        GraphSpec { strips: vec![t], ..Default::default() }
+    };
+    // not loaded yet: the audio passes through
+    let (mut engine, mut r) = run(spec(None), 2);
+    assert!(close(last(r.graph().program().0), 0.5));
+    let (a, b) = (dc(0.5), dc(0.25));
+    let chans: [&[f32]; 2] = [&a, &b];
+    let go = |engine: &mut Engine, r: &mut lightair_audio::Renderer, s: GraphSpec| {
+        engine.set(s);
+        for _ in 0..2 {
+            r.process(&[InputBlock { id: MIC, channels: &chans }], BLOCK);
+        }
+    };
+    // loaded: it runs, and a fader move (a new graph) keeps the same instance running
+    go(&mut engine, &mut r, spec(Some(half.clone())));
+    assert!(close(last(r.graph().program().0), 0.25));
+    go(&mut engine, &mut r, spec(Some(half.clone())));
+    assert_eq!(half.1.load(std::sync::atomic::Ordering::Relaxed), 4);
+    // another instance under the same effect id replaces it
+    let quarter = Arc::new(Scale(0.25, Default::default()));
+    go(&mut engine, &mut r, spec(Some(quarter.clone())));
+    assert!(close(last(r.graph().program().0), 0.125));
+    assert_eq!(half.1.load(std::sync::atomic::Ordering::Relaxed), 4, "the old one no longer runs");
+    drop(r);
+    drop(engine);
+    assert_eq!(Arc::strong_count(&quarter), 1, "the graph lets go of it");
+}

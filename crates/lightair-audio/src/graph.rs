@@ -303,7 +303,7 @@ impl Graph {
     pub(crate) fn adopt(&mut self, old: &mut Graph) {
         fn slots(new: &mut [Slot], old: &mut [Slot]) {
             for s in new.iter_mut() {
-                if let Some(o) = old.iter_mut().find(|o| o.id == s.id && o.proc.kind() == s.proc.kind()) {
+                if let Some(o) = old.iter_mut().find(|o| o.id == s.id && o.proc.kind() == s.proc.kind() && o.proc.identity() == s.proc.identity()) {
                     std::mem::swap(&mut s.proc, &mut o.proc);
                     s.proc.set(&s.params);
                 }
