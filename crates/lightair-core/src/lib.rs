@@ -15,7 +15,7 @@ pub use document::{Change, Document};
 pub use hierarchy::Frame;
 pub use model::{
     AudioMix, AudioSetup, Bus, ClipSettings, Crop, Destination, Direction, Effect, Encoding, Fit, Format, Id, Input,
-    Layer, Layout, Master, Route, Send, StemFormat, StemPoint, TrackChannels,
+    Layer, Layout, MASTER_ID, Master, MixerStrip, Route, Send, StemFormat, StemPoint, TrackChannels,
     OutputSettings, Project, Reconnect, RecordingSettings, Scene, Shape, ShapeKind, Stinger, Track, TransitionKind,
     TransitionSettings, VideoEncoder,
 };

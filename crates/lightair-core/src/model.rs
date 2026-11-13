@@ -547,6 +547,43 @@ impl Default for Master {
     }
 }
 
+/// The id that stands for the master strip (Program) where a strip id is expected.
+pub const MASTER_ID: Id = Id(uuid::Uuid::nil());
+
+/// A strip of the mixer, for commands that work on any of them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MixerStrip {
+    Track(Id),
+    Bus(Id),
+    Mix(Id),
+    Master,
+}
+
+impl MixerStrip {
+    /// The strip with this id in `project` (tracks, buses, mixes; [`MASTER_ID`]: the master).
+    pub fn find(project: &Project, id: Id) -> Option<Self> {
+        if id == MASTER_ID {
+            Some(MixerStrip::Master)
+        } else if project.track(id).is_some() {
+            Some(MixerStrip::Track(id))
+        } else if project.audio.bus(id).is_some() {
+            Some(MixerStrip::Bus(id))
+        } else if project.audio.mix(id).is_some() {
+            Some(MixerStrip::Mix(id))
+        } else {
+            None
+        }
+    }
+
+    pub fn id(self) -> Id {
+        match self {
+            MixerStrip::Track(i) | MixerStrip::Bus(i) | MixerStrip::Mix(i) => i,
+            MixerStrip::Master => MASTER_ID,
+        }
+    }
+}
+
 /// The mixer beyond its tracks (docs/plans/audio-engine.md).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct AudioSetup {

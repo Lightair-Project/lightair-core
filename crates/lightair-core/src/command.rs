@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{
     ClipSettings, Destination, Effect, Format, Id, Input, Layer, Layout, Project, Reconnect, RecordingSettings, Scene,
-    Stinger, Track, TransitionSettings, AudioMix, Bus, Master, Route,
+    Stinger, Track, TransitionSettings, AudioMix, Bus, Master, Route, MixerStrip,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -166,6 +166,26 @@ pub enum Command {
     },
     UpdateMaster {
         master: Master,
+    },
+    /// Effects on any mixer strip (a track, bus, mix or the master).
+    AddStripEffect {
+        strip: MixerStrip,
+        effect: Effect,
+        index: Option<usize>,
+    },
+    RemoveStripEffect {
+        strip: MixerStrip,
+        effect: Id,
+    },
+    SetStripEffectEnabled {
+        strip: MixerStrip,
+        effect: Id,
+        enabled: bool,
+    },
+    SetStripEffectSettings {
+        strip: MixerStrip,
+        effect: Id,
+        settings: serde_json::Value,
     },
     AddEffect {
         track: Id,
@@ -330,6 +350,11 @@ impl Command {
             Command::RemoveMix { .. } => "Remove mix".into(),
             Command::UpdateMix { mix } => format!("Change {}", mix.name),
             Command::UpdateMaster { .. } => "Change master".into(),
+            Command::AddStripEffect { .. } => "Add effect".into(),
+            Command::RemoveStripEffect { .. } => "Remove effect".into(),
+            Command::SetStripEffectEnabled { enabled: true, .. } => "Turn effect on".into(),
+            Command::SetStripEffectEnabled { enabled: false, .. } => "Bypass effect".into(),
+            Command::SetStripEffectSettings { .. } => "Change effect".into(),
             Command::AddEffect { .. } => "Add effect".into(),
             Command::RemoveEffect { .. } => "Remove effect".into(),
             Command::SetEffectEnabled { enabled: true, .. } => "Turn effect on".into(),
@@ -366,6 +391,7 @@ impl Command {
             Command::UpdateBus { bus } => Some(("bus", bus.id, bus.id)),
             Command::UpdateMix { mix } => Some(("mix", mix.id, mix.id)),
             Command::UpdateMaster { .. } => Some(("master", Id(uuid::Uuid::nil()), Id(uuid::Uuid::nil()))),
+            Command::SetStripEffectSettings { strip, effect, .. } => Some(("strip-effect", strip.id(), *effect)),
             Command::SetEffectSettings { track, effect, .. } => Some(("effect", *track, *effect)),
             Command::SetInputEffectSettings { input, effect, .. } => Some(("input-effect", *input, *effect)),
             // Moving several layers together: one step per gesture, like a single layer.
@@ -639,6 +665,28 @@ impl Command {
                 *m = mix.clone();
             }
             Command::UpdateMaster { master } => project.audio.master = master.clone(),
+            Command::AddStripEffect { strip, effect, index } => {
+                let list = strip_effects(project, *strip)?;
+                if list.iter().any(|e| e.id == effect.id) {
+                    return Err(CommandError::Duplicate(effect.id));
+                }
+                let at = index.unwrap_or(list.len()).min(list.len());
+                list.insert(at, effect.clone());
+            }
+            Command::RemoveStripEffect { strip, effect } => {
+                let list = strip_effects(project, *strip)?;
+                let at = list.iter().position(|e| e.id == *effect).ok_or(CommandError::NoEffect(*effect))?;
+                list.remove(at);
+            }
+            Command::SetStripEffectEnabled { strip, effect, enabled } => {
+                let list = strip_effects(project, *strip)?;
+                list.iter_mut().find(|e| e.id == *effect).ok_or(CommandError::NoEffect(*effect))?.enabled = *enabled;
+            }
+            Command::SetStripEffectSettings { strip, effect, settings } => {
+                let list = strip_effects(project, *strip)?;
+                list.iter_mut().find(|e| e.id == *effect).ok_or(CommandError::NoEffect(*effect))?.settings =
+                    settings.clone();
+            }
             Command::AddEffect { track, effect, index } => {
                 let t = track_mut(project, *track)?;
                 if t.effects.iter().any(|e| e.id == effect.id) {
@@ -751,6 +799,20 @@ impl Command {
         }
         Ok(())
     }
+}
+
+/// A mixer strip's effect list.
+fn strip_effects(project: &mut Project, strip: MixerStrip) -> Result<&mut Vec<Effect>, CommandError> {
+    Ok(match strip {
+        MixerStrip::Track(id) => &mut track_mut(project, id)?.effects,
+        MixerStrip::Bus(id) => {
+            &mut project.audio.buses.iter_mut().find(|b| b.id == id).ok_or(CommandError::NoBus(id))?.effects
+        }
+        MixerStrip::Mix(id) => {
+            &mut project.audio.mixes.iter_mut().find(|m| m.id == id).ok_or(CommandError::NoMix(id))?.effects
+        }
+        MixerStrip::Master => &mut project.audio.master.effects,
+    })
 }
 
 /// Routes go to buses that exist, without loops; sends go to mixes that exist.

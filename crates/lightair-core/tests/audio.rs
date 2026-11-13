@@ -78,3 +78,30 @@ fn older_projects_load_and_their_filters_become_engine_effects() {
     assert_eq!(gate.id, t.effects[0].id, "the same effect, converted");
     assert!(lightair_core::catalog::migrate_audio_effect(&Effect::new("V", "audio.voice", json!({}))).is_none());
 }
+
+#[test]
+fn effects_on_buses_mixes_and_the_master() {
+    use lightair_core::{MASTER_ID, MixerStrip};
+    let (mut doc, tid) = project();
+    let bus = Bus::new("Music");
+    let mix = AudioMix::new("VOD");
+    doc.apply(&Command::AddBus { bus: bus.clone(), index: None }).unwrap();
+    doc.apply(&Command::AddMix { mix: mix.clone() }).unwrap();
+    for strip in [MixerStrip::Bus(bus.id), MixerStrip::Mix(mix.id), MixerStrip::Master, MixerStrip::Track(tid)] {
+        let e = Effect::new("Limiter", "audio.limiter", json!({}));
+        let eid = e.id;
+        doc.apply(&Command::AddStripEffect { strip, effect: e, index: None }).unwrap();
+        doc.apply(&Command::SetStripEffectSettings { strip, effect: eid, settings: json!({"ceiling_db": -2.0}) }).unwrap();
+        doc.apply(&Command::SetStripEffectEnabled { strip, effect: eid, enabled: false }).unwrap();
+    }
+    let p = doc.project();
+    assert_eq!(p.audio.bus(bus.id).unwrap().effects[0].settings["ceiling_db"], -2.0);
+    assert!(!p.audio.mix(mix.id).unwrap().effects[0].enabled);
+    assert_eq!(p.audio.master.effects.len(), 1);
+    assert_eq!(p.track(tid).unwrap().effects.len(), 1);
+    assert_eq!(MixerStrip::find(p, MASTER_ID), Some(MixerStrip::Master));
+    assert_eq!(MixerStrip::find(p, bus.id), Some(MixerStrip::Bus(bus.id)));
+    let first = p.audio.master.effects[0].id;
+    doc.apply(&Command::RemoveStripEffect { strip: MixerStrip::Master, effect: first }).unwrap();
+    assert!(doc.project().audio.master.effects.is_empty());
+}
