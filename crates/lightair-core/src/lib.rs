@@ -7,6 +7,7 @@ pub mod diff;
 pub mod document;
 pub mod hierarchy;
 pub mod model;
+pub mod templates;
 
 pub use clipboard::Clip;
 pub use command::{Command, CommandError};
