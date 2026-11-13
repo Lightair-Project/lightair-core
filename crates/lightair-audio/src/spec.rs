@@ -99,7 +99,8 @@ impl Strip {
     }
 }
 
-/// A mix: the sum of the sends to it, through its own inserts and fader.
+/// A mix: the sum of the sends to it, through its own inserts and fader. Its own output, and
+/// (when `to_program`) also part of Program, like an effects return.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Mix {
     pub id: NodeId,
@@ -107,11 +108,12 @@ pub struct Mix {
     pub inserts: Vec<EffectSpec>,
     pub gain_db: f32,
     pub mute: bool,
+    pub to_program: bool,
 }
 
 impl Mix {
     pub fn new(id: NodeId) -> Self {
-        Self { id, name: String::new(), inserts: Vec::new(), gain_db: 0.0, mute: false }
+        Self { id, name: String::new(), inserts: Vec::new(), gain_db: 0.0, mute: false, to_program: false }
     }
 }
 

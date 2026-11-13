@@ -124,6 +124,8 @@ struct StripRt {
 
 struct MixRt {
     id: NodeId,
+    /// Added into Program (after its own inserts and fader).
+    to_program: bool,
     inserts: Vec<Slot>,
     fader: Smoothed,
     sum: Stereo,
@@ -276,13 +278,18 @@ impl Graph {
             .collect();
         let mix_rt = |id: NodeId, inserts: &[EffectSpec], gain_db: f32, mute: bool, meter: Arc<Meter>| MixRt {
             id,
+            to_program: false,
             inserts: inserts.iter().map(|e| Slot::new(e, sr, &keys)).collect(),
             fader: Smoothed::new(if mute { 0.0 } else { db_to_gain(gain_db) }, ramp),
             sum: Stereo::new(),
             meter,
             loudness: LoudnessMeter::new(sample_rate),
         };
-        let mixes = spec.mixes.iter().map(|m| mix_rt(m.id, &m.inserts, m.gain_db, m.mute, meter(m.id))).collect();
+        let mixes = spec
+            .mixes
+            .iter()
+            .map(|m| MixRt { to_program: m.to_program, ..mix_rt(m.id, &m.inserts, m.gain_db, m.mute, meter(m.id)) })
+            .collect();
         let program =
             mix_rt(crate::PROGRAM, &spec.program.inserts, spec.program.gain_db, spec.program.mute, meter(crate::PROGRAM));
         Self {
@@ -434,10 +441,15 @@ impl Graph {
             m.meter.feed(&m.sum.l[..n], &m.sum.r[..n]);
             m.loudness.feed(&m.sum.l[..n], &m.sum.r[..n], &m.meter);
         };
-        master(program, g0);
+        // mixes first: the ones that feed Program are part of it
+        g3[..n].fill(1.0);
         for m in mixes.iter_mut() {
             master(m, g0);
+            if m.to_program {
+                add_scaled(&mut program.sum, &m.sum.l[..n], &m.sum.r[..n], &g3[..n]);
+            }
         }
+        master(program, g0);
     }
 
     /// The program (master) output of the last block.

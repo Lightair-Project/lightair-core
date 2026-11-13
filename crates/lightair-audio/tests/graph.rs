@@ -218,3 +218,24 @@ fn a_hosted_plugin_processes_and_survives_swaps() {
     drop(engine);
     assert_eq!(Arc::strong_count(&quarter), 1, "the graph lets go of it");
 }
+
+#[test]
+fn a_mix_can_feed_program() {
+    // the track goes nowhere itself; it reaches Program only through the mix, at half level
+    let mut t = Strip::track(1, MIC, Channels::Mono(0));
+    t.dest = Dest::Nowhere;
+    t.sends.push(Send { mix: 50, level_db: 0.0, pre_fader: false });
+    let mut fx = Mix::new(50);
+    fx.gain_db = -6.0206;
+    let spec = |to_program: bool| GraphSpec {
+        strips: vec![t.clone()],
+        mixes: vec![Mix { to_program, ..fx.clone() }],
+        ..Default::default()
+    };
+    let (_, r) = run(spec(false), 4);
+    assert!(last(r.graph().program().0).abs() < 1e-6, "its own output only");
+    assert!(close(last(r.graph().mix(50).unwrap().0), 0.25));
+    let (_, r) = run(spec(true), 4);
+    assert!(close(last(r.graph().program().0), 0.25), "into Program too: {}", last(r.graph().program().0));
+    assert!(close(last(r.graph().mix(50).unwrap().0), 0.25), "and still its own output");
+}
