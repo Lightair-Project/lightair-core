@@ -239,3 +239,34 @@ fn a_mix_can_feed_program() {
     assert!(close(last(r.graph().program().0), 0.25), "into Program too: {}", last(r.graph().program().0));
     assert!(close(last(r.graph().mix(50).unwrap().0), 0.25), "and still its own output");
 }
+
+#[test]
+fn inserts_run_in_their_order_and_keep_state_when_reordered() {
+    use lightair_audio::dsp::LimiterParams;
+    // +12 dB then a limiter at −6 dB: the limiter has the last word (0.5). The other way round,
+    // the gain does (0.5 passes the limiter, then ×4 = 2.0).
+    let gain = EffectSpec { id: 1, enabled: true, params: Params::Gain(GainParams { db: 12.0412, ..Default::default() }) };
+    let limit = EffectSpec {
+        id: 2,
+        enabled: true,
+        params: Params::Limiter(LimiterParams { ceiling_db: -6.0206, ..Default::default() }),
+    };
+    let spec = |order: Vec<EffectSpec>| {
+        let mut t = Strip::track(1, MIC, Channels::Mono(0));
+        t.inserts = order;
+        GraphSpec { strips: vec![t], ..Default::default() }
+    };
+    let (mut engine, mut r) = run(spec(vec![gain.clone(), limit.clone()]), 200);
+    let out = last(r.graph().program().0);
+    assert!((out - 0.5).abs() < 0.02, "gain then limiter: {out}");
+
+    // reorder the running graph: the limiter (with its envelope) moves, it isn't rebuilt
+    engine.set(spec(vec![limit.clone(), gain.clone()]));
+    let (a, b) = (dc(0.5), dc(0.25));
+    let chans: [&[f32]; 2] = [&a, &b];
+    for _ in 0..200 {
+        r.process(&[InputBlock { id: MIC, channels: &chans }], BLOCK);
+    }
+    let out = last(r.graph().program().0);
+    assert!((out - 2.0).abs() < 0.05, "limiter then gain: {out}");
+}
