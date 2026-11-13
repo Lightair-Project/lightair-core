@@ -270,3 +270,19 @@ fn inserts_run_in_their_order_and_keep_state_when_reordered() {
     let out = last(r.graph().program().0);
     assert!((out - 2.0).abs() < 0.05, "limiter then gain: {out}");
 }
+
+#[test]
+fn a_mix_has_its_own_balance() {
+    let mut t = Strip::track(1, MIC, Channels::Mono(0));
+    t.sends.push(Send { mix: 50, level_db: 0.0, pre_fader: false });
+    let mix = |pan: f32| Mix { pan, ..Mix::new(50) };
+    let spec = |pan: f32| GraphSpec { strips: vec![t.clone()], mixes: vec![mix(pan)], ..Default::default() };
+    let (_, r) = run(spec(0.0), 4);
+    let (l, rr) = r.graph().mix(50).unwrap();
+    assert!(close(last(l), 0.5) && close(last(rr), 0.5), "centre: unity on both sides");
+    let (_, r) = run(spec(1.0), 4);
+    let (l, rr) = r.graph().mix(50).unwrap();
+    assert!(last(l).abs() < 1e-4 && close(last(rr), 0.5), "hard right: {} {}", last(l), last(rr));
+    // Program isn't moved by a mix's balance
+    assert!(close(last(r.graph().program().0), 0.5));
+}

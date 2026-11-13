@@ -109,11 +109,13 @@ pub struct Mix {
     pub gain_db: f32,
     pub mute: bool,
     pub to_program: bool,
+    /// Balance, −1 (left) .. 1 (right): unity in both sides at the centre.
+    pub pan: f32,
 }
 
 impl Mix {
     pub fn new(id: NodeId) -> Self {
-        Self { id, name: String::new(), inserts: Vec::new(), gain_db: 0.0, mute: false, to_program: false }
+        Self { id, name: String::new(), inserts: Vec::new(), gain_db: 0.0, mute: false, to_program: false, pan: 0.0 }
     }
 }
 

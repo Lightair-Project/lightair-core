@@ -526,11 +526,14 @@ pub struct AudioMix {
     /// Also part of Program (an effects return), besides its own output.
     #[serde(default)]
     pub to_program: bool,
+    /// Balance, −1 (left) .. 1 (right).
+    #[serde(default)]
+    pub pan: f32,
 }
 
 impl AudioMix {
     pub fn new(name: impl Into<String>) -> Self {
-        Self { id: Id::new(), name: name.into(), volume_db: 0.0, muted: false, effects: Vec::new(), to_program: false }
+        Self { id: Id::new(), name: name.into(), volume_db: 0.0, muted: false, effects: Vec::new(), to_program: false, pan: 0.0 }
     }
 }
 

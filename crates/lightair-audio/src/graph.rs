@@ -128,6 +128,9 @@ struct MixRt {
     to_program: bool,
     inserts: Vec<Slot>,
     fader: Smoothed,
+    /// Balance: each side's gain (unity at the centre).
+    pan_l: Smoothed,
+    pan_r: Smoothed,
     sum: Stereo,
     meter: Arc<Meter>,
     loudness: LoudnessMeter,
@@ -279,6 +282,8 @@ impl Graph {
         let mix_rt = |id: NodeId, inserts: &[EffectSpec], gain_db: f32, mute: bool, meter: Arc<Meter>| MixRt {
             id,
             to_program: false,
+            pan_l: Smoothed::new(1.0, ramp),
+            pan_r: Smoothed::new(1.0, ramp),
             inserts: inserts.iter().map(|e| Slot::new(e, sr, &keys)).collect(),
             fader: Smoothed::new(if mute { 0.0 } else { db_to_gain(gain_db) }, ramp),
             sum: Stereo::new(),
@@ -288,7 +293,15 @@ impl Graph {
         let mixes = spec
             .mixes
             .iter()
-            .map(|m| MixRt { to_program: m.to_program, ..mix_rt(m.id, &m.inserts, m.gain_db, m.mute, meter(m.id)) })
+            .map(|m| {
+                let (gl, gr) = pan_gains(m.pan);
+                MixRt {
+                    to_program: m.to_program,
+                    pan_l: Smoothed::new(gl, ramp),
+                    pan_r: Smoothed::new(gr, ramp),
+                    ..mix_rt(m.id, &m.inserts, m.gain_db, m.mute, meter(m.id))
+                }
+            })
             .collect();
         let program =
             mix_rt(crate::PROGRAM, &spec.program.inserts, spec.program.gain_db, spec.program.mute, meter(crate::PROGRAM));
@@ -331,6 +344,8 @@ impl Graph {
         }
         let mix = |new: &mut MixRt, old: &mut MixRt| {
             new.fader.continue_from(&old.fader);
+            new.pan_l.continue_from(&old.pan_l);
+            new.pan_r.continue_from(&old.pan_r);
             slots(&mut new.inserts, &mut old.inserts);
             std::mem::swap(&mut new.loudness, &mut old.loudness);
         };
@@ -428,15 +443,17 @@ impl Graph {
                 add_scaled(&mut mixes[send.mix].sum, &src.l[..n], &src.r[..n], &g1[..n]);
             }
         }
-        let master = |m: &mut MixRt, g: &mut [f32]| {
+        let master = |m: &mut MixRt, g: &mut [f32], gl: &mut [f32], gr: &mut [f32]| {
             for slot in m.inserts.iter_mut().filter(|e| e.enabled) {
                 let ctx = Ctx { sample_rate: sr, key: slot.key.map(|k| &keys[k][..n]) };
                 slot.proc.process(&mut m.sum.l[..n], &mut m.sum.r[..n], &ctx);
             }
             m.fader.fill(&mut g[..n]);
-            for (i, g) in g[..n].iter().enumerate() {
-                m.sum.l[i] *= g;
-                m.sum.r[i] *= g;
+            m.pan_l.fill(&mut gl[..n]);
+            m.pan_r.fill(&mut gr[..n]);
+            for i in 0..n {
+                m.sum.l[i] *= g[i] * gl[i];
+                m.sum.r[i] *= g[i] * gr[i];
             }
             m.meter.feed(&m.sum.l[..n], &m.sum.r[..n]);
             m.loudness.feed(&m.sum.l[..n], &m.sum.r[..n], &m.meter);
@@ -444,12 +461,12 @@ impl Graph {
         // mixes first: the ones that feed Program are part of it
         g3[..n].fill(1.0);
         for m in mixes.iter_mut() {
-            master(m, g0);
+            master(m, g0, g1, g2);
             if m.to_program {
                 add_scaled(&mut program.sum, &m.sum.l[..n], &m.sum.r[..n], &g3[..n]);
             }
         }
-        master(program, g0);
+        master(program, g0, g1, g2);
     }
 
     /// The program (master) output of the last block.
