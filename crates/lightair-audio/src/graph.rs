@@ -37,6 +37,8 @@ impl<const N: usize> Inputs for [InputBlock<'_>; N] {
 /// Where to listen to a strip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tap {
+    /// After trim and polarity, before the inserts (the clean source).
+    Input,
     /// After trim and inserts, before the fader (what multitrack recording usually wants).
     PreFader,
     /// After the fader and pan (what the strip sends on).
@@ -112,6 +114,7 @@ struct StripRt {
     pan_r: Smoothed,
     out: Out,
     sends: Vec<SendRt>,
+    input: Stereo,
     pre: Stereo,
     post: Stereo,
     meter: Arc<Meter>,
@@ -263,6 +266,7 @@ impl Graph {
                         Dest::Nowhere => Out::Nowhere,
                     },
                     sends,
+                    input: Stereo::new(),
                     pre: Stereo::new(),
                     post: Stereo::new(),
                     meter: meter(s.id),
@@ -380,6 +384,8 @@ impl Graph {
                     (s.pre.l[i], s.pre.r[i]) = (m, m);
                 }
             }
+            s.input.l[..n].copy_from_slice(&s.pre.l[..n]);
+            s.input.r[..n].copy_from_slice(&s.pre.r[..n]);
             // inserts
             let mut reduction = 0f32;
             for slot in s.inserts.iter_mut().filter(|e| e.enabled) {
@@ -448,7 +454,11 @@ impl Graph {
     /// A strip's signal in the last block.
     pub fn tap(&self, id: NodeId, tap: Tap) -> Option<(&[f32], &[f32])> {
         let s = self.strips.iter().find(|s| s.id == id)?;
-        let b = if tap == Tap::PreFader { &s.pre } else { &s.post };
+        let b = match tap {
+            Tap::Input => &s.input,
+            Tap::PreFader => &s.pre,
+            Tap::PostFader => &s.post,
+        };
         Some((&b.l[..self.frames], &b.r[..self.frames]))
     }
 

@@ -716,6 +716,44 @@ pub struct RecordingSettings {
     /// Start a new file every this many minutes (`None`: one file).
     #[serde(default)]
     pub split_minutes: Option<u32>,
+    /// Also record each track and bus marked Record (or every track, when none is) to its own
+    /// audio file, sample-aligned (docs/plans/audio-engine.md, "Recording").
+    #[serde(default)]
+    pub multitrack: bool,
+    /// Record audio only (no video): the multitrack files plus the program mix.
+    #[serde(default)]
+    pub audio_only: bool,
+    #[serde(default)]
+    pub stem_format: StemFormat,
+    #[serde(default)]
+    pub stem_point: StemPoint,
+    /// Mixes recorded as extra audio tracks in the video file (after the program; up to 5).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub file_mixes: Vec<Id>,
+}
+
+/// The sample format of multitrack audio files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StemFormat {
+    /// 24-bit WAV: what editors and DAWs take everywhere.
+    #[default]
+    Pcm24,
+    /// 32-bit float WAV: can't clip, for music.
+    Float32,
+}
+
+/// Where in a strip a multitrack file listens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StemPoint {
+    /// Before its effects (the clean source, to process later).
+    Raw,
+    /// After its effects, before the fader (as heard, level untouched).
+    #[default]
+    PreFader,
+    /// After the fader and pan (as mixed).
+    PostFader,
 }
 
 fn default_record_audio() -> u32 {
@@ -734,6 +772,11 @@ impl Default for RecordingSettings {
             height: None,
             audio_kbps: 192,
             split_minutes: None,
+            multitrack: false,
+            audio_only: false,
+            stem_format: StemFormat::Pcm24,
+            stem_point: StemPoint::PreFader,
+            file_mixes: Vec::new(),
         }
     }
 }
