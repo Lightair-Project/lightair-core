@@ -9,7 +9,7 @@ fn setup() -> (Document, lightair_core::Id, lightair_core::Id, lightair_core::Id
     let project = Project::new("Show");
     let format = project.primary_format().id;
     let mut doc = Document::new(project);
-    let cam = Input::new("Camera", "av_capture_input_v2", serde_json::json!({}));
+    let cam = Input::new("Camera", lightair_core::kinds::CAMERA, serde_json::json!({}));
     let cam_id = cam.id;
     doc.apply(&Command::AddInput { input: cam }).unwrap();
     let scene = Scene::new("Main");

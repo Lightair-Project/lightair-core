@@ -27,19 +27,7 @@ const TAG: &str = "lightair/layers@1\n";
 
 /// Inputs that capture something on this machine: shared between copies, not opened twice.
 pub fn is_device(kind: &str) -> bool {
-    matches!(
-        kind,
-        "screen_capture"
-            | "display_capture"
-            | "window_capture"
-            | "macos-avcapture"
-            | "macos-avcapture-fast"
-            | "av_capture_input_v2"
-            | "av_capture_input"
-            | "coreaudio_input_capture"
-            | "coreaudio_output_capture"
-            | "sck_audio_capture"
-    )
+    crate::kinds::ALL.contains(&kind) || crate::kinds::from_libobs(kind, &serde_json::Value::Null).is_some()
 }
 
 impl Clip {
@@ -92,6 +80,13 @@ impl Clip {
         // Inputs: devices the project has are shared; everything else is a fresh copy.
         let mut input_ids: HashMap<Id, Id> = HashMap::new();
         for input in &self.inputs {
+            // copied by a Lightair from before portable kinds
+            let mut input = input.clone();
+            if let Some((kind, settings)) = crate::kinds::from_libobs(&input.kind, &input.settings) {
+                input.kind = kind.into();
+                input.settings = settings;
+            }
+            let input = &input;
             let shared = is_device(&input.kind) && project.inputs.get(&input.id).is_some_and(|i| i.kind == input.kind);
             if shared {
                 input_ids.insert(input.id, input.id);

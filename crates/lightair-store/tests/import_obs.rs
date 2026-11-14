@@ -22,7 +22,7 @@ fn scenes_inputs_and_order() {
     assert_eq!(p.program, Some(live.id), "program is OBS's program scene");
     assert_eq!(live.layers.len(), 3);
     let cam = p.inputs.values().find(|i| i.name == "Camera").unwrap();
-    assert_eq!(cam.kind, "macos-avcapture");
+    assert_eq!(cam.kind, lightair_core::kinds::CAMERA, "a portable kind");
     assert_eq!(cam.settings["device"], "cam-1");
     let bg = p.inputs.values().find(|i| i.name == "Backdrop").unwrap();
     assert_eq!(bg.kind, "color_source_v3", "versioned id wins");

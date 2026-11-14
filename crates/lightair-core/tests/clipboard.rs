@@ -19,7 +19,7 @@ fn setup() -> Setup {
     let project = Project::new("Show");
     let format = project.primary_format().id;
     let mut doc = Document::new(project);
-    let camera = Input::new("Camera", "av_capture_input_v2", serde_json::json!({}));
+    let camera = Input::new("Camera", lightair_core::kinds::CAMERA, serde_json::json!({}));
     let text = Input::new("Title", "text_ft2_source_v2", serde_json::json!({"text": "Hello"}));
     let (camera_id, text_id) = (camera.id, text.id);
     doc.apply(&Command::AddInput { input: camera }).unwrap();
@@ -114,7 +114,7 @@ fn pasting_into_another_project_brings_the_inputs() {
     let p = other.doc.project();
     let layer = p.scene(other.scene).unwrap().layer(roots[0]).unwrap();
     let input = layer.input.and_then(|i| p.inputs.get(&i)).expect("input brought along");
-    assert_eq!(input.kind, "av_capture_input_v2");
+    assert_eq!(input.kind, lightair_core::kinds::CAMERA);
     // Its format ids differ: the layout lands in the primary format.
     assert!(layer.layouts.contains_key(&p.primary_format().id));
 }

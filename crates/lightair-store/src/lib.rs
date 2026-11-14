@@ -29,7 +29,8 @@ use lightair_core::{Command, Format, Id, Input, OutputSettings, Project, Scene, 
 use serde::{Deserialize, Serialize};
 
 /// Current on-disk format. Bump it and add a migration in [`migrate`] when the schema changes.
-pub const FORMAT_VERSION: u32 = 1;
+/// 2: capture inputs use Lightair's portable kinds (lightair_core::kinds).
+pub const FORMAT_VERSION: u32 = 2;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -146,7 +147,7 @@ pub fn load_snapshot(dir: &Path) -> Result<Project, StoreError> {
         }
         scenes.push(Arc::new(read_json::<Scene>(&path)?));
     }
-    Ok(Project {
+    let mut project = Project {
         id: manifest.id,
         name: manifest.name,
         formats: manifest.formats,
@@ -158,7 +159,10 @@ pub fn load_snapshot(dir: &Path) -> Result<Project, StoreError> {
         outputs,
         transition: manifest.transition,
         stinger: manifest.stinger,
-    })
+    };
+    // format 1 stored libobs's macOS ids
+    lightair_core::kinds::migrate(&mut project);
+    Ok(project)
 }
 
 /// Upgrades an older manifest to the current format, one version at a time.
@@ -172,6 +176,7 @@ fn migrate(manifest: serde_json::Value, from: u32) -> serde_json::Value {
                 v["formatVersion"] = 1.into();
                 v
             }
+            // 1 → 2: the inputs' kinds (load_snapshot); the manifest is the same
             _ => value,
         };
     }
@@ -196,7 +201,12 @@ pub struct Opened {
 impl Package {
     /// Opens (or creates, with `initial`) the package at `dir`, replaying any journal tail.
     pub fn open(dir: &Path, initial: impl FnOnce() -> Project) -> Result<Opened, StoreError> {
+        let mut stale = false;
         let mut project = if dir.join("project.json").exists() {
+            stale = read_json::<serde_json::Value>(&dir.join("project.json"))?
+                .get("formatVersion")
+                .and_then(|v| v.as_u64())
+                .is_none_or(|v| v < FORMAT_VERSION as u64);
             load_snapshot(dir)?
         } else {
             let p = initial();
@@ -218,9 +228,12 @@ impl Package {
                 }
             }
         }
+        // a journal from before portable kinds adds libobs ids
+        let migrated = lightair_core::kinds::migrate(&mut project);
         let journal = OpenOptions::new().create(true).append(true).open(&journal_path).map_err(io(&journal_path))?;
         let mut package = Package { dir: dir.to_path_buf(), journal, pending: 0 };
-        if recovered > 0 {
+        // an older format is saved in this one
+        if recovered > 0 || migrated || stale {
             tracing::warn!(recovered, "replayed unsaved changes from the journal");
             package.compact(&project)?;
         }

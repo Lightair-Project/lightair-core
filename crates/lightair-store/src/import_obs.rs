@@ -155,6 +155,15 @@ fn volume_db(volume: f64) -> f32 {
     if volume > 0.0 { (20.0 * volume.log10()) as f32 } else { f32::NEG_INFINITY }
 }
 
+/// OBS's capture sources become Lightair's portable kinds (the project opens on either platform).
+fn portable(mut input: Input) -> Input {
+    if let Some((kind, settings)) = lightair_core::kinds::from_libobs(&input.kind, &input.settings) {
+        input.kind = kind.into();
+        input.settings = settings;
+    }
+    input
+}
+
 fn kind_of(v: &Value) -> String {
     v.get("versioned_id").or(v.get("id")).and_then(Value::as_str).unwrap_or("").to_string()
 }
@@ -303,7 +312,7 @@ pub fn import_obs_collection(json: &str, project: &Project) -> Result<(Command, 
                 .push(format!("group {}: groups arrive in a later version; its objects were skipped", name_of(s)));
             continue;
         }
-        let mut input = Input::new(name_of(s), kind.clone(), s["settings"].clone());
+        let mut input = portable(Input::new(name_of(s), kind.clone(), s["settings"].clone()));
         input.effects = effects_of(s, &mut report);
         let base = s["id"].as_str().unwrap_or(&kind);
         if CORE_INPUTS.contains(&base) {
@@ -409,7 +418,7 @@ pub fn import_obs_collection(json: &str, project: &Project) -> Result<(Command, 
         if !s.is_object() {
             continue;
         }
-        let mut input = Input::new(name_of(s), kind_of(s), s["settings"].clone());
+        let mut input = portable(Input::new(name_of(s), kind_of(s), s["settings"].clone()));
         input.effects = effects_of(s, &mut report);
         let mut track = Track::new(name_of(s), input.id);
         let volume = s["volume"].as_f64().unwrap_or(1.0);

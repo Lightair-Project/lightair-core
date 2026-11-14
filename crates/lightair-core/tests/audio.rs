@@ -7,7 +7,7 @@ use serde_json::json;
 
 fn project() -> (Document, lightair_core::Id) {
     let mut doc = Document::new(Project::new("Pod"));
-    let mic = Input::new("Interface", "coreaudio_input_capture", json!({}));
+    let mic = Input::new("Interface", lightair_core::kinds::MIC, json!({}));
     let id = mic.id;
     doc.apply(&Command::AddInput { input: mic }).unwrap();
     let t = Track::new("Host", id);

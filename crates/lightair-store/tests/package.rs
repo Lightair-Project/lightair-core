@@ -7,7 +7,7 @@ use serde_json::json;
 fn sample() -> (Project, Vec<Command>) {
     let project = Project::new("Show");
     let format = project.primary_format().id;
-    let cam = Input::new("Camera", "av_capture_input_v2", json!({"device": "abc"}));
+    let cam = Input::new("Camera", lightair_core::kinds::CAMERA, json!({"device": "abc"}));
     let scene = Scene::new("Main");
     let layer = Layer::new("Camera", cam.id, [(format, Layout::boxed(0.0, 0.0, 1920.0, 1080.0))]);
     let cmds = [Command::AddInput { input: cam }, Command::AddLayer { scene: scene.id, layer, index: None }];
@@ -81,4 +81,32 @@ fn newer_formats_are_refused() {
     manifest["formatVersion"] = 99.into();
     std::fs::write(&path, serde_json::to_vec(&manifest).unwrap()).unwrap();
     assert!(matches!(load_snapshot(dir.path()), Err(StoreError::TooNew { found: 99 })));
+}
+
+#[test]
+fn a_format_1_project_opens_with_portable_kinds_and_is_saved_upgraded() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut project = Project::new("Old");
+    let screen = Input::new("Display", "screen_capture", json!({"type": 0, "display_uuid": "U", "show_cursor": false}));
+    let mic = Input::new("Mic", "coreaudio_input_capture", json!({"device_id": "default"}));
+    for input in [screen, mic] {
+        Command::AddInput { input }.apply(&mut project).unwrap();
+    }
+    save(dir.path(), &project).unwrap();
+    // as a format-1 Lightair wrote it
+    let manifest = dir.path().join("project.json");
+    let mut m: serde_json::Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    m["formatVersion"] = 1.into();
+    std::fs::write(&manifest, serde_json::to_vec(&m).unwrap()).unwrap();
+
+    let opened = Package::open(dir.path(), || Project::new("unused")).unwrap();
+    let by_name = |p: &Project, n: &str| p.inputs.values().find(|i| i.name == n).unwrap().as_ref().clone();
+    let d = by_name(&opened.project, "Display");
+    assert_eq!(d.kind, lightair_core::kinds::SCREEN);
+    assert_eq!(d.settings, json!({"mode": 0, "display": "U", "cursor": false}));
+    assert_eq!(by_name(&opened.project, "Mic").settings, json!({"device": "default"}));
+    // saved in the new format: the files say so too
+    let m: serde_json::Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(m["formatVersion"], lightair_store::FORMAT_VERSION);
+    assert_eq!(by_name(&load_snapshot(dir.path()).unwrap(), "Mic").kind, lightair_core::kinds::MIC);
 }

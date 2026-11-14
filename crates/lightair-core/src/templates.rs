@@ -70,7 +70,7 @@ pub struct Mics {
 
 /// Input kinds that exist only for the mixer (no picture): replaced with the mixer.
 const AUDIO_KINDS: &[&str] =
-    &["lightair_audio_device", "sck_audio_capture", "coreaudio_input_capture", "coreaudio_output_capture"];
+    &["lightair_audio_device", crate::kinds::MIC, crate::kinds::DESKTOP_AUDIO, crate::kinds::APP_AUDIO];
 
 fn effect(kind: &str, set: &[(&str, Value)]) -> Effect {
     let mut e = catalog::def(kind).map(|d| d.create()).unwrap_or_else(|| Effect::new(kind, kind, json!({})));
@@ -109,9 +109,10 @@ impl Build {
         id
     }
 
-    /// A screen-capture audio input: the whole desktop, or one app (chosen in its Inspector).
+    /// The computer's sound: the whole desktop, or one app (chosen in the mixer).
     fn app_audio(&mut self, name: &str, desktop: bool) -> Id {
-        self.input(name, "sck_audio_capture", json!({ "type": if desktop { 0 } else { 1 } }))
+        let kind = if desktop { crate::kinds::DESKTOP_AUDIO } else { crate::kinds::APP_AUDIO };
+        self.input(name, kind, json!({}))
     }
 
     fn track(&mut self, name: &str, input: Id, effects: Vec<Effect>) -> &mut Track {

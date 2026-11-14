@@ -6,6 +6,7 @@ pub mod command;
 pub mod diff;
 pub mod document;
 pub mod hierarchy;
+pub mod kinds;
 pub mod model;
 pub mod templates;
 
