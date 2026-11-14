@@ -162,3 +162,34 @@ fn prefab_instances_link_and_rebuild_in_place() {
     // The original it was saved from isn't an instance and is untouched.
     assert!(sc.layer(gid).unwrap().prefab.is_none());
 }
+
+#[test]
+fn a_scene_saved_as_an_asset_comes_back_as_a_new_scene() {
+    use lightair_core::SceneAsset;
+    let mut s = setup();
+    let f = s.format;
+    let cam = s.add(Layer::new("Camera", s.camera, [(f, Layout::boxed(0.0, 0.0, 640.0, 360.0))]));
+    let group = s.add(Layer::empty("Lower third", [(f, (300.0, 900.0))]));
+    s.add(Layer::new("Title", s.text, [(f, Layout::boxed(10.0, 10.0, 300.0, 40.0))]).under(group));
+    let before = s.names();
+
+    // saved to a file and read back
+    let asset = SceneAsset::of(s.doc.project(), s.scene).unwrap();
+    let text = serde_json::to_string(&asset).unwrap();
+    let asset: SceneAsset = serde_json::from_str(&text).unwrap();
+    assert_eq!(asset.name, "Main");
+
+    let (commands, id) = asset.add(s.doc.project(), None);
+    s.doc.apply(&Command::Batch { label: "Add scene".into(), commands }).unwrap();
+    let p = s.doc.project();
+    let added = p.scene(id).expect("a new scene");
+    assert_eq!(added.name, "Main");
+    let names: Vec<String> = added.layers.iter().map(|l| l.name.clone()).collect();
+    assert_eq!(names, before, "the same layers, in the same order");
+    assert!(added.layers.iter().all(|l| l.id != cam && l.id != group), "new layers");
+    let new_group = added.layers.iter().find(|l| l.name == "Lower third").unwrap().id;
+    assert_eq!(added.layers.iter().find(|l| l.name == "Title").unwrap().parent, Some(new_group), "nesting kept");
+    // the camera is shared, the text is its own copy
+    assert_eq!(added.layers.iter().find(|l| l.name == "Camera").unwrap().input, Some(s.camera));
+    assert_ne!(added.layers.iter().find(|l| l.name == "Title").unwrap().input, Some(s.text));
+}

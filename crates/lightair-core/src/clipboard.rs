@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, HashMap};
 use serde::{Deserialize, Serialize};
 
 use crate::command::Command;
-use crate::model::{Id, Input, Layer, Project};
+use crate::model::{Id, Input, Layer, Project, Scene};
 
 /// What the clipboard holds: whole subtrees (each root first, roots in their list order) and
 /// the inputs they show. Roots' layouts are in canvas terms; the rest stay in their parent's.
@@ -185,5 +185,36 @@ impl Clip {
     /// A clip from clipboard text, if it is one.
     pub fn from_text(text: &str) -> Option<Clip> {
         serde_json::from_str(text.strip_prefix(TAG)?).ok()
+    }
+}
+
+/// A whole scene saved as an asset (a `.scene` file): its name, and every layer with its
+/// sources. Added back, it's a new scene with new layers (devices shared, as when pasting).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SceneAsset {
+    pub name: String,
+    pub clip: Clip,
+}
+
+impl SceneAsset {
+    /// `scene` as an asset.
+    pub fn of(project: &Project, scene: Id) -> Option<SceneAsset> {
+        let sc = project.scene(scene)?;
+        let roots: Vec<Id> = sc.layers.iter().filter(|l| l.parent.is_none()).map(|l| l.id).collect();
+        let clip = Clip::copy(project, scene, &roots).unwrap_or(Clip { layers: vec![], inputs: vec![] });
+        Some(SceneAsset { name: sc.name.clone(), clip })
+    }
+
+    /// The commands that add it as a new scene at `index` (`None`: last), and its id.
+    pub fn add(&self, project: &Project, index: Option<usize>) -> (Vec<Command>, Id) {
+        let scene = Scene::new(self.name.clone());
+        let id = scene.id;
+        // the layers are pasted into the new scene, as if it were already there
+        let mut with = project.clone();
+        with.scenes.push(std::sync::Arc::new(scene.clone()));
+        let (layers, _) = self.clip.paste(&with, id, None, None);
+        let mut commands = vec![Command::AddScene { scene, index }];
+        commands.extend(layers);
+        (commands, id)
     }
 }

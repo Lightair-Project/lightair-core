@@ -9,7 +9,7 @@ pub mod hierarchy;
 pub mod model;
 pub mod templates;
 
-pub use clipboard::Clip;
+pub use clipboard::{Clip, SceneAsset};
 pub use command::{Command, CommandError};
 pub use diff::{LayerPatch, Patch, diff, diff_layers};
 pub use document::{Change, Document};
