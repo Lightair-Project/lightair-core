@@ -64,6 +64,12 @@ pub fn peaks_of(path: &Path, track: Option<u32>) -> Result<Vec<f32>, MediaError>
     Ok(samples.chunks((R / PEAKS_PER_SECOND) as usize).map(|c| c.iter().fold(0f32, |m, s| m.max(s.abs())).min(1.0)).collect())
 }
 
+/// The waveform of sounds played together: theirs added up, as they're mixed.
+pub fn combine(peaks: &[&[f32]]) -> Vec<f32> {
+    let n = peaks.iter().map(|p| p.len()).max().unwrap_or(0);
+    (0..n).map(|i| peaks.iter().map(|p| p.get(i).copied().unwrap_or(0.0)).sum::<f32>().min(1.0)).collect()
+}
+
 /// Writes interleaved stereo f32 as a WAV.
 pub fn write_wav(out: &Path, stereo: &[f32], rate: u32) -> std::io::Result<()> {
     if let Some(d) = out.parent() {
@@ -150,11 +156,11 @@ pub fn clean_track(file: &Path, track: Option<u32>, v: VoiceClean, out: &Path) -
 }
 
 /// Where a sound comes from: a file, and which of its audio tracks (`None`: its first).
-type Source = (PathBuf, Option<u32>);
+pub type Source = (PathBuf, Option<u32>);
 
 /// What a clip's sound comes from, before any clean-up: a take's stems, or the file's audio
 /// track the clip plays (every track, for a video clip whose sound isn't apart).
-fn sources(seq: &Sequence, c: &Clip, video_track: bool) -> Vec<Source> {
+pub fn sources(seq: &Sequence, c: &Clip, video_track: bool) -> Vec<Source> {
     let Some(m) = seq.media(c.media) else { return Vec::new() };
     // a picture track's clips play their own sound; stills have none
     if m.kind == MediaKind::Image || (video_track && m.audio.is_empty()) {

@@ -515,3 +515,46 @@ fn every_audio_track_of_a_file_is_a_clip_of_its_own() {
     let p1 = sound::peaks_of(&file, Some(1)).unwrap();
     assert!((p1[100] - 0.4 * 0.125).abs() < 0.01, "{}", p1[100]);
 }
+
+#[test]
+fn a_clips_waveform_is_what_it_plays() {
+    use lightair_render::sound;
+    use lightair_render::sequence::Clip;
+    let dir = tempfile::tempdir().unwrap();
+    let Ok(ff) = media::ffmpeg() else {
+        eprintln!("FFmpeg isn't installed; skipping");
+        return;
+    };
+    // a take's two stems: a quiet voice for the first second, loud desktop sound the next
+    let make = |name: &str, filter: &str| {
+        let p = dir.path().join(name);
+        assert!(Command::new(&ff).args(["-v", "error", "-y", "-f", "lavfi", "-i", filter]).arg(&p).status().unwrap().success());
+        p
+    };
+    let mic = make("Audio - Mic.wav", "sine=frequency=300:duration=2,volume='if(lt(t,1),0.8,0.05)':eval=frame");
+    let desktop = make("Audio - Desktop audio.wav", "sine=frequency=700:duration=2,volume='if(lt(t,1),0,1)':eval=frame");
+    // an old-style take clip: one picture playing both stems
+    let video = lavfi(dir.path(), "camera.mp4", "color=c=gray:s=320x180:r=30:d=2").unwrap();
+    let mut m = Media::from_file(&video).unwrap();
+    m.audio = vec![mic.clone(), desktop.clone()];
+    let mut seq = Sequence::new((320, 180), 30);
+    let id = seq.add_media(m);
+    let clip = Clip::new(id, 0, 2_000);
+    // what it plays: both
+    let src = sound::sources(&seq, &clip, false);
+    assert_eq!(src, vec![(mic.clone(), None), (desktop.clone(), None)]);
+    let (pm, pd) = (sound::peaks(&mic).unwrap(), sound::peaks(&desktop).unwrap());
+    let both = sound::combine(&[&pm, &pd]);
+    // its waveform is the mix's, not the first stem's: loud in the second second too
+    let at = |p: &[f32], s: f32| p[(s * 100.0) as usize];
+    assert!(at(&pm, 1.5) < 0.02, "the mic alone is quiet then");
+    assert!(at(&both, 1.5) > 0.1, "the two together aren't: {}", at(&both, 1.5));
+    assert!(at(&both, 0.5) > 0.09, "and loud in the first second: {}", at(&both, 0.5));
+    // as the mix itself is
+    let mixed = dir.path().join("mix.wav");
+    assert!(Command::new(&ff).args(["-v", "error", "-y", "-i"]).arg(&mic).arg("-i").arg(&desktop).args(["-filter_complex", "amix=inputs=2:normalize=0"]).arg(&mixed).status().unwrap().success());
+    let pmix = sound::peaks(&mixed).unwrap();
+    for s in [0.5, 1.5] {
+        assert!((at(&pmix, s) - at(&both, s)).abs() < 0.03, "at {s} s: {} vs {}", at(&pmix, s), at(&both, s));
+    }
+}
