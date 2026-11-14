@@ -18,6 +18,11 @@ impl Id {
     pub fn new() -> Self {
         Self(Uuid::now_v7())
     }
+
+    /// The id of nothing (a placeholder where an id is needed but none applies).
+    pub const fn nil() -> Self {
+        Self(Uuid::nil())
+    }
 }
 
 impl Default for Id {

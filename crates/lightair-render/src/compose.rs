@@ -120,8 +120,27 @@ fn fs(v: V) -> @location(0) vec4<f32> {
     }
     let colour = textureSample(tex, samp, uv);
     if (mode > 2.5) {
-        // a picture layer (straight alpha)
-        return vec4(colour.rgb * colour.a, colour.a) * u.mode.z;
+        // a picture layer (straight alpha), through its filter
+        var c = colour;
+        let blur = u.c1.y;
+        if (blur > 0.0) {
+            var sum = c;
+            for (var i = 0; i < 12; i++) {
+                let a = f32(i) * 0.5236;
+                let r = blur * 0.02 * (1.0 + f32(i % 2));
+                sum += textureSampleLevel(tex, samp, uv + vec2(cos(a), sin(a)) * r, 0.0);
+            }
+            c = sum / 13.0;
+        }
+        var rgb = c.rgb + vec3(u.c0.x);
+        rgb = (rgb - vec3(0.5)) * u.c0.y + vec3(0.5);
+        let lum = dot(rgb, vec3(0.299, 0.587, 0.114));
+        rgb = mix(vec3(lum), rgb, u.c0.z);
+        rgb += vec3(u.c0.w * 0.08, 0.0, -u.c0.w * 0.08);
+        let edge = distance(v.local, vec2(0.5, 0.5)) * 1.414;
+        rgb *= 1.0 - u.c1.x * smoothstep(0.3, 1.0, edge);
+        rgb = clamp(rgb, vec3(0.0), vec3(1.0));
+        return vec4(rgb * c.a, c.a) * u.mode.z;
     }
     // a sprite (premultiplied)
     return colour * u.mode.z;
@@ -180,6 +199,9 @@ pub struct Layer<'a> {
     pub draw: (f32, f32),
     pub rotation: f32,
     pub opacity: f32,
+    /// Made pictures (text, shapes) come premultiplied, and take no filter.
+    pub premultiplied: bool,
+    pub filter: crate::sequence::Filter,
 }
 
 /// Which texture a draw samples.
@@ -480,8 +502,12 @@ impl Compositor {
                 u[0..4].copy_from_slice(&[ow, oh, 0.0, 0.0]);
                 u[4..8].copy_from_slice(&[l.center.0 - l.draw.0 / 2.0, l.center.1 - l.draw.1 / 2.0, l.draw.0, l.draw.1]);
                 u[8..12].copy_from_slice(&[0.0, 0.0, 1.0, 1.0]);
-                u[12..16].copy_from_slice(&[3.0, 0.0, l.opacity.clamp(0.0, 1.0), l.rotation.to_radians()]);
+                let mode = if l.premultiplied { 2.0 } else { 3.0 };
+                u[12..16].copy_from_slice(&[mode, 0.0, l.opacity.clamp(0.0, 1.0), l.rotation.to_radians()]);
                 u[16..20].copy_from_slice(&[l.center.0, l.center.1, 0.0, 0.0]);
+                let f = l.filter;
+                u[20..24].copy_from_slice(&[f.brightness, f.contrast, f.saturation, f.temperature]);
+                u[24..28].copy_from_slice(&[f.vignette, f.blur, 0.0, 0.0]);
                 (u, Tex::Slot(i))
             })
             .collect();

@@ -103,6 +103,124 @@ impl Default for Transform {
     }
 }
 
+/// What a generated clip draws (no file behind it).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Content {
+    Text(TextStyle),
+    Shape(ShapeStyle),
+}
+
+/// A text clip's words and look. Sizes are result pixels (at the sequence's size).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TextStyle {
+    pub text: String,
+    pub size: f32,
+    /// 0xRRGGBB.
+    pub color: u32,
+    pub bold: bool,
+    /// 0 left, 1 centre, 2 right.
+    pub align: u8,
+    /// A box behind the words (0xRRGGBB, and its opacity).
+    #[serde(default)]
+    pub background: Option<(u32, f32)>,
+    /// An outline around the letters.
+    #[serde(default)]
+    pub outline: Option<u32>,
+    /// The widest a line goes before wrapping (result pixels).
+    pub width: f32,
+}
+
+impl TextStyle {
+    pub fn title(text: &str) -> TextStyle {
+        TextStyle { text: text.into(), size: 96.0, color: 0xFFFFFF, bold: true, align: 1, background: None, outline: None, width: 1600.0 }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShapeKind {
+    Rectangle,
+    Ellipse,
+    Arrow,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShapeStyle {
+    pub shape: ShapeKind,
+    pub width: f32,
+    pub height: f32,
+    /// 0xRRGGBB, and an opacity; `None`: not filled.
+    pub fill: Option<(u32, f32)>,
+    /// Line colour and width.
+    pub stroke: Option<(u32, f32)>,
+    /// Corner radius (rectangles).
+    pub radius: f32,
+}
+
+/// How a clip arrives from the clip before it on its track.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TransitionKind {
+    Crossfade,
+    DipToBlack,
+    Slide,
+    Zoom,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Transition {
+    pub kind: TransitionKind,
+    pub duration_ms: u64,
+}
+
+/// Colour and look adjustments; zero (and 1 for contrast and saturation) is none.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Filter {
+    /// -1..1
+    pub brightness: f32,
+    /// 0..2
+    pub contrast: f32,
+    /// 0..2 (0: grey)
+    pub saturation: f32,
+    /// -1 cool .. 1 warm
+    pub temperature: f32,
+    /// 0..1
+    pub vignette: f32,
+    /// 0..1
+    pub blur: f32,
+}
+
+impl Default for Filter {
+    fn default() -> Self {
+        Filter { brightness: 0.0, contrast: 1.0, saturation: 1.0, temperature: 0.0, vignette: 0.0, blur: 0.0 }
+    }
+}
+
+impl Filter {
+    /// Lightair's looks, by name.
+    pub const PRESETS: &[(&str, Filter)] = &[
+        ("None", Filter { brightness: 0.0, contrast: 1.0, saturation: 1.0, temperature: 0.0, vignette: 0.0, blur: 0.0 }),
+        ("Vivid", Filter { brightness: 0.02, contrast: 1.12, saturation: 1.35, temperature: 0.0, vignette: 0.0, blur: 0.0 }),
+        ("Warm", Filter { brightness: 0.02, contrast: 1.05, saturation: 1.08, temperature: 0.45, vignette: 0.15, blur: 0.0 }),
+        ("Cool", Filter { brightness: 0.0, contrast: 1.05, saturation: 0.95, temperature: -0.45, vignette: 0.0, blur: 0.0 }),
+        ("Mono", Filter { brightness: 0.0, contrast: 1.15, saturation: 0.0, temperature: 0.0, vignette: 0.2, blur: 0.0 }),
+        ("Faded", Filter { brightness: 0.06, contrast: 0.82, saturation: 0.75, temperature: 0.1, vignette: 0.0, blur: 0.0 }),
+        ("Cinematic", Filter { brightness: -0.03, contrast: 1.2, saturation: 0.85, temperature: -0.15, vignette: 0.35, blur: 0.0 }),
+    ];
+
+    pub fn is_none(&self) -> bool {
+        *self == Filter::default()
+    }
+}
+
+/// The transform at a moment of a clip (from its start, timeline time).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Keyframe {
+    pub at_ms: u64,
+    pub transform: Transform,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Clip {
     pub id: Id,
@@ -118,9 +236,89 @@ pub struct Clip {
     pub muted: bool,
     #[serde(default)]
     pub transform: Transform,
+    /// Generated content (text, a shape); `media` is unused then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<Content>,
+    /// How it arrives from the clip just before it on its track.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transition: Option<Transition>,
+    #[serde(default, skip_serializing_if = "Filter::is_none")]
+    pub filter: Filter,
+    /// The transform over time, when it moves (in time order).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keyframes: Vec<Keyframe>,
+}
+
+/// Smooth in and out.
+fn ease(k: f32) -> f32 {
+    let k = k.clamp(0.0, 1.0);
+    k * k * (3.0 - 2.0 * k)
+}
+
+fn mix_transform(a: &Transform, b: &Transform, k: f32) -> Transform {
+    let l = |x: f32, y: f32| x + (y - x) * k;
+    Transform { x: l(a.x, b.x), y: l(a.y, b.y), scale: l(a.scale, b.scale), rotation: l(a.rotation, b.rotation), opacity: l(a.opacity, b.opacity) }
 }
 
 impl Clip {
+    pub fn new(media: Id, start_ms: u64, len_ms: u64) -> Clip {
+        Clip {
+            id: Id::new(),
+            media,
+            start_ms,
+            in_ms: 0,
+            out_ms: len_ms,
+            speed: 1.0,
+            volume: 1.0,
+            muted: false,
+            transform: Transform::default(),
+            content: None,
+            transition: None,
+            filter: Filter::default(),
+            keyframes: Vec::new(),
+        }
+    }
+
+    /// Its transform at timeline time `t` (its keyframes eased between, or its one transform).
+    pub fn transform_at(&self, t: u64) -> Transform {
+        let at = t.saturating_sub(self.start_ms);
+        let k = &self.keyframes;
+        match (k.first(), k.last()) {
+            (None, _) | (_, None) => self.transform,
+            (Some(f), _) if at <= f.at_ms => f.transform,
+            (_, Some(l)) if at >= l.at_ms => l.transform,
+            _ => {
+                let i = k.partition_point(|f| f.at_ms <= at);
+                let (a, b) = (&k[i - 1], &k[i]);
+                let span = (b.at_ms - a.at_ms).max(1) as f32;
+                mix_transform(&a.transform, &b.transform, ease((at - a.at_ms) as f32 / span))
+            }
+        }
+    }
+
+    /// Sets its transform at `t`: a keyframe there when it has keyframes, else the transform.
+    pub fn set_transform_at(&mut self, t: u64, tr: Transform) {
+        if self.keyframes.is_empty() {
+            self.transform = tr;
+            return;
+        }
+        let at = t.saturating_sub(self.start_ms).min(self.len_ms());
+        match self.keyframes.iter_mut().find(|k| k.at_ms.abs_diff(at) < 40) {
+            Some(k) => k.transform = tr,
+            None => {
+                self.keyframes.push(Keyframe { at_ms: at, transform: tr });
+                self.keyframes.sort_by_key(|k| k.at_ms);
+            }
+        }
+    }
+
+    /// The medium's time at `t`, held at the clip's first or last frame outside it (for
+    /// transitions, which show a clip a little beyond its edge).
+    pub fn source_held(&self, t: u64) -> u64 {
+        let t = t.clamp(self.start_ms, self.end_ms().saturating_sub(1).max(self.start_ms));
+        self.source_at(t).unwrap_or(self.in_ms)
+    }
+
     /// Its length on the timeline.
     pub fn len_ms(&self) -> u64 {
         ((self.out_ms.saturating_sub(self.in_ms)) as f64 / self.speed.max(0.05) as f64).round() as u64
@@ -156,11 +354,14 @@ pub struct Track {
     pub hidden: bool,
     #[serde(default)]
     pub locked: bool,
+    /// The track captions were made on (made again in place).
+    #[serde(default)]
+    pub captions: bool,
 }
 
 impl Track {
     fn new(kind: TrackKind) -> Track {
-        Track { id: Id::new(), kind, clips: Vec::new(), muted: false, hidden: false, locked: false }
+        Track { id: Id::new(), kind, clips: Vec::new(), muted: false, hidden: false, locked: false, captions: false }
     }
 
     /// Whether `start..end` is free on this track (ignoring `except`).
@@ -268,22 +469,95 @@ impl Sequence {
     pub fn place(&mut self, media: Id, start: u64, track: Option<usize>) -> Option<Id> {
         let m = self.media(media)?.clone();
         let len = if m.kind == MediaKind::Image { 5_000 } else { m.duration_ms.max(1) };
-        let clip = Clip {
-            id: Id::new(),
-            media,
-            start_ms: start,
-            in_ms: 0,
-            out_ms: len,
-            speed: 1.0,
-            volume: 1.0,
-            muted: false,
-            transform: Transform::default(),
-        };
+        let clip = Clip::new(media, start, len);
         let t = self.free_track(Self::kind_for(&m), track, start, start + len);
         let id = clip.id;
         self.tracks[t].clips.push(clip);
         self.tracks[t].sort();
         Some(id)
+    }
+
+    /// Places generated content (text, a shape) at `start` for `len` on the top free video track
+    /// (a new one above if none is free); its id.
+    pub fn place_content(&mut self, content: Content, start: u64, len: u64) -> Id {
+        self.place_content_on(content, start, len, None)
+    }
+
+    /// A made picture placed on `track` when that's a video track free then, else as
+    /// [`Sequence::place_content`] does.
+    pub fn place_content_on(&mut self, content: Content, start: u64, len: u64, track: Option<usize>) -> Id {
+        let mut clip = Clip::new(Id::nil(), start, len);
+        clip.content = Some(content);
+        let wanted = track.filter(|t| self.tracks.get(*t).is_some_and(|tr| tr.kind == TrackKind::Video && !tr.captions && tr.free(start, start + len, None)));
+        // over the pictures: the top free video track
+        let t = match wanted.or_else(|| self.tracks.iter().position(|t| t.kind == TrackKind::Video && t.free(start, start + len, None))) {
+            Some(i) if wanted == Some(i) => i,
+            Some(i) if !self.tracks[i].captions && self.tracks[i].clips.iter().all(|c| c.content.is_some()) => i,
+            _ => {
+                self.tracks.insert(0, Track::new(TrackKind::Video));
+                0
+            }
+        };
+        let id = clip.id;
+        self.tracks[t].clips.push(clip);
+        self.tracks[t].sort();
+        id
+    }
+
+    /// Captions: a text clip for each line (start, end, text) in `style` at `place`, on the captions track
+    /// (made at the top, or emptied first). The track's index.
+    pub fn set_captions(&mut self, lines: &[(u64, u64, String)], style: &TextStyle, place: Transform) -> usize {
+        let t = match self.tracks.iter().position(|t| t.captions) {
+            Some(t) => t,
+            None => {
+                let mut track = Track::new(TrackKind::Video);
+                track.captions = true;
+                self.tracks.insert(0, track);
+                0
+            }
+        };
+        let mut clips: Vec<Clip> = Vec::new();
+        for (a, b, text) in lines {
+            // never over the line before; at least 0.4 s on screen
+            let a = (*a).max(clips.last().map_or(0, Clip::end_ms));
+            let b = (*b).max(a + 400);
+            let mut c = Clip::new(Id::nil(), a, b - a);
+            c.content = Some(Content::Text(TextStyle { text: text.clone(), ..style.clone() }));
+            c.transform = place;
+            clips.push(c);
+        }
+        // the gap before the next line closed, so they don't flicker
+        for i in 1..clips.len() {
+            let (start, end) = (clips[i].start_ms, clips[i - 1].end_ms());
+            if start > end && start - end < 300 {
+                clips[i - 1].out_ms += start - end;
+            }
+        }
+        self.tracks[t].clips = clips;
+        t
+    }
+
+    /// The caption style: white words in a dark box, low in the frame.
+    pub fn caption_style(&self) -> (TextStyle, Transform) {
+        let h = self.size.1 as f32;
+        let style = TextStyle {
+            text: String::new(),
+            size: (h / 18.0).max(18.0),
+            color: 0xFFFFFF,
+            bold: true,
+            align: 1,
+            background: Some((0x000000, 0.6)),
+            outline: None,
+            width: self.size.0 as f32 * 0.8,
+        };
+        (style, Transform { y: h * 0.38, ..Transform::default() })
+    }
+
+    /// The clip just before `clip` on its track, if it ends where `clip` starts.
+    pub fn before(&self, clip: Id) -> Option<&Clip> {
+        let (t, c) = self.find(clip)?;
+        let me = &self.tracks[t].clips[c];
+        c.checked_sub(1).map(|p| &self.tracks[t].clips[p]).filter(|p| p.end_ms() == me.start_ms)
     }
 
     /// Places a medium at the end of the main track (the bottom video track, or the first audio
@@ -321,12 +595,27 @@ impl Sequence {
         let prev_end = if c > 0 { self.tracks[t].clips[c - 1].end_ms() } else { 0 };
         let cl = &mut self.tracks[t].clips[c];
         let speed = cl.speed.max(0.05) as f64;
-        // the earliest the edge can go: the medium's start, the clip before
-        let earliest = cl.start_ms.saturating_sub((cl.in_ms as f64 / speed) as u64).max(prev_end);
-        let at = at.clamp(earliest, cl.end_ms().saturating_sub(100));
-        let in_ms = cl.in_ms as i64 + ((at as i64 - cl.start_ms as i64) as f64 * speed) as i64;
-        cl.in_ms = in_ms.max(0) as u64;
-        cl.start_ms = at;
+        let end = cl.end_ms();
+        let was = cl.start_ms;
+        if cl.content.is_some() {
+            // made pictures have no medium to run out of
+            let at = at.clamp(prev_end, end.saturating_sub(100));
+            cl.start_ms = at;
+            cl.in_ms = 0;
+            cl.out_ms = ((end - at) as f64 * speed).round() as u64;
+        } else {
+            // the earliest the edge can go: the medium's start, the clip before
+            let earliest = cl.start_ms.saturating_sub((cl.in_ms as f64 / speed) as u64).max(prev_end);
+            let at = at.clamp(earliest, end.saturating_sub(100));
+            let in_ms = cl.in_ms as i64 + ((at as i64 - cl.start_ms as i64) as f64 * speed) as i64;
+            cl.in_ms = in_ms.max(0) as u64;
+            cl.start_ms = at;
+        }
+        // keyframes stay where they were on the timeline
+        let moved = cl.start_ms as i64 - was as i64;
+        for k in &mut cl.keyframes {
+            k.at_ms = (k.at_ms as i64 - moved).max(0) as u64;
+        }
     }
 
     /// Moves a clip's right edge to timeline time `at` (its out point follows), within its medium
@@ -348,8 +637,21 @@ impl Sequence {
         let (t, c) = self.find(clip)?;
         let cl = self.tracks[t].clips[c].clone();
         let s = cl.source_at(at).filter(|_| at > cl.start_ms)?;
-        self.tracks[t].clips[c].out_ms = s;
-        let second = Clip { id: Id::new(), start_ms: at, in_ms: s, ..cl };
+        // keyframes on either side of the cut, with the transform at the cut on both
+        let cut = at - cl.start_ms;
+        let here = cl.transform_at(at);
+        let (mut before, mut after) = (Vec::new(), Vec::new());
+        if !cl.keyframes.is_empty() {
+            before = cl.keyframes.iter().filter(|k| k.at_ms < cut).copied().collect();
+            before.push(Keyframe { at_ms: cut, transform: here });
+            after.push(Keyframe { at_ms: 0, transform: here });
+            after.extend(cl.keyframes.iter().filter(|k| k.at_ms > cut).map(|k| Keyframe { at_ms: k.at_ms - cut, transform: k.transform }));
+        }
+        let first = &mut self.tracks[t].clips[c];
+        first.out_ms = s;
+        first.keyframes = before;
+        // a transition belongs to the cut it was on: the first half's start
+        let second = Clip { id: Id::new(), start_ms: at, in_ms: s, keyframes: after, transition: None, ..cl };
         let id = second.id;
         self.tracks[t].clips.insert(c + 1, second);
         Some(id)
@@ -571,5 +873,31 @@ mod tests {
         assert_eq!((second.start_ms, second.in_ms, second.out_ms), (4_000, 6_000, 10_000));
         assert_eq!(second.source_at(5_000), Some(8_000));
         assert!(s.snap_points(None).contains(&4_000));
+    }
+
+    #[test]
+    fn titles_keyframes_split_and_trim() {
+        let mut s = Sequence::new((1920, 1080), 30);
+        let t = s.place_content(Content::Text(TextStyle::title("Hi")), 1_000, 4_000);
+        assert_eq!(s.tracks[0].kind, TrackKind::Video);
+        let c = s.clip_mut(t).unwrap();
+        c.keyframes = vec![
+            Keyframe { at_ms: 0, transform: Transform { x: 0.0, ..Transform::default() } },
+            Keyframe { at_ms: 4_000, transform: Transform { x: 400.0, ..Transform::default() } },
+        ];
+        assert_eq!(c.transform_at(3_000).x, 200.0, "halfway, eased");
+        assert!(c.transform_at(1_500).x < 50.0, "slow at first");
+        let second = s.split(t, 3_000).unwrap();
+        assert_eq!(s.clip(t).unwrap().transform_at(3_000).x, 200.0);
+        assert_eq!(s.clip(second).unwrap().transform_at(3_000).x, 200.0);
+        assert_eq!(s.clip(second).unwrap().transform_at(5_000).x, 400.0);
+        // a made picture stretches either way; its keyframes stay put on the timeline
+        s.trim_start(t, 0);
+        let first = s.clip(t).unwrap();
+        assert_eq!((first.start_ms, first.end_ms()), (0, 3_000));
+        assert_eq!(first.transform_at(1_000).x, 0.0);
+        assert_eq!(first.transform_at(3_000).x, 200.0);
+        s.trim_end(second, 9_000);
+        assert_eq!(s.clip(second).unwrap().end_ms(), 9_000);
     }
 }

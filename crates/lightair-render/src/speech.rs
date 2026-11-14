@@ -157,16 +157,9 @@ pub fn tighten(edit: &Edit, t: &Transcript, pause_ms: u64, keep_ms: u64) -> Edit
     Edit { clips, ..edit.clone() }
 }
 
-/// Subtitles (SubRip) for the result: the transcript's words through the edit's cuts and speed,
-/// in lines of up to `max_chars`, a line ending at a pause or after 3 seconds.
-pub fn srt(edit: &Edit, t: &Transcript, max_chars: usize) -> String {
-    // words in result time (those cut, dropped)
-    let words: Vec<(u64, u64, &str)> = t
-        .words
-        .iter()
-        .filter(|w| !is_filler(&w.text))
-        .filter_map(|w| Some((timeline::result_at(edit, w.start_ms)?, timeline::result_at(edit, w.end_ms.saturating_sub(1))?, w.text.as_str())))
-        .collect();
+/// Words (start, end, text) as lines of up to `max_chars`, a line ending at a pause or after
+/// 3 seconds.
+pub fn lines<'a>(words: impl IntoIterator<Item = (u64, u64, &'a str)>, max_chars: usize) -> Vec<(u64, u64, String)> {
     let mut lines: Vec<(u64, u64, String)> = Vec::new();
     for (a, b, text) in words {
         match lines.last_mut() {
@@ -178,6 +171,25 @@ pub fn srt(edit: &Edit, t: &Transcript, max_chars: usize) -> String {
             _ => lines.push((a, b, text.to_string())),
         }
     }
+    lines
+}
+
+/// Captions for a sequence: its transcript's words (fillers left out) as lines.
+pub fn caption_lines(t: &Transcript, max_chars: usize) -> Vec<(u64, u64, String)> {
+    lines(t.words.iter().filter(|w| !is_filler(&w.text)).map(|w| (w.start_ms, w.end_ms, w.text.as_str())), max_chars)
+}
+
+/// Subtitles (SubRip) for the result: the transcript's words through the edit's cuts and speed,
+/// in lines of up to `max_chars`, a line ending at a pause or after 3 seconds.
+pub fn srt(edit: &Edit, t: &Transcript, max_chars: usize) -> String {
+    // words in result time (those cut, dropped)
+    let words: Vec<(u64, u64, &str)> = t
+        .words
+        .iter()
+        .filter(|w| !is_filler(&w.text))
+        .filter_map(|w| Some((timeline::result_at(edit, w.start_ms)?, timeline::result_at(edit, w.end_ms.saturating_sub(1))?, w.text.as_str())))
+        .collect();
+    let lines = lines(words, max_chars);
     let stamp = |ms: u64| format!("{:02}:{:02}:{:02},{:03}", ms / 3_600_000, (ms / 60_000) % 60, (ms / 1000) % 60, ms % 1000);
     lines
         .iter()

@@ -1,0 +1,220 @@
+//! Pictures made rather than read: text (shaped with the system's fonts, cosmic-text) and shapes
+//! (tiny-skia), as premultiplied RGBA just big enough for what they hold.
+
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+use cosmic_text::{Align, Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, SwashCache, Weight};
+use tiny_skia::{FillRule, Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
+
+use crate::sequence::{Content, ShapeKind, ShapeStyle, TextStyle};
+
+/// A made picture: premultiplied RGBA.
+#[derive(Clone)]
+pub struct Raster {
+    pub rgba: Vec<u8>,
+    pub size: (u32, u32),
+}
+
+struct Fonts {
+    system: FontSystem,
+    cache: SwashCache,
+}
+
+/// The system's fonts, loaded once (it takes a moment).
+static FONTS: Mutex<Option<Fonts>> = Mutex::new(None);
+
+fn paint(rgb: u32, alpha: f32) -> Paint<'static> {
+    let mut p = Paint::default();
+    p.set_color_rgba8((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8, (alpha.clamp(0.0, 1.0) * 255.0) as u8);
+    p.anti_alias = true;
+    p
+}
+
+fn rounded(x: f32, y: f32, w: f32, h: f32, r: f32) -> Option<tiny_skia::Path> {
+    let r = r.min(w / 2.0).min(h / 2.0).max(0.0);
+    if r < 0.5 {
+        return Some(PathBuilder::from_rect(Rect::from_xywh(x, y, w, h)?));
+    }
+    let mut p = PathBuilder::new();
+    p.move_to(x + r, y);
+    p.line_to(x + w - r, y);
+    p.quad_to(x + w, y, x + w, y + r);
+    p.line_to(x + w, y + h - r);
+    p.quad_to(x + w, y + h, x + w - r, y + h);
+    p.line_to(x + r, y + h);
+    p.quad_to(x, y + h, x, y + h - r);
+    p.line_to(x, y + r);
+    p.quad_to(x, y, x + r, y);
+    p.close();
+    p.finish()
+}
+
+/// Lays text out; draws its glyph coverage through `each(x, y, alpha)` (pixels from the text's
+/// own top-left) and returns its size.
+fn layout(style: &TextStyle, mut each: impl FnMut(i32, i32, u8)) -> (f32, f32) {
+    let mut guard = FONTS.lock().unwrap();
+    let fonts = guard.get_or_insert_with(|| Fonts { system: FontSystem::new(), cache: SwashCache::new() });
+    let metrics = Metrics::new(style.size.max(4.0), style.size.max(4.0) * 1.2);
+    let mut buf = Buffer::new(&mut fonts.system, metrics);
+    buf.set_size(Some(style.width.max(style.size)), None);
+    let attrs = Attrs::new().family(Family::SansSerif).weight(if style.bold { Weight::BOLD } else { Weight::NORMAL });
+    let align = match style.align {
+        0 => Align::Left,
+        2 => Align::Right,
+        _ => Align::Center,
+    };
+    buf.set_text(&style.text, &attrs, Shaping::Advanced, Some(align));
+    buf.shape_until_scroll(&mut fonts.system, false);
+    // what the lines cover (alignment moves them inside the wrapping width)
+    let (mut left, mut right, mut bottom) = (f32::MAX, 0.0f32, 0.0f32);
+    for run in buf.layout_runs() {
+        for g in run.glyphs {
+            left = left.min(g.x);
+            right = right.max(g.x + g.w);
+        }
+        bottom = bottom.max(run.line_top + run.line_height);
+    }
+    if left == f32::MAX {
+        return (0.0, 0.0);
+    }
+    let dx = left.floor() as i32;
+    buf.draw(&mut fonts.system, &mut fonts.cache, Color::rgb(255, 255, 255), |x, y, w, h, c| {
+        for yy in y..y + h as i32 {
+            for xx in x..x + w as i32 {
+                each(xx - dx, yy, c.a());
+            }
+        }
+    });
+    (right - left, bottom)
+}
+
+/// Text as a picture: its words, an outline and a box behind them if the style asks.
+pub fn text(style: &TextStyle) -> Raster {
+    let mut cover: Vec<(i32, i32, u8)> = Vec::new();
+    let (w, h) = layout(style, |x, y, a| {
+        if a > 0 {
+            cover.push((x, y, a));
+        }
+    });
+    let pad = if style.background.is_some() { style.size * 0.35 } else { style.size * 0.12 };
+    let (cw, ch) = ((w + 2.0 * pad).ceil().max(2.0) as u32, (h + 2.0 * pad).ceil().max(2.0) as u32);
+    let Some(mut pm) = Pixmap::new(cw, ch) else { return Raster { rgba: vec![0; 16], size: (2, 2) } };
+    if let Some((bg, alpha)) = style.background
+        && let Some(path) = rounded(0.0, 0.0, cw as f32, ch as f32, style.size * 0.25)
+    {
+        pm.fill_path(&path, &paint(bg, alpha), FillRule::Winding, Transform::identity(), None);
+    }
+    let (pw, ph) = (cw as i32, ch as i32);
+    let off = pad.round() as i32;
+    let data = pm.data_mut();
+    let mut put = |x: i32, y: i32, rgb: u32, a: u8| {
+        if x < 0 || y < 0 || x >= pw || y >= ph || a == 0 {
+            return;
+        }
+        let i = ((y * pw + x) * 4) as usize;
+        let a32 = a as u32;
+        let src = [(rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF];
+        for k in 0..3 {
+            data[i + k] = ((src[k] * a32 + data[i + k] as u32 * (255 - a32)) / 255) as u8;
+        }
+        data[i + 3] = (a32 + data[i + 3] as u32 * (255 - a32) / 255) as u8;
+    };
+    if let Some(o) = style.outline {
+        let r = (style.size * 0.06).max(1.5) as i32;
+        for (x, y, a) in &cover {
+            for (dx, dy) in [(-r, 0), (r, 0), (0, -r), (0, r), (-r, -r), (r, r), (-r, r), (r, -r)] {
+                put(x + off + dx, y + off + dy, o, *a);
+            }
+        }
+    }
+    for (x, y, a) in &cover {
+        put(x + off, y + off, style.color, *a);
+    }
+    Raster { rgba: pm.data().to_vec(), size: (cw, ch) }
+}
+
+/// A shape as a picture.
+pub fn shape(style: &ShapeStyle) -> Raster {
+    let line = style.stroke.map_or(0.0, |(_, w)| w);
+    let (w, h) = (style.width.max(2.0), style.height.max(2.0));
+    let (cw, ch) = ((w + 2.0 * line).ceil() as u32, (h + 2.0 * line).ceil() as u32);
+    let Some(mut pm) = Pixmap::new(cw, ch) else { return Raster { rgba: vec![0; 16], size: (2, 2) } };
+    let (x, y) = (line, line);
+    let path = match style.shape {
+        ShapeKind::Rectangle => rounded(x, y, w, h, style.radius),
+        ShapeKind::Ellipse => Rect::from_xywh(x, y, w, h).and_then(PathBuilder::from_oval),
+        ShapeKind::Arrow => {
+            // pointing right: a shaft and a head
+            let (shaft, head) = (h * 0.3, w.min(h * 1.2));
+            let mut p = PathBuilder::new();
+            p.move_to(x, y + h / 2.0 - shaft / 2.0);
+            p.line_to(x + w - head, y + h / 2.0 - shaft / 2.0);
+            p.line_to(x + w - head, y);
+            p.line_to(x + w, y + h / 2.0);
+            p.line_to(x + w - head, y + h);
+            p.line_to(x + w - head, y + h / 2.0 + shaft / 2.0);
+            p.line_to(x, y + h / 2.0 + shaft / 2.0);
+            p.close();
+            p.finish()
+        }
+    };
+    if let Some(path) = path {
+        if let Some((rgb, a)) = style.fill {
+            pm.fill_path(&path, &paint(rgb, a), FillRule::Winding, Transform::identity(), None);
+        }
+        if let Some((rgb, width)) = style.stroke {
+            let stroke = Stroke { width, ..Stroke::default() };
+            pm.stroke_path(&path, &paint(rgb, 1.0), &stroke, Transform::identity(), None);
+        }
+    }
+    Raster { rgba: pm.data().to_vec(), size: (cw, ch) }
+}
+
+/// Made pictures, kept while their content is the same.
+#[derive(Default)]
+pub struct Cache {
+    made: HashMap<String, Raster>,
+}
+
+impl Cache {
+    pub fn get(&mut self, content: &Content) -> Raster {
+        let key = serde_json::to_string(content).unwrap_or_default();
+        if let Some(r) = self.made.get(&key) {
+            return r.clone();
+        }
+        let r = match content {
+            Content::Text(t) => text(t),
+            Content::Shape(s) => shape(s),
+        };
+        // a few hundred at most: drop the lot when it grows (cheap to make again)
+        if self.made.len() > 400 {
+            self.made.clear();
+        }
+        self.made.insert(key, r.clone());
+        r
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_is_drawn_tight_around_its_words() {
+        let r = text(&TextStyle { text: "Hello".into(), size: 48.0, ..TextStyle::title("") });
+        assert!(r.size.0 > 60 && r.size.0 < 400 && r.size.1 > 40 && r.size.1 < 120, "{:?}", r.size);
+        assert!(r.rgba.chunks(4).any(|p| p[3] > 200 && p[0] > 200), "white letters");
+        let boxed = text(&TextStyle { background: Some((0x000000, 0.6)), ..TextStyle::title("Hi") });
+        let top_middle = ((2 * boxed.size.0 + boxed.size.0 / 2) * 4 + 3) as usize;
+        assert!(boxed.rgba[top_middle] > 100, "the box reaches the edge");
+    }
+
+    #[test]
+    fn shapes_fill_what_they_cover() {
+        let r = shape(&ShapeStyle { shape: ShapeKind::Ellipse, width: 100.0, height: 50.0, fill: Some((0xFF0000, 1.0)), stroke: None, radius: 0.0 });
+        let at = |x: u32, y: u32| r.rgba[((y * r.size.0 + x) * 4) as usize..][..4].to_vec();
+        assert_eq!(at(50, 25), vec![255, 0, 0, 255], "the middle is filled");
+        assert_eq!(at(1, 1)[3], 0, "the corner isn't");
+    }
+}

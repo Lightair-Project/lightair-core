@@ -11,7 +11,19 @@ use crate::compose::{Compositor, Layer, fit};
 use crate::edit::{Edit, Look};
 use crate::export::{Renderer, Source};
 use crate::media::{self, Codec, Encoder, MediaError, Stream};
-use crate::sequence::{Clip, Media, MediaKind, Sequence, TrackKind};
+use crate::sequence::{Clip, Media, MediaKind, Sequence, TrackKind, TransitionKind};
+
+/// A layer, before it's handed to the compositor.
+struct Pic {
+    rgba: Vec<u8>,
+    size: (u32, u32),
+    center: (f32, f32),
+    draw: (f32, f32),
+    rotation: f32,
+    opacity: f32,
+    premultiplied: bool,
+    filter: crate::sequence::Filter,
+}
 
 pub struct SequenceRenderer {
     seq: Sequence,
@@ -23,6 +35,8 @@ pub struct SequenceRenderer {
     stills: HashMap<Id, (Vec<u8>, (u32, u32))>,
     /// Takes, by medium: drawn with their screen recording look at the sequence's size.
     takes: HashMap<Id, Renderer>,
+    /// Text and shapes, made once per content.
+    made: crate::generate::Cache,
 }
 
 fn even(v: f32) -> u32 {
@@ -39,6 +53,7 @@ impl SequenceRenderer {
             streams: HashMap::new(),
             stills: HashMap::new(),
             takes: HashMap::new(),
+            made: Default::default(),
         })
     }
 
@@ -64,19 +79,31 @@ impl SequenceRenderer {
         &self.seq
     }
 
-    /// Where a clip's picture sits: its centre and drawn size (result pixels).
-    pub fn placement(&self, clip: &Clip, media: &Media) -> ((f32, f32), (f32, f32)) {
+    /// Where a clip's picture sits (its centre and drawn size, result pixels) at `t`: by its
+    /// transform there, the medium fitted to the frame (made pictures at their own size).
+    pub fn placement(&self, clip: &Clip, media: Option<&Media>, made: Option<(u32, u32)>, t: u64) -> ((f32, f32), (f32, f32)) {
         let (w, h) = (self.seq.size.0 as f32, self.seq.size.1 as f32);
-        let (mw, mh) = if media.take.is_some() || media.width == 0 { (w, h) } else { (media.width as f32, media.height as f32) };
-        let (_, _, bw, bh) = fit(mw / mh.max(1.0), 0.0, 0.0, w, h);
-        let t = clip.transform;
-        ((w / 2.0 + t.x, h / 2.0 + t.y), (bw * t.scale, bh * t.scale))
+        let tr = clip.transform_at(t);
+        let (bw, bh) = match (made, media) {
+            (Some(s), _) => (s.0 as f32, s.1 as f32),
+            (None, Some(m)) if m.take.is_none() && m.width > 0 => {
+                let (_, _, bw, bh) = fit(m.width as f32 / m.height.max(1) as f32, 0.0, 0.0, w, h);
+                (bw, bh)
+            }
+            _ => (w, h),
+        };
+        ((w / 2.0 + tr.x, h / 2.0 + tr.y), (bw * tr.scale, bh * tr.scale))
     }
 
-    /// The picture of one clip at timeline time `t`.
-    fn picture(&mut self, clip: &Clip, t: u64) -> Option<(Vec<u8>, (u32, u32))> {
+    /// The picture of one clip at timeline time `t` (held at its edge frame outside it):
+    /// RGBA, its size, and whether it's premultiplied (made pictures).
+    fn picture(&mut self, clip: &Clip, t: u64) -> Option<(Vec<u8>, (u32, u32), bool)> {
+        if let Some(content) = &clip.content {
+            let r = self.made.get(content);
+            return Some((r.rgba, r.size, true));
+        }
         let media = self.seq.media(clip.media)?.clone();
-        let s = clip.source_at(t)?;
+        let s = clip.source_held(t);
         if let Some(folder) = &media.take {
             if !self.takes.contains_key(&media.id) {
                 let look = media.look.clone().unwrap_or_else(|| folder.join("edit.json"));
@@ -88,7 +115,7 @@ impl SequenceRenderer {
             }
             let fps = self.fps;
             let frame = self.takes.get_mut(&media.id)?.source_frame(s, fps)?;
-            return Some((frame, self.seq.size));
+            return Some((frame, self.seq.size, false));
         }
         if media.kind == MediaKind::Image {
             if let std::collections::hash_map::Entry::Vacant(e) = self.stills.entry(media.id) {
@@ -96,32 +123,106 @@ impl SequenceRenderer {
                 let size = (even(media.width as f32 * k), even(media.height as f32 * k));
                 e.insert((media::frame_at(&media.path, 0, size).ok()?, size));
             }
-            return self.stills.get(&media.id).cloned();
+            return self.stills.get(&media.id).cloned().map(|(r, s)| (r, s, false));
         }
-        // the size it's drawn at (enough for its scale), never more than the file's own
-        let (_, draw) = self.placement(clip, &media);
-        let k = (draw.0 / media.width.max(1) as f32).min(1.0);
+        // the size it's drawn at (enough for its largest scale), never more than the file's own
+        let (_, draw) = self.placement(clip, Some(&media), None, t);
+        let biggest = clip.keyframes.iter().map(|k| k.transform.scale).fold(clip.transform.scale, f32::max);
+        let k = (draw.0 / clip.transform_at(t).scale.max(0.01) * biggest / media.width.max(1) as f32).min(1.0);
         let size = (even(media.width as f32 * k), even(media.height as f32 * k));
         if self.streams.get(&clip.id).is_none_or(|s| s.size() != size) {
             self.streams.insert(clip.id, Stream::new(&media.path, size, self.fps));
         }
         let rgba = self.streams.get_mut(&clip.id)?.frame(s)?.to_vec();
-        Some((rgba, size))
+        Some((rgba, size, false))
+    }
+
+    /// One clip as a layer at `t`: faded by `opacity`, moved by `dx`, scaled by `grow`.
+    fn layer_of(&mut self, clip: &Clip, t: u64, opacity: f32, dx: f32, grow: f32, out: &mut Vec<Pic>) {
+        let Some((rgba, size, premultiplied)) = self.picture(clip, t) else { return };
+        let media = self.seq.media(clip.media).cloned();
+        let made = clip.content.as_ref().map(|_| size);
+        let (center, draw) = self.placement(clip, media.as_ref(), made, t);
+        let tr = clip.transform_at(t);
+        out.push(Pic {
+            rgba,
+            size,
+            center: (center.0 + dx, center.1),
+            draw: (draw.0 * grow, draw.1 * grow),
+            rotation: tr.rotation,
+            opacity: tr.opacity * opacity,
+            premultiplied,
+            filter: clip.filter,
+        });
     }
 
     /// The frame at timeline time `t`: RGBA at the sequence's size.
     pub fn frame(&mut self, t: u64) -> Vec<u8> {
-        let clips: Vec<Clip> = self.seq.video_at(t).into_iter().map(|(_, c)| c.clone()).collect();
-        let mut pictures = Vec::new();
-        for c in &clips {
-            let Some(media) = self.seq.media(c.media).cloned() else { continue };
-            let Some((rgba, size)) = self.picture(c, t) else { continue };
-            let (center, draw) = self.placement(c, &media);
-            pictures.push((rgba, size, center, draw, c.transform));
-        }
-        let layers: Vec<Layer> = pictures
+        let w = self.seq.size.0 as f32;
+        let tracks: Vec<Vec<Clip>> = self
+            .seq
+            .tracks
             .iter()
-            .map(|(rgba, size, center, draw, tr)| Layer { rgba, size: *size, center: *center, draw: *draw, rotation: tr.rotation, opacity: tr.opacity })
+            .filter(|tr| tr.kind == TrackKind::Video && !tr.hidden)
+            .rev()
+            .map(|tr| tr.clips.clone())
+            .collect();
+        let mut pics: Vec<Pic> = Vec::new();
+        for clips in tracks {
+            let Some(i) = clips.iter().position(|c| c.start_ms <= t && t < c.end_ms()) else { continue };
+            let c = &clips[i];
+            // a transition across a cut: half in the clip before it, half in the clip after
+            let across = match (c.transition, i.checked_sub(1).map(|p| &clips[p])) {
+                (Some(tn), Some(prev)) if prev.end_ms() == c.start_ms && t < c.start_ms + tn.duration_ms / 2 => {
+                    Some((prev.clone(), c.clone(), 0.5 + (t - c.start_ms) as f32 / tn.duration_ms.max(1) as f32, tn.kind))
+                }
+                _ => clips.get(i + 1).and_then(|n| {
+                    let tn = n.transition?;
+                    (n.start_ms == c.end_ms() && t + tn.duration_ms / 2 >= c.end_ms())
+                        .then(|| (c.clone(), n.clone(), 0.5 - (c.end_ms() - t) as f32 / tn.duration_ms.max(1) as f32, tn.kind))
+                }),
+            };
+            match across {
+                None => self.layer_of(c, t, 1.0, 0.0, 1.0, &mut pics),
+                Some((a, b, k, kind)) => {
+                    let k = k.clamp(0.0, 1.0);
+                    match kind {
+                        TransitionKind::Crossfade => {
+                            self.layer_of(&a, t, 1.0, 0.0, 1.0, &mut pics);
+                            self.layer_of(&b, t, k, 0.0, 1.0, &mut pics);
+                        }
+                        TransitionKind::DipToBlack => {
+                            if k < 0.5 {
+                                self.layer_of(&a, t, 1.0 - 2.0 * k, 0.0, 1.0, &mut pics);
+                            } else {
+                                self.layer_of(&b, t, 2.0 * k - 1.0, 0.0, 1.0, &mut pics);
+                            }
+                        }
+                        TransitionKind::Slide => {
+                            let e = k * k * (3.0 - 2.0 * k);
+                            self.layer_of(&a, t, 1.0, -e * w, 1.0, &mut pics);
+                            self.layer_of(&b, t, 1.0, (1.0 - e) * w, 1.0, &mut pics);
+                        }
+                        TransitionKind::Zoom => {
+                            self.layer_of(&a, t, 1.0, 0.0, 1.0 + 0.15 * k, &mut pics);
+                            self.layer_of(&b, t, k, 0.0, 1.25 - 0.25 * k, &mut pics);
+                        }
+                    }
+                }
+            }
+        }
+        let layers: Vec<Layer> = pics
+            .iter()
+            .map(|p| Layer {
+                rgba: &p.rgba,
+                size: p.size,
+                center: p.center,
+                draw: p.draw,
+                rotation: p.rotation,
+                opacity: p.opacity,
+                premultiplied: p.premultiplied,
+                filter: p.filter,
+            })
             .collect();
         self.compositor.layers(&layers)
     }
@@ -147,39 +248,7 @@ impl SequenceRenderer {
     /// The sound of the whole sequence as an FFmpeg filter over `inputs` (in order, from input
     /// 1), or `None` when nothing makes a sound.
     pub fn mix(&self) -> (Vec<PathBuf>, Option<String>) {
-        let mut inputs: Vec<PathBuf> = Vec::new();
-        let mut parts = Vec::new();
-        for track in self.seq.tracks.iter().filter(|t| !t.muted) {
-            for c in track.clips.iter().filter(|c| !c.muted && c.volume > 0.0) {
-                let Some(m) = self.seq.media(c.media) else { continue };
-                // a picture track's clips play their own sound; stills have none
-                if m.kind == MediaKind::Image || (track.kind == TrackKind::Video && m.audio.is_empty()) {
-                    continue;
-                }
-                let files = if m.audio.is_empty() { vec![m.path.clone()] } else { m.audio.clone() };
-                for f in files {
-                    inputs.push(f);
-                    let i = inputs.len();
-                    let s = c.speed.clamp(0.25, 16.0);
-                    let tempo = if s < 0.5 { format!("atempo={},atempo=0.5", s / 0.5) } else { format!("atempo={s}") };
-                    parts.push(format!(
-                        "[{i}:a]atrim=start={:.3}:end={:.3},asetpts=PTS-STARTPTS,{tempo},volume={:.3},adelay={}|{}[s{}]",
-                        c.in_ms as f64 / 1000.0,
-                        c.out_ms as f64 / 1000.0,
-                        c.volume,
-                        c.start_ms,
-                        c.start_ms,
-                        parts.len()
-                    ));
-                }
-            }
-        }
-        if parts.is_empty() {
-            return (inputs, None);
-        }
-        let labels: String = (0..parts.len()).map(|k| format!("[s{k}]")).collect();
-        let f = format!("{};{labels}amix=inputs={}:normalize=0:dropout_transition=0[aout]", parts.join(";"), parts.len());
-        (inputs, Some(f))
+        mix_of(&self.seq)
     }
 
     /// Renders the sequence into `out`. `progress(fraction)` returns false to stop.
@@ -209,4 +278,58 @@ impl SequenceRenderer {
         progress(1.0);
         enc.finish()
     }
+}
+
+/// The sound of the whole sequence as an FFmpeg filter over `inputs` (in order, from input
+/// 1), or `None` when nothing makes a sound.
+pub fn mix_of(seq: &Sequence) -> (Vec<PathBuf>, Option<String>) {
+    let mut inputs: Vec<PathBuf> = Vec::new();
+    let mut parts = Vec::new();
+    for track in seq.tracks.iter().filter(|t| !t.muted) {
+        for c in track.clips.iter().filter(|c| !c.muted && c.volume > 0.0 && c.content.is_none()) {
+            let Some(m) = seq.media(c.media) else { continue };
+            // a picture track's clips play their own sound; stills have none
+            if m.kind == MediaKind::Image || (track.kind == TrackKind::Video && m.audio.is_empty()) {
+                continue;
+            }
+            let files = if m.audio.is_empty() { vec![m.path.clone()] } else { m.audio.clone() };
+            for f in files {
+                inputs.push(f);
+                let i = inputs.len();
+                let s = c.speed.clamp(0.25, 16.0);
+                let tempo = if s < 0.5 { format!("atempo={},atempo=0.5", s / 0.5) } else { format!("atempo={s}") };
+                parts.push(format!(
+                    "[{i}:a]atrim=start={:.3}:end={:.3},asetpts=PTS-STARTPTS,{tempo},volume={:.3},adelay={}|{}[s{}]",
+                    c.in_ms as f64 / 1000.0,
+                    c.out_ms as f64 / 1000.0,
+                    c.volume,
+                    c.start_ms,
+                    c.start_ms,
+                    parts.len()
+                ));
+            }
+        }
+    }
+    if parts.is_empty() {
+        return (inputs, None);
+    }
+    let labels: String = (0..parts.len()).map(|k| format!("[s{k}]")).collect();
+    let f = format!("{};{labels}amix=inputs={}:normalize=0:dropout_transition=0[aout]", parts.join(";"), parts.len());
+    (inputs, Some(f))
+}
+
+/// The sequence's sound alone, mixed into `out` (a WAV, 16 kHz mono, for speech). False if it
+/// has none.
+pub fn sound_to(seq: &Sequence, out: &Path) -> Result<bool, MediaError> {
+    let (inputs, mix) = mix_of(seq);
+    let Some(mix) = mix else { return Ok(false) };
+    let mut cmd = std::process::Command::new(media::ffmpeg()?);
+    cmd.args(["-v", "error", "-y"]);
+    for i in &inputs {
+        cmd.arg("-i").arg(i);
+    }
+    // the inputs are numbered from 1 in the mix (0 is the pictures, when exporting)
+    let f = (1..=inputs.len()).fold(mix, |f, n| f.replace(&format!("[{n}:a]"), &format!("[{}:a]", n - 1)));
+    let ok = cmd.args(["-filter_complex", &f, "-map", "[aout]", "-ac", "1", "-ar", "16000"]).arg(out).status().is_ok_and(|s| s.success());
+    if ok { Ok(true) } else { Err(MediaError::Failed("couldn't mix the sound".into())) }
 }
