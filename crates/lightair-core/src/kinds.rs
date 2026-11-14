@@ -11,7 +11,8 @@ use serde_json::{Map, Value, json};
 
 use crate::Project;
 
-/// A display, one window or one app's windows. Settings: `mode` (0 display, 1 window, 2 app),
+/// A display, one window, one app's windows or a game. Settings: `mode` (0 display, 1 window,
+/// 2 app, 3 game: Windows's game capture; elsewhere a window),
 /// `display`, `window`, `app` (the platform's ids), `cursor` (bool, shown unless false).
 pub const SCREEN: &str = "lightair_screen";
 /// A camera or capture card. Settings: `device`, `height` (the short side asked for: 720, 1080,
@@ -28,6 +29,7 @@ pub const APP_AUDIO: &str = "lightair_app_audio";
 pub const DISPLAY: i64 = 0;
 pub const WINDOW: i64 = 1;
 pub const APP: i64 = 2;
+pub const GAME: i64 = 3;
 
 /// Every portable kind.
 pub const ALL: [&str; 5] = [SCREEN, CAMERA, MIC, DESKTOP_AUDIO, APP_AUDIO];
@@ -42,7 +44,7 @@ pub fn is_audio(kind: &str) -> bool {
 pub fn device_key(kind: &str, settings: &Value) -> Option<&'static str> {
     match kind {
         SCREEN => Some(match settings["mode"].as_i64().unwrap_or(DISPLAY) {
-            WINDOW => "window",
+            WINDOW | GAME => "window",
             APP => "app",
             _ => "display",
         }),
@@ -86,6 +88,11 @@ pub fn from_libobs(kind: &str, settings: &Value) -> Option<(&'static str, Value)
         "window_capture" => {
             rest.insert("mode".into(), json!(WINDOW));
             take(&mut rest, "show_cursor", "cursor");
+            SCREEN
+        }
+        "game_capture" => {
+            rest.insert("mode".into(), json!(GAME));
+            take(&mut rest, "capture_cursor", "cursor");
             SCREEN
         }
         "av_capture_input_v2" | "av_capture_input" | "macos-avcapture" | "macos-avcapture-fast" => CAMERA,
