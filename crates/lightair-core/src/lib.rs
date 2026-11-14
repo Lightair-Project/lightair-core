@@ -19,6 +19,6 @@ pub use hierarchy::Frame;
 pub use model::{
     AudioMix, AudioSetup, Bus, ClipSettings, Crop, Destination, Direction, Effect, Encoding, Fit, Format, Id, Input,
     Layer, Layout, MASTER_ID, Master, MixerStrip, Route, Send, StemFormat, StemPoint, TrackChannels,
-    OutputSettings, Project, Reconnect, RecordingSettings, Scene, Shape, ShapeKind, Stinger, Track, TransitionKind,
+    OutputSettings, Project, Reconnect, RecordingSettings, Scene, ScreenLook, Shape, ShapeKind, Stinger, Track, TransitionKind,
     TransitionSettings, VideoEncoder,
 };

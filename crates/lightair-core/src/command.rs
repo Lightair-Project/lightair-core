@@ -50,6 +50,11 @@ pub enum Command {
         scene: Id,
         name: String,
     },
+    /// How the scene's screen captures zoom and show the pointer.
+    SetSceneScreen {
+        scene: Id,
+        screen: Option<crate::model::ScreenLook>,
+    },
     MoveScene {
         scene: Id,
         to: usize,
@@ -330,6 +335,7 @@ impl Command {
             Command::AddScene { .. } => "Add scene".into(),
             Command::RemoveScene { .. } => "Remove scene".into(),
             Command::RenameScene { .. } => "Rename scene".into(),
+            Command::SetSceneScreen { .. } => "Change screen zoom and pointer".into(),
             Command::MoveScene { .. } => "Reorder scenes".into(),
             Command::SetProgram { .. } => "Switch scene".into(),
             Command::AddLayer { .. } => "Add object".into(),
@@ -524,6 +530,7 @@ impl Command {
                 }
             }
             Command::RenameScene { scene, name } => scene_mut(project, *scene)?.name = name.clone(),
+            Command::SetSceneScreen { scene, screen } => scene_mut(project, *scene)?.screen = *screen,
             Command::MoveScene { scene, to } => {
                 let idx = project.scene_index(*scene).ok_or(CommandError::NoScene(*scene))?;
                 let s = project.scenes.remove(idx);

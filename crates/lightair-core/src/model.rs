@@ -194,11 +194,70 @@ pub struct Scene {
     pub id: Id,
     pub name: String,
     pub layers: Vec<Layer>,
+    /// Screen Studio's look, live: how the scene's screen captures zoom, and how the pointer
+    /// and clicks are drawn on them (`None`: as captured).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub screen: Option<ScreenLook>,
+}
+
+/// How a scene's screen captures zoom and show the pointer, live (docs/plans/screen-studio.md,
+/// "Zoom" and "Cursor"). The engine draws it on every screen capture in the scene.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ScreenLook {
+    /// When it zooms: [`ScreenLook::ZOOM_OFF`], `ZOOM_CLICKS` (in to a click, out after
+    /// `zoom_hold_s` without one) or `ZOOM_ALWAYS` (always in, following the pointer).
+    pub zoom: i64,
+    /// How far (1.25–4×).
+    pub zoom_scale: f32,
+    /// How long it stays in after the last click (s).
+    pub zoom_hold_s: f32,
+    /// How it moves: 0 focused (quick) … 1 smooth (slow).
+    pub zoom_motion: f32,
+    /// Lightair draws the pointer (bigger, smoothed, styled); else the capture's own.
+    pub cursor: bool,
+    /// 0 pointer, 1 dot, 2 ring.
+    pub cursor_style: i64,
+    pub cursor_size: f32,
+    /// 0 none … 1 a slow glide.
+    pub cursor_smoothing: f32,
+    /// Hidden after this long still (s; 0 never).
+    pub cursor_idle_s: f32,
+    pub cursor_tilt: bool,
+    /// 0xAABBGGRR (the dot, ring and click colour).
+    pub cursor_color: u32,
+    /// 0 none, 1 circle, 2 ripple.
+    pub clicks: i64,
+}
+
+impl ScreenLook {
+    pub const ZOOM_OFF: i64 = 0;
+    pub const ZOOM_CLICKS: i64 = 1;
+    pub const ZOOM_ALWAYS: i64 = 2;
+}
+
+impl Default for ScreenLook {
+    fn default() -> Self {
+        ScreenLook {
+            zoom: ScreenLook::ZOOM_CLICKS,
+            zoom_scale: 2.0,
+            zoom_hold_s: 2.0,
+            zoom_motion: 0.5,
+            cursor: true,
+            cursor_style: 0,
+            cursor_size: 1.5,
+            cursor_smoothing: 0.5,
+            cursor_idle_s: 3.0,
+            cursor_tilt: true,
+            cursor_color: 0xFFFF_9000,
+            clicks: 2,
+        }
+    }
 }
 
 impl Scene {
     pub fn new(name: impl Into<String>) -> Self {
-        Self { id: Id::new(), name: name.into(), layers: Vec::new() }
+        Self { id: Id::new(), name: name.into(), layers: Vec::new(), screen: None }
     }
     pub fn layer(&self, id: Id) -> Option<&Layer> {
         self.layers.iter().find(|l| l.id == id)
