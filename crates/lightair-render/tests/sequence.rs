@@ -450,3 +450,68 @@ fn a_takes_scene_comes_back_as_layers_where_they_were() {
     let logo = at(0.85, 0.14);
     assert!(logo[0] > 200 && logo[1] > 200 && logo[2] < 80, "the logo: {logo:?}");
 }
+
+#[test]
+fn every_audio_track_of_a_file_is_a_clip_of_its_own() {
+    use lightair_render::sound;
+    let dir = tempfile::tempdir().unwrap();
+    let Ok(ff) = media::ffmpeg() else {
+        eprintln!("FFmpeg isn't installed; skipping");
+        return;
+    };
+    // a picture and three sounds: quiet, middling, loud; the first two named
+    let file = dir.path().join("three.mp4");
+    assert!(Command::new(&ff)
+        .args(["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=gray:s=320x180:r=30:d=2"])
+        .args(["-f", "lavfi", "-i", "sine=frequency=300:duration=2,volume=0.1"])
+        .args(["-f", "lavfi", "-i", "sine=frequency=500:duration=2,volume=0.4"])
+        .args(["-f", "lavfi", "-i", "sine=frequency=700:duration=2,volume=0.9"])
+        .args(["-map", "0:v", "-map", "1:a", "-map", "2:a", "-map", "3:a", "-pix_fmt", "yuv420p", "-c:a", "aac"])
+        .args(["-metadata:s:a:0", "handler_name=Mic", "-metadata:s:a:1", "handler_name=Desktop audio"])
+        .arg(&file)
+        .status()
+        .unwrap()
+        .success());
+    let m = Media::from_file(&file).unwrap();
+    assert_eq!(m.tracks, ["Mic", "Desktop audio", "Track 3"]);
+    let mut seq = Sequence::new((320, 180), 30);
+    let id = seq.add_media(m);
+    let video = seq.append(id).unwrap();
+    let sounds = seq.detach_sounds(video);
+    assert_eq!(sounds.len(), 3, "a clip per track");
+    assert!(seq.clip(video).unwrap().muted);
+    let tracks: Vec<usize> = sounds.iter().map(|c| seq.find(*c).unwrap().0).collect();
+    assert!(tracks[0] != tracks[1] && tracks[1] != tracks[2] && tracks[0] != tracks[2], "each on a track of its own: {tracks:?}");
+    assert_eq!(sounds.iter().map(|c| seq.clip(*c).unwrap().stream).collect::<Vec<_>>(), [Some(0), Some(1), Some(2)]);
+    let mut all = seq.linked(video);
+    all.sort();
+    let mut want = sounds.clone();
+    want.push(video);
+    want.sort();
+    assert_eq!(all, want, "all linked");
+
+    // each plays its own track: alone, each is as loud as its track
+    let level = |seq: &Sequence| {
+        let mut child = sound::stream(seq, 0, 48_000).unwrap().unwrap();
+        let mut bytes = Vec::new();
+        std::io::Read::read_to_end(child.stdout.as_mut().unwrap(), &mut bytes).unwrap();
+        child.wait().unwrap();
+        let s: Vec<f32> = bytes.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)).collect();
+        s[48 * 2 * 500..48 * 2 * 1500].iter().step_by(2).fold(0f32, |m, v| m.max(v.abs()))
+    };
+    let mut levels = Vec::new();
+    for keep in &sounds {
+        let mut one = seq.clone();
+        for c in &sounds {
+            one.clip_mut(*c).unwrap().muted = c != keep;
+        }
+        levels.push(level(&one));
+    }
+    assert!(levels[0] < levels[1] && levels[1] < levels[2], "{levels:?}");
+    // (the tone is an eighth of full scale): 0.1, 0.4 and 0.9 of it
+    let r = levels[2] / levels[0];
+    assert!((6.0..12.0).contains(&r), "{levels:?}");
+    // their waveforms too: the middle track's
+    let p1 = sound::peaks_of(&file, Some(1)).unwrap();
+    assert!((p1[100] - 0.4 * 0.125).abs() < 0.01, "{}", p1[100]);
+}

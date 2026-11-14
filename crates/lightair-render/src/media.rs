@@ -150,6 +150,28 @@ pub struct Contents {
     pub duration_ms: u64,
 }
 
+/// A file's audio tracks, by name (their title, else "Track 1", "Track 2"…).
+pub fn audio_tracks(path: &Path) -> Vec<String> {
+    let Some(ffprobe) = find("ffprobe") else { return Vec::new() };
+    let Ok(out) = Command::new(ffprobe).args(["-v", "error", "-select_streams", "a", "-show_entries", "stream=index:stream_tags=title,handler_name", "-of", "json"]).arg(path).output() else {
+        return Vec::new();
+    };
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
+    v["streams"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .enumerate()
+                .map(|(n, st)| {
+                    let tags = &st["tags"];
+                    let named = |k: &str| tags[k].as_str().map(str::trim).filter(|t| !t.is_empty() && !t.to_lowercase().contains("handler")).map(String::from);
+                    named("title").or_else(|| named("handler_name")).unwrap_or_else(|| format!("Track {}", n + 1))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 pub fn contents(path: &Path) -> Result<Contents, MediaError> {
     let ffprobe = find("ffprobe").ok_or(MediaError::NoFfmpeg)?;
     let out = Command::new(ffprobe)

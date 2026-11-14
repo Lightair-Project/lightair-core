@@ -31,10 +31,16 @@ pub fn cache() -> PathBuf {
 
 /// A file's sound, decoded: interleaved f32 with `channels` at `rate`.
 pub fn decode(path: &Path, rate: u32, channels: u32) -> Result<Vec<f32>, MediaError> {
+    decode_track(path, None, rate, channels)
+}
+
+/// One of a file's audio tracks (`None`: its first), decoded.
+pub fn decode_track(path: &Path, track: Option<u32>, rate: u32, channels: u32) -> Result<Vec<f32>, MediaError> {
+    let map = format!("0:a:{}", track.unwrap_or(0));
     let mut child = Command::new(media::ffmpeg()?)
         .args(["-v", "error", "-i"])
         .arg(path)
-        .args(["-vn", "-f", "f32le", "-ac", &channels.to_string(), "-ar", &rate.to_string(), "-"])
+        .args(["-map", &map, "-f", "f32le", "-ac", &channels.to_string(), "-ar", &rate.to_string(), "-"])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()?;
@@ -48,8 +54,13 @@ pub fn decode(path: &Path, rate: u32, channels: u32) -> Result<Vec<f32>, MediaEr
 
 /// A file's waveform: the loudest sample in each 1/[`PEAKS_PER_SECOND`] of a second (0..1).
 pub fn peaks(path: &Path) -> Result<Vec<f32>, MediaError> {
+    peaks_of(path, None)
+}
+
+/// One of a file's audio tracks' waveform.
+pub fn peaks_of(path: &Path, track: Option<u32>) -> Result<Vec<f32>, MediaError> {
     const R: u32 = 8_000;
-    let samples = decode(path, R, 1)?;
+    let samples = decode_track(path, track, R, 1)?;
     Ok(samples.chunks((R / PEAKS_PER_SECOND) as usize).map(|c| c.iter().fold(0f32, |m, s| m.max(s.abs())).min(1.0)).collect())
 }
 
@@ -81,8 +92,14 @@ pub fn write_wav(out: &Path, stereo: &[f32], rate: u32) -> std::io::Result<()> {
 
 /// Where `file` cleaned with `v` is kept (named by the file, its size and time, and `v`).
 pub fn cleaned_path(file: &Path, v: VoiceClean) -> PathBuf {
+    cleaned_path_of(file, None, v)
+}
+
+/// Where one of a file's audio tracks cleaned with `v` is kept.
+pub fn cleaned_path_of(file: &Path, track: Option<u32>, v: VoiceClean) -> PathBuf {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     file.hash(&mut h);
+    track.hash(&mut h);
     if let Ok(m) = std::fs::metadata(file) {
         m.len().hash(&mut h);
         m.modified().ok().hash(&mut h);
@@ -95,8 +112,13 @@ pub fn cleaned_path(file: &Path, v: VoiceClean) -> PathBuf {
 /// Cleans up the voice in `file` into `out`: noise, a gate, de-essing, EQ, compression and a
 /// limiter (the audio engine's Voice Clarity), in time with the original.
 pub fn clean(file: &Path, v: VoiceClean, out: &Path) -> Result<(), MediaError> {
+    clean_track(file, None, v, out)
+}
+
+/// Cleans one of a file's audio tracks.
+pub fn clean_track(file: &Path, track: Option<u32>, v: VoiceClean, out: &Path) -> Result<(), MediaError> {
     use lightair_audio::dsp::{Ctx, Params, VoiceParams};
-    let mut audio = decode(file, RATE, 2)?;
+    let mut audio = decode_track(file, track, RATE, 2)?;
     let params = Params::Voice(VoiceParams { amount: v.amount.clamp(0.0, 1.0), podcast: v.podcast, ..VoiceParams::default() });
     let mut p = params.make(RATE as f32);
     let ctx = Ctx { sample_rate: RATE as f32, key: None };
@@ -127,20 +149,38 @@ pub fn clean(file: &Path, v: VoiceClean, out: &Path) -> Result<(), MediaError> {
     Ok(())
 }
 
-/// The files a clip's sound comes from (a cleaned voice when it's been made).
-fn sound_files(seq: &Sequence, c: &Clip, video_track: bool) -> Vec<PathBuf> {
+/// Where a sound comes from: a file, and which of its audio tracks (`None`: its first).
+type Source = (PathBuf, Option<u32>);
+
+/// What a clip's sound comes from, before any clean-up: a take's stems, or the file's audio
+/// track the clip plays (every track, for a video clip whose sound isn't apart).
+fn sources(seq: &Sequence, c: &Clip, video_track: bool) -> Vec<Source> {
     let Some(m) = seq.media(c.media) else { return Vec::new() };
     // a picture track's clips play their own sound; stills have none
     if m.kind == MediaKind::Image || (video_track && m.audio.is_empty()) {
         return Vec::new();
     }
-    let files = if m.audio.is_empty() { vec![m.path.clone()] } else { m.audio.clone() };
+    // a take's stems: files of their own
+    if !m.audio.is_empty() && m.audio.iter().any(|f| *f != m.path) {
+        return m.audio.iter().map(|f| (f.clone(), None)).collect();
+    }
+    match c.stream {
+        Some(n) => vec![(m.path.clone(), Some(n))],
+        None if m.tracks.len() > 1 => (0..m.tracks.len() as u32).map(|n| (m.path.clone(), Some(n))).collect(),
+        None => vec![(m.path.clone(), None)],
+    }
+}
+
+/// What a clip's sound is played from: its sources, a cleaned voice in place of each when
+/// it's been made.
+fn sound_files(seq: &Sequence, c: &Clip, video_track: bool) -> Vec<Source> {
+    let files = sources(seq, c, video_track);
     match c.voice {
         Some(v) => files
             .into_iter()
-            .map(|f| {
-                let cleaned = cleaned_path(&f, v);
-                if cleaned.is_file() { cleaned } else { f }
+            .map(|(f, s)| {
+                let cleaned = cleaned_path_of(&f, s, v);
+                if cleaned.is_file() { (cleaned, None) } else { (f, s) }
             })
             .collect(),
         None => files,
@@ -154,19 +194,14 @@ fn sounding(seq: &Sequence) -> impl Iterator<Item = (&Clip, bool)> {
     })
 }
 
-/// The voices the sequence asks to be cleaned that haven't been yet (file, setting).
-pub fn voices_to_clean(seq: &Sequence) -> Vec<(PathBuf, VoiceClean)> {
-    let mut out: Vec<(PathBuf, VoiceClean)> = Vec::new();
+/// The voices the sequence asks to be cleaned that haven't been yet (file, its track, setting).
+pub fn voices_to_clean(seq: &Sequence) -> Vec<(PathBuf, Option<u32>, VoiceClean)> {
+    let mut out: Vec<(PathBuf, Option<u32>, VoiceClean)> = Vec::new();
     for (c, video) in sounding(seq) {
         let Some(v) = c.voice else { continue };
-        let Some(m) = seq.media(c.media) else { continue };
-        if m.kind == MediaKind::Image || (video && m.audio.is_empty()) {
-            continue;
-        }
-        let files = if m.audio.is_empty() { vec![m.path.clone()] } else { m.audio.clone() };
-        for f in files {
-            if !cleaned_path(&f, v).is_file() && !out.iter().any(|(g, w)| *g == f && *w == v) {
-                out.push((f, v));
+        for (f, s) in sources(seq, c, video) {
+            if !cleaned_path_of(&f, s, v).is_file() && !out.iter().any(|(g, t, w)| *g == f && *t == s && *w == v) {
+                out.push((f, s, v));
             }
         }
     }
@@ -175,8 +210,8 @@ pub fn voices_to_clean(seq: &Sequence) -> Vec<(PathBuf, VoiceClean)> {
 
 /// Cleans every voice the sequence asks for that isn't yet.
 pub fn prepare(seq: &Sequence) -> Result<(), MediaError> {
-    for (f, v) in voices_to_clean(seq) {
-        clean(&f, v, &cleaned_path(&f, v))?;
+    for (f, s, v) in voices_to_clean(seq) {
+        clean_track(&f, s, v, &cleaned_path_of(&f, s, v))?;
     }
     Ok(())
 }
@@ -209,9 +244,10 @@ pub fn mix_of(seq: &Sequence) -> (Vec<PathBuf>, Option<String>) {
     // which parts are turned down under the others
     let mut ducked: Vec<bool> = Vec::new();
     for (c, video) in sounding(seq) {
-        for f in sound_files(seq, c, video) {
+        for (f, track) in sound_files(seq, c, video) {
             inputs.push(f);
             let i = inputs.len();
+            let pick = track.map_or(String::new(), |n| format!(":{n}"));
             let s = c.speed.clamp(0.25, 16.0);
             let tempo = if s < 0.5 { format!("atempo={},atempo=0.5", s / 0.5) } else { format!("atempo={s}") };
             let len = c.len_ms() as f64 / 1000.0;
@@ -224,7 +260,7 @@ pub fn mix_of(seq: &Sequence) -> (Vec<PathBuf>, Option<String>) {
                 shape.push_str(&format!(",afade=t=out:st={:.3}:d={d:.3}", len - d));
             }
             parts.push(format!(
-                "[{i}:a]atrim=start={:.3}:end={:.3},asetpts=PTS-STARTPTS,{tempo},{shape},adelay={}|{}[s{}]",
+                "[{i}:a{pick}]atrim=start={:.3}:end={:.3},asetpts=PTS-STARTPTS,{tempo},{shape},adelay={}|{}[s{}]",
                 c.in_ms as f64 / 1000.0,
                 c.out_ms as f64 / 1000.0,
                 c.start_ms,
@@ -267,7 +303,7 @@ fn mixing(seq: &Sequence) -> Result<Option<Command>, MediaError> {
         cmd.arg("-i").arg(i);
     }
     // the inputs are numbered from 1 in the mix (0 is the pictures, when exporting)
-    let f = (1..=inputs.len()).fold(mix, |f, n| f.replace(&format!("[{n}:a]"), &format!("[{}:a]", n - 1)));
+    let f = (1..=inputs.len()).fold(mix, |f, n| f.replace(&format!("[{n}:a"), &format!("[{}:a", n - 1)));
     cmd.args(["-filter_complex", &f, "-map", "[aout]"]);
     Ok(Some(cmd))
 }

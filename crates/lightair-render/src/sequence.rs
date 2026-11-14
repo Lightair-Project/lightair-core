@@ -41,6 +41,9 @@ pub struct Media {
     /// Its words, when it's been transcribed (source time).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transcript: Option<crate::speech::Transcript>,
+    /// The names of its audio tracks, when the file has several.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tracks: Vec<String>,
 }
 
 impl Media {
@@ -67,6 +70,7 @@ impl Media {
             item: None,
             look: None,
             transcript: None,
+            tracks: if c.audio { Some(crate::media::audio_tracks(path)).filter(|t| t.len() > 1).unwrap_or_default() } else { Vec::new() },
         })
     }
 
@@ -102,21 +106,22 @@ impl Media {
                     let Some(file) = v["file"].as_str() else { continue };
                     let Ok(mut m) = Media::from_file(&folder.join(file)) else { continue };
                     m.name = layer.name.clone();
-                    TakePart { name: layer.name.clone(), media: Some(m), content: None, place }
+                    TakePart { name: layer.name.clone(), media: Some(m), content: None, place, mute_own_sound: false }
                 }
                 What::Image { file } => {
                     let Ok(mut m) = Media::from_file(&folder.join(file)) else { continue };
                     m.name = layer.name.clone();
-                    TakePart { name: layer.name.clone(), media: Some(m), content: None, place }
+                    TakePart { name: layer.name.clone(), media: Some(m), content: None, place, mute_own_sound: false }
                 }
                 What::Video { path } => {
                     let Ok(mut m) = Media::from_file(path) else { continue };
                     m.name = layer.name.clone();
-                    TakePart { name: layer.name.clone(), media: Some(m), content: None, place }
+                    TakePart { name: layer.name.clone(), media: Some(m), content: None, place, mute_own_sound: false }
                 }
                 What::Text { text, size, color, bold } => TakePart {
                     name: layer.name.clone(),
                     media: None,
+                    mute_own_sound: false,
                     content: Some(Content::Text(TextStyle {
                         text: text.clone(),
                         size: *size,
@@ -132,6 +137,7 @@ impl Media {
                 What::Colour { color, alpha } => TakePart {
                     name: layer.name.clone(),
                     media: None,
+                    mute_own_sound: false,
                     content: Some(Content::Shape(ShapeStyle {
                         shape: ShapeKind::Rectangle,
                         width: layer.w * canvas_w,
@@ -197,6 +203,7 @@ impl Media {
             item: None,
             look: None,
             transcript: None,
+            tracks: Vec::new(),
         })
     }
 }
@@ -390,6 +397,10 @@ pub struct Clip {
     pub flip_h: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub flip_v: bool,
+    /// Which of its file's audio tracks it plays (`None`: the first, or every one for a video
+    /// clip whose sound isn't apart).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream: Option<u32>,
     /// Clips that go together (a take's parts, a video and its detached sound): picked,
     /// moved and deleted as one while linkage is on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -435,11 +446,13 @@ pub struct TakePart {
     pub media: Option<Media>,
     pub content: Option<Content>,
     pub place: Option<Placement>,
+    /// Its own sound, when it's taken apart, starts muted (other parts have it in parts).
+    pub mute_own_sound: bool,
 }
 
 impl TakePart {
     pub fn of(m: Media) -> TakePart {
-        TakePart { name: m.name.clone(), media: Some(m), content: None, place: None }
+        TakePart { name: m.name.clone(), media: Some(m), content: None, place: None, mute_own_sound: false }
     }
 
     /// The file it is (a take's screen: the screen recording itself); `None` for made layers.
@@ -582,6 +595,7 @@ impl Clip {
             crop: (0.0, 0.0, 0.0, 0.0),
             flip_h: false,
             flip_v: false,
+            stream: None,
             link: None,
         }
     }
@@ -1018,6 +1032,29 @@ impl Sequence {
         removed
     }
 
+    /// A video clip's sound as clips of their own, one per audio track of its file, each on an
+    /// audio track of its own, linked (the video clip muted). Their ids.
+    pub fn detach_sounds(&mut self, clip: Id) -> Vec<Id> {
+        let tracks = self.clip(clip).and_then(|c| self.media(c.media)).map_or(0, |m| if m.audio.iter().any(|f| *f != m.path) { 0 } else { m.tracks.len() });
+        if tracks < 2 {
+            return self.detach_sound(clip).into_iter().collect();
+        }
+        let mut made = Vec::new();
+        for n in 0..tracks as u32 {
+            // the video stays as it was until the last one is apart
+            if let Some(c) = self.clip_mut(clip) {
+                c.muted = false;
+            }
+            if let Some(id) = self.detach_sound(clip) {
+                if let Some(c) = self.clip_mut(id) {
+                    c.stream = Some(n);
+                }
+                made.push(id);
+            }
+        }
+        made
+    }
+
     /// A video clip's sound as a clip of its own on an audio track (the video clip muted). The
     /// new clip's id; `None` for clips without sound.
     pub fn detach_sound(&mut self, clip: Id) -> Option<Id> {
@@ -1395,6 +1432,7 @@ mod tests {
             item: None,
             look: None,
             transcript: None,
+            tracks: Vec::new(),
         })
     }
 
