@@ -33,6 +33,9 @@ struct U {
     c2: vec4<f32>,
     dir_shadow: vec4<f32>,
     shadow_rect: vec4<f32>,
+    // x: masks in use, y: a mask's block size (texture pixels), z: sharpening (0..1)
+    mask_info: vec4<f32>,
+    masks: array<vec4<f32>, 4>,
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var tex: texture_2d<f32>;
@@ -78,14 +81,44 @@ fn fs(v: V) -> @location(0) vec4<f32> {
         c = c * (1.0 - u.dir_shadow.w * s);
         return vec4(c, 1.0);
     }
-    let colour = textureSample(tex, samp, u.uv.xy + v.local * u.uv.zw);
+    var uv = u.uv.xy + v.local * u.uv.zw;
     if (mode < 1.5) {
+        let dims = vec2<f32>(textureDimensions(tex));
+        // hidden areas: big blocks of colour
+        var masked = false;
+        for (var i = 0u; i < u32(u.mask_info.x); i++) {
+            let m = u.masks[i];
+            if (uv.x >= m.x && uv.y >= m.y && uv.x <= m.x + m.z && uv.y <= m.y + m.w) {
+                masked = true;
+            }
+        }
+        if (masked) {
+            let cell = vec2(u.mask_info.y, u.mask_info.y) / dims;
+            uv = (floor(uv / cell) + vec2(0.5, 0.5)) * cell;
+        }
+        var colour = textureSampleLevel(tex, samp, uv, 0.0);
+        // zoomed in: contrast-adaptive sharpening (AMD's CAS)
+        let sharp = u.mask_info.z;
+        if (sharp > 0.0 && !masked) {
+            let d = 1.0 / dims;
+            let n = textureSampleLevel(tex, samp, uv - vec2(0.0, d.y), 0.0).rgb;
+            let s = textureSampleLevel(tex, samp, uv + vec2(0.0, d.y), 0.0).rgb;
+            let e = textureSampleLevel(tex, samp, uv + vec2(d.x, 0.0), 0.0).rgb;
+            let w = textureSampleLevel(tex, samp, uv - vec2(d.x, 0.0), 0.0).rgb;
+            let c = colour.rgb;
+            let mn = min(c, min(min(n, s), min(e, w)));
+            let mx = max(c, max(max(n, s), max(e, w)));
+            let amp = sqrt(clamp(min(mn, vec3(1.0) - mx) / max(mx, vec3(1e-4)), vec3(0.0), vec3(1.0)));
+            let wt = -amp / mix(8.0, 5.0, sharp);
+            colour = vec4(clamp((c + (n + s + e + w) * wt) / (vec3(1.0) + 4.0 * wt), vec3(0.0), vec3(1.0)), colour.a);
+        }
         // the screen, its corners rounded
         let half = u.rect.zw * 0.5;
         let d = rounded_box(v.px - (u.rect.xy + half), half, u.mode.y);
         let a = clamp(0.5 - d, 0.0, 1.0);
         return vec4(colour.rgb, 1.0) * a * u.mode.z;
     }
+    let colour = textureSample(tex, samp, uv);
     // a sprite (premultiplied)
     return colour * u.mode.z;
 }
@@ -117,6 +150,10 @@ pub struct Frame<'a> {
     pub click_style: i64,
     /// Clicks to draw: where (fractions of the screen) and how far along (0..1).
     pub clicks: Vec<(f32, f32, f32)>,
+    /// Areas hidden (x, y, w, h as fractions of the screen), up to four.
+    pub masks: Vec<(f32, f32, f32, f32)>,
+    /// Sharpening while zoomed in (0 none .. 1 most).
+    pub sharpen: f32,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -331,14 +368,14 @@ impl Compositor {
         let (colours, angle) = BACKDROPS[(self.look.backdrop.max(0) as usize).min(BACKDROPS.len() - 1)];
         let a = angle.to_radians();
         let base = |rect: [f32; 4]| {
-            let mut u = [0f32; 40];
+            let mut u = [0f32; 60];
             u[0..4].copy_from_slice(&[ow, oh, 0.0, 0.0]);
             u[4..8].copy_from_slice(&rect);
             u[8..12].copy_from_slice(&[0.0, 0.0, 1.0, 1.0]);
             u
         };
         // draws: (uniforms, texture)
-        let mut draws: Vec<([f32; 40], Option<Sprite>, bool)> = Vec::new();
+        let mut draws: Vec<([f32; 60], Option<Sprite>, bool)> = Vec::new();
         let mut back = base([0.0, 0.0, ow, oh]);
         back[12..16].copy_from_slice(&[0.0, radius, 1.0, 0.0]);
         back[20..24].copy_from_slice(&rgb(colours[0]));
@@ -351,6 +388,12 @@ impl Compositor {
         let mut screen = base([bx.0, bx.1, bx.2, bx.3]);
         screen[8..12].copy_from_slice(&[vx, vy, vw, vh]);
         screen[12..16].copy_from_slice(&[1.0, radius, 1.0, 0.0]);
+        let masks: Vec<_> = f.masks.iter().take(4).collect();
+        // blocks about 1/60 of the screen's width
+        screen[40..44].copy_from_slice(&[masks.len() as f32, (f.screen_size.0 as f32 / 60.0).max(4.0), f.sharpen.clamp(0.0, 1.0), 0.0]);
+        for (k, m) in masks.iter().enumerate() {
+            screen[44 + k * 4..48 + k * 4].copy_from_slice(&[m.0, m.1, m.2, m.3]);
+        }
         draws.push((screen, None, true));
         // screen fractions → result pixels, through the view
         let place = |x: f32, y: f32| (bx.0 + (x - vx) / vw * bx.2, bx.1 + (y - vy) / vh * bx.3);
@@ -475,6 +518,21 @@ mod tests {
         [img[i], img[i + 1], img[i + 2], img[i + 3]]
     }
 
+    fn zoomed_frame() -> Frame<'static> {
+        Frame {
+            screen: &[],
+            screen_size: (160, 100),
+            view: View::WHOLE,
+            pointer: None,
+            pointer_px: 24.0,
+            pointer_style: 0,
+            click_style: 0,
+            clicks: Vec::new(),
+            masks: Vec::new(),
+            sharpen: 0.0,
+        }
+    }
+
     #[test]
     fn frames_are_composited_the_same_every_time() {
         let Ok(mut c) = Compositor::new((640, 360), Look::default()) else {
@@ -492,6 +550,8 @@ mod tests {
             pointer_style: 0,
             click_style: 2,
             clicks: vec![(0.25, 0.25, 0.3)],
+            masks: Vec::new(),
+            sharpen: 0.0,
         };
         let a = c.render(&frame);
         let b = c.render(&frame);
@@ -506,7 +566,17 @@ mod tests {
         let body = px(&a, 640, (tip.0 + 4.0) as u32, (tip.1 + 9.0) as u32);
         assert!(body[0] > 230 && body[1] > 230, "a white pointer body: {body:?}");
         // zoomed twice, the grey fills the box and the pointer grows
-        let zoomed = c.render(&Frame { view: View { scale: 2.0, x: 0.5, y: 0.5 }, ..frame });
+        let zoomed = c.render(&Frame { view: View { scale: 2.0, x: 0.5, y: 0.5 }, sharpen: 0.6, clicks: Vec::new(), ..frame });
         assert_ne!(zoomed, a);
+        // a hidden area: a gradient screen becomes flat blocks there, and stays itself elsewhere
+        let ramp: Vec<u8> = (0..160 * 100).flat_map(|i| { let x = (i % 160) as u8; [x, x, x, 255] }).collect();
+        let plain = Frame { screen: &ramp, pointer: None, clicks: Vec::new(), masks: Vec::new(), ..zoomed_frame() };
+        let hidden = Frame { screen: &ramp, pointer: None, clicks: Vec::new(), masks: vec![(0.0, 0.0, 0.5, 1.0)], ..zoomed_frame() };
+        let (p, h) = (c.render(&plain), c.render(&hidden));
+        let at = |img: &[u8], fx: f32| px(img, 640, (bx.0 + bx.2 * fx) as u32, (bx.1 + bx.3 * 0.5) as u32)[0];
+        assert_eq!(at(&p, 0.8), at(&h, 0.8), "outside the area: unchanged");
+        // texels 16.4 and 17.6 of 160: one block of four
+        assert_ne!(at(&p, 0.1025), at(&p, 0.11), "a ramp moves pixel to pixel");
+        assert_eq!(at(&h, 0.1025), at(&h, 0.11), "inside: one block");
     }
 }

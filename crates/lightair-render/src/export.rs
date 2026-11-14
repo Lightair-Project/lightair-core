@@ -96,6 +96,20 @@ impl Renderer {
         self.camera.at(source_ms)
     }
 
+    /// Where a point of the result (pixels) is on the screen (fractions) at result time `t_ms`,
+    /// through that moment's zoom; `None` off the screen.
+    pub fn screen_point(&self, px: (f32, f32), t_ms: u64) -> Option<(f32, f32)> {
+        let aspect = self.probe.width as f32 / self.probe.height.max(1) as f32;
+        let bx = self.compositor.screen_box(aspect);
+        let (fx, fy) = ((px.0 - bx.0) / bx.2, (px.1 - bx.1) / bx.3);
+        if !(0.0..=1.0).contains(&fx) || !(0.0..=1.0).contains(&fy) {
+            return None;
+        }
+        let s = timeline::source_at(&self.edit, t_ms)?;
+        let (vx, vy, vw, vh) = self.camera.at(s).rect();
+        Some((vx + fx * vw, vy + fy * vh))
+    }
+
     fn compose(&mut self, screen: &[u8], source_ms: u64) -> Vec<u8> {
         let aspect = self.probe.width as f32 / self.probe.height.max(1) as f32;
         let bx = self.compositor.screen_box(aspect);
@@ -106,10 +120,21 @@ impl Renderer {
             (Some(t), false) => (t.at(source_ms, bx.2), t.clicks_at(source_ms)),
             _ => (None, Vec::new()),
         };
+        let view = self.camera.at(source_ms);
+        let masks = self
+            .edit
+            .masks
+            .iter()
+            .filter(|m| m.start_ms <= source_ms && source_ms < m.end_ms)
+            .map(|m| (m.x, m.y, m.w, m.h))
+            .collect();
         let frame = Frame {
             screen,
             screen_size: self.decode_size,
-            view: self.camera.at(source_ms),
+            view,
+            masks,
+            // zoomed in, the screen's pixels are larger: sharpened back
+            sharpen: ((view.scale - 1.0) * 0.6).clamp(0.0, 0.6),
             pointer,
             pointer_px,
             pointer_style: p.style,

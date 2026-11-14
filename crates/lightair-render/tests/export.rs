@@ -63,6 +63,10 @@ fn a_take_exports_through_its_edit() {
         }
     };
     assert_eq!(r.duration_ms(), 3_500);
+    // the middle of the result is the middle of the screen (no zoom yet); the corner is off it
+    let (x, y) = r.screen_point((320.0, 180.0), 200).unwrap();
+    assert!((x - 0.5).abs() < 0.01 && (y - 0.5).abs() < 0.01, "{x} {y}");
+    assert!(r.screen_point((2.0, 2.0), 200).is_none());
     let still = r.frame_at(1_800).unwrap();
     assert_eq!(still.len(), 640 * 360 * 4);
     let out = dir.path().join("Edited.mp4");

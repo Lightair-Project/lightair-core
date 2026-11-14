@@ -40,6 +40,18 @@ pub struct Zoom {
     pub auto: bool,
 }
 
+/// An area hidden for a while (passwords, keys, messages): `x`, `y`, `w`, `h` as fractions of
+/// the screen, so it stays on the same spot through zooms.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Mask {
+    pub start_ms: u64,
+    pub end_ms: u64,
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
 /// How the pointer is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Pointer {
@@ -86,6 +98,8 @@ pub struct Edit {
     #[serde(default)]
     pub zooms: Vec<Zoom>,
     #[serde(default)]
+    pub masks: Vec<Mask>,
+    #[serde(default)]
     pub pointer: Pointer,
     #[serde(default)]
     pub look: Look,
@@ -100,6 +114,7 @@ impl Edit {
             version: 1,
             clips: vec![Clip { start_ms: 0, end_ms: duration_ms, speed: 1.0 }],
             zooms: Vec::new(),
+            masks: Vec::new(),
             pointer: Pointer::default(),
             look: Look::default(),
             size: (1920, 1080),
