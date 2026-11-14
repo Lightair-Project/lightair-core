@@ -49,6 +49,8 @@ pub struct Renderer {
     decode_size: (u32, u32),
     /// Subtitles to add to exports (a SubRip file).
     pub subtitles: Option<PathBuf>,
+    /// The screen read in time order (as a clip in a sequence).
+    stream: Option<crate::media::Stream>,
 }
 
 fn even(v: f32) -> u32 {
@@ -66,7 +68,7 @@ impl Renderer {
         let k = ((bx.2 * 2.0) / probe.width as f32).min(1.0);
         let decode_size = (even(probe.width as f32 * k), even(probe.height as f32 * k));
         let camera = Self::camera_of(edit, &probe, pointer.as_ref());
-        Ok(Renderer { source, probe, edit: edit.clone(), camera, pointer, compositor, decode_size, subtitles: None })
+        Ok(Renderer { source, probe, edit: edit.clone(), camera, pointer, compositor, decode_size, subtitles: None, stream: None })
     }
 
     fn camera_of(edit: &Edit, probe: &Probe, pointer: Option<&Track>) -> Camera {
@@ -149,6 +151,16 @@ impl Renderer {
         let s = timeline::source_at(&self.edit, t_ms.min(self.duration_ms().saturating_sub(1))).unwrap_or(0);
         let screen = media::frame_at(&self.source.video, s, self.decode_size)?;
         Ok(self.compose(&screen, s))
+    }
+
+    /// The frame at source time `s` (no cuts: a take as a clip in a sequence), reading the
+    /// screen in time order.
+    pub fn source_frame(&mut self, s: u64, fps: f64) -> Option<Vec<u8>> {
+        if self.stream.is_none() {
+            self.stream = Some(crate::media::Stream::new(&self.source.video, self.decode_size, fps));
+        }
+        let screen = self.stream.as_mut()?.frame(s)?.to_vec();
+        Some(self.compose(&screen, s))
     }
 
     /// The result's frame size.

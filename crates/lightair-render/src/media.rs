@@ -74,6 +74,87 @@ pub fn probe(path: &Path) -> Result<Probe, MediaError> {
     }
 }
 
+/// A video read in time order, at one size: the frame for a time, reading ahead from where it
+/// is and starting again only for a jump (back, or far ahead).
+pub struct Stream {
+    path: PathBuf,
+    size: (u32, u32),
+    fps: f64,
+    dec: Option<Decoder>,
+    current: Vec<u8>,
+    /// The time of the frame in `current`.
+    at: Option<u64>,
+}
+
+impl Stream {
+    pub fn new(path: &Path, size: (u32, u32), fps: f64) -> Stream {
+        Stream { path: path.to_path_buf(), size, fps, dec: None, current: Vec::new(), at: None }
+    }
+
+    pub fn size(&self) -> (u32, u32) {
+        self.size
+    }
+
+    /// The frame at `ms` of the video.
+    pub fn frame(&mut self, ms: u64) -> Option<&[u8]> {
+        let frame = (1000.0 / self.fps) as u64;
+        let behind = self.at.is_some_and(|a| ms + frame / 2 < a);
+        let far = self.dec.as_ref().is_some_and(|d| ms > d.next_ms() + 2_000);
+        if self.dec.is_none() || behind || far {
+            self.dec = Decoder::open(&self.path, ms, self.fps, self.size).ok();
+            self.at = None;
+        }
+        let dec = self.dec.as_mut()?;
+        while self.at.is_none() || dec.next_ms() <= ms {
+            let t = dec.next_ms();
+            if !dec.next(&mut self.current) {
+                break;
+            }
+            self.at = Some(t);
+        }
+        self.at.map(|_| self.current.as_slice())
+    }
+}
+
+/// What a file holds: video (with or without sound), sound only, or a still; its size and length.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Contents {
+    pub video: bool,
+    pub audio: bool,
+    pub still: bool,
+    pub width: u32,
+    pub height: u32,
+    pub duration_ms: u64,
+}
+
+pub fn contents(path: &Path) -> Result<Contents, MediaError> {
+    let ffprobe = find("ffprobe").ok_or(MediaError::NoFfmpeg)?;
+    let out = Command::new(ffprobe)
+        .args(["-v", "error", "-show_entries", "stream=codec_type,width,height,nb_frames:format=duration,format_name", "-of", "json"])
+        .arg(path)
+        .output()?;
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).map_err(|_| MediaError::Unreadable(path.into()))?;
+    let streams = v["streams"].as_array().ok_or_else(|| MediaError::Unreadable(path.into()))?;
+    let video = streams.iter().find(|s| s["codec_type"] == "video");
+    let audio = streams.iter().any(|s| s["codec_type"] == "audio");
+    let format = v["format"]["format_name"].as_str().unwrap_or("");
+    // a picture: an image format, or one frame and no length
+    let still = video.is_some()
+        && (format.contains("image2") || format.contains("_pipe") || ["png", "jpg", "jpeg", "webp", "gif", "bmp", "tiff", "heic"].iter().any(|e| path.extension().is_some_and(|x| x.eq_ignore_ascii_case(e))));
+    let duration_ms = v["format"]["duration"].as_str().and_then(|d| d.parse::<f64>().ok()).map_or(0, |d| (d * 1000.0) as u64);
+    if video.is_none() && !audio {
+        return Err(MediaError::Unreadable(path.into()));
+    }
+    Ok(Contents {
+        video: video.is_some(),
+        audio,
+        still,
+        width: video.and_then(|s| s["width"].as_u64()).unwrap_or(0) as u32,
+        height: video.and_then(|s| s["height"].as_u64()).unwrap_or(0) as u32,
+        duration_ms,
+    })
+}
+
 fn scale_filter(fps: f64, size: (u32, u32)) -> String {
     format!("fps={fps},scale={}:{}:flags=bicubic", size.0, size.1)
 }
@@ -230,6 +311,22 @@ impl Encoder {
         clips: &[Clip],
         subtitles: Option<&Path>,
     ) -> Result<Encoder, MediaError> {
+        Self::start_with(out, size, fps, codec, audio, clips, subtitles, None)
+    }
+
+    /// As `start`, with the sound made by `mix` (an FFmpeg filter over inputs 1.., ending in
+    /// `[aout]`) instead of the edit's cuts.
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_with(
+        out: &Path,
+        size: (u32, u32),
+        fps: f64,
+        codec: Codec,
+        audio: &[PathBuf],
+        clips: &[Clip],
+        subtitles: Option<&Path>,
+        mix: Option<&str>,
+    ) -> Result<Encoder, MediaError> {
         let mut cmd = Command::new(ffmpeg()?);
         cmd.args(["-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", &format!("{}x{}", size.0, size.1)])
             .args(["-r", &format!("{fps}"), "-i", "-"]);
@@ -246,7 +343,7 @@ impl Encoder {
             if let Some(subs) = subtitles {
                 cmd.arg("-i").arg(subs);
             }
-            match audio_filter(audio.len(), clips) {
+            match mix.map(String::from).or_else(|| audio_filter(audio.len(), clips)) {
                 Some(f) => cmd.args(["-filter_complex", &f, "-map", "0:v", "-map", "[aout]", "-c:a", "aac", "-b:a", "192k"]),
                 None => cmd.args(["-map", "0:v"]),
             };

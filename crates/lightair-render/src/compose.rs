@@ -119,6 +119,10 @@ fn fs(v: V) -> @location(0) vec4<f32> {
         return vec4(colour.rgb, 1.0) * a * u.mode.z;
     }
     let colour = textureSample(tex, samp, uv);
+    if (mode > 2.5) {
+        // a picture layer (straight alpha)
+        return vec4(colour.rgb * colour.a, colour.a) * u.mode.z;
+    }
     // a sprite (premultiplied)
     return colour * u.mode.z;
 }
@@ -167,6 +171,25 @@ enum Sprite {
     ClickDisc,
 }
 
+/// A picture in a frame of layers: RGBA (straight alpha), placed with its centre at `center`
+/// (result pixels), drawn `draw` big, turned `rotation` degrees, at `opacity`.
+pub struct Layer<'a> {
+    pub rgba: &'a [u8],
+    pub size: (u32, u32),
+    pub center: (f32, f32),
+    pub draw: (f32, f32),
+    pub rotation: f32,
+    pub opacity: f32,
+}
+
+/// Which texture a draw samples.
+enum Tex {
+    Blank,
+    Screen,
+    Sprite(Sprite),
+    Slot(usize),
+}
+
 pub struct Compositor {
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -180,6 +203,8 @@ pub struct Compositor {
     blank: wgpu::Texture,
     screen: Option<(wgpu::Texture, (u32, u32))>,
     sprites: HashMap<Sprite, (wgpu::Texture, (f32, f32))>,
+    /// Picture layers' textures, by position in the frame.
+    slots: Vec<(wgpu::Texture, (u32, u32))>,
 }
 
 fn rgb(c: u32) -> [f32; 4] {
@@ -302,6 +327,7 @@ impl Compositor {
             look,
             screen: None,
             sprites: HashMap::new(),
+            slots: Vec::new(),
         };
         let pointer = rgb(0x0090FF);
         let col = [pointer[0], pointer[1], pointer[2]];
@@ -375,7 +401,7 @@ impl Compositor {
             u
         };
         // draws: (uniforms, texture)
-        let mut draws: Vec<([f32; 60], Option<Sprite>, bool)> = Vec::new();
+        let mut draws: Vec<([f32; 60], Tex)> = Vec::new();
         let mut back = base([0.0, 0.0, ow, oh]);
         back[12..16].copy_from_slice(&[0.0, radius, 1.0, 0.0]);
         back[20..24].copy_from_slice(&rgb(colours[0]));
@@ -383,7 +409,7 @@ impl Compositor {
         back[28..32].copy_from_slice(&rgb(colours[2]));
         back[32..36].copy_from_slice(&[a.cos(), a.sin(), oh * 0.035, self.look.shadow]);
         back[36..40].copy_from_slice(&[bx.0, bx.1, bx.2, bx.3]);
-        draws.push((back, None, false));
+        draws.push((back, Tex::Blank));
         let (vx, vy, vw, vh) = f.view.rect();
         let mut screen = base([bx.0, bx.1, bx.2, bx.3]);
         screen[8..12].copy_from_slice(&[vx, vy, vw, vh]);
@@ -394,7 +420,7 @@ impl Compositor {
         for (k, m) in masks.iter().enumerate() {
             screen[44 + k * 4..48 + k * 4].copy_from_slice(&[m.0, m.1, m.2, m.3]);
         }
-        draws.push((screen, None, true));
+        draws.push((screen, Tex::Screen));
         // screen fractions → result pixels, through the view
         let place = |x: f32, y: f32| (bx.0 + (x - vx) / vw * bx.2, bx.1 + (y - vy) / vh * bx.3);
         let inside = |p: (f32, f32)| p.0 >= bx.0 && p.0 <= bx.0 + bx.2 && p.1 >= bx.1 && p.1 <= bx.1 + bx.3;
@@ -403,7 +429,7 @@ impl Compositor {
             let mut u = base([at.0 - hot.0 * px, at.1 - hot.1 * px, px, px]);
             u[12..16].copy_from_slice(&[2.0, 0.0, opacity, angle.to_radians()]);
             u[16..20].copy_from_slice(&[at.0, at.1, 0.0, 0.0]);
-            (u, Some(s), false)
+            (u, Tex::Sprite(s))
         };
         for &(x, y, k) in &f.clicks {
             let at = place(x, y);
@@ -428,11 +454,47 @@ impl Compositor {
             }
         }
 
+        self.draw(draws)
+    }
+
+    /// A frame of picture layers on black, back to front.
+    pub fn layers(&mut self, layers: &[Layer]) -> Vec<u8> {
+        let (ow, oh) = (self.size.0 as f32, self.size.1 as f32);
+        for (i, l) in layers.iter().enumerate() {
+            if self.slots.get(i).is_some_and(|(_, s)| *s == l.size) {
+                Self::upload(&self.queue, &self.slots[i].0, l.rgba, l.size);
+            } else {
+                let t = Self::texture_of(&self.device, &self.queue, l.rgba, l.size);
+                if i < self.slots.len() {
+                    self.slots[i] = (t, l.size);
+                } else {
+                    self.slots.push((t, l.size));
+                }
+            }
+        }
+        let draws = layers
+            .iter()
+            .enumerate()
+            .map(|(i, l)| {
+                let mut u = [0f32; 60];
+                u[0..4].copy_from_slice(&[ow, oh, 0.0, 0.0]);
+                u[4..8].copy_from_slice(&[l.center.0 - l.draw.0 / 2.0, l.center.1 - l.draw.1 / 2.0, l.draw.0, l.draw.1]);
+                u[8..12].copy_from_slice(&[0.0, 0.0, 1.0, 1.0]);
+                u[12..16].copy_from_slice(&[3.0, 0.0, l.opacity.clamp(0.0, 1.0), l.rotation.to_radians()]);
+                u[16..20].copy_from_slice(&[l.center.0, l.center.1, 0.0, 0.0]);
+                (u, Tex::Slot(i))
+            })
+            .collect();
+        self.draw(draws)
+    }
+
+    /// Draws, then reads the frame back: RGBA, top row first.
+    fn draw(&mut self, draws: Vec<([f32; 60], Tex)>) -> Vec<u8> {
         let view = self.target.create_view(&Default::default());
         let mut encoder = self.device.create_command_encoder(&Default::default());
         let groups: Vec<wgpu::BindGroup> = draws
             .iter()
-            .map(|(u, s, screen)| {
+            .map(|(u, t)| {
                 let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
                     label: None,
                     size: (u.len() * 4) as u64,
@@ -441,10 +503,11 @@ impl Compositor {
                 });
                 let bytes: Vec<u8> = u.iter().flat_map(|v| v.to_le_bytes()).collect();
                 self.queue.write_buffer(&buffer, 0, &bytes);
-                let tex = match (s, screen) {
-                    (Some(s), _) => &self.sprites[s].0,
-                    (None, true) => self.screen.as_ref().map_or(&self.blank, |(t, _)| t),
-                    _ => &self.blank,
+                let tex = match t {
+                    Tex::Sprite(s) => &self.sprites[s].0,
+                    Tex::Screen => self.screen.as_ref().map_or(&self.blank, |(t, _)| t),
+                    Tex::Slot(i) => self.slots.get(*i).map_or(&self.blank, |(t, _)| t),
+                    Tex::Blank => &self.blank,
                 };
                 let tv = tex.create_view(&Default::default());
                 self.device.create_bind_group(&wgpu::BindGroupDescriptor {
