@@ -5,4 +5,5 @@
 pub mod apps;
 pub mod files;
 pub mod paths;
+pub mod pick_color;
 pub mod realtime;
