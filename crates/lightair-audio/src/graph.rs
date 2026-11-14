@@ -463,9 +463,9 @@ impl Graph {
         }
         let master = |m: &mut MixRt, g: &mut [f32], gl: &mut [f32], gr: &mut [f32]| {
             m.trim.fill(&mut g[..n]);
-            for i in 0..n {
-                m.sum.l[i] *= g[i];
-                m.sum.r[i] *= g[i];
+            for (i, g) in g[..n].iter().enumerate() {
+                m.sum.l[i] *= g;
+                m.sum.r[i] *= g;
             }
             for slot in m.inserts.iter_mut().filter(|e| e.enabled) {
                 let ctx = Ctx { sample_rate: sr, key: slot.key.map(|k| &keys[k][..n]) };
