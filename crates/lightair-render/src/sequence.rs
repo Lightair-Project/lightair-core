@@ -70,6 +70,35 @@ impl Media {
         })
     }
 
+    /// A Studio take as the media it's made of: its main picture (the screen, else the first
+    /// video) drawn with its look and silent, its other pictures (the camera beside a screen)
+    /// as plain videos, and each recorded mixer track's sound as a medium of its own. The main
+    /// picture first.
+    pub fn take_parts(folder: &Path) -> Vec<Media> {
+        let Some(mut main) = Media::from_take(folder) else { return Vec::new() };
+        let stems = std::mem::take(&mut main.audio);
+        let mut out = vec![main.clone()];
+        let take: serde_json::Value = std::fs::read(folder.join("take.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        for v in take["video"].as_array().into_iter().flatten() {
+            let Some(file) = v["file"].as_str().map(|f| folder.join(f)) else { continue };
+            if file == main.path {
+                continue;
+            }
+            if let Ok(mut m) = Media::from_file(&file) {
+                m.name = v["name"].as_str().unwrap_or("Camera").to_string();
+                out.push(m);
+            }
+        }
+        for stem in stems {
+            if let Ok(mut m) = Media::from_file(&stem) {
+                // "Audio - Mic.wav": "Mic"
+                m.name = m.name.strip_prefix("Audio - ").unwrap_or(&m.name).to_string();
+                out.push(m);
+            }
+        }
+        out
+    }
+
     /// A Studio take folder as a medium: its screen, drawn with its look, and its stems.
     pub fn from_take(folder: &Path) -> Option<Media> {
         let source = crate::export::Source::of_take(folder)?;

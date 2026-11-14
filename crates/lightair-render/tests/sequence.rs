@@ -352,3 +352,39 @@ fn scrubbing_back_reads_frames_already_decoded() {
     }
     assert!(start.elapsed() < std::time::Duration::from_millis(400), "from what was read: {:?}", start.elapsed());
 }
+
+#[test]
+fn a_take_comes_as_its_parts() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("Take.lightair-take");
+    std::fs::create_dir_all(&folder).unwrap();
+    let (Some(_), Some(_)) = (lavfi(&folder, "screen.mp4", "color=c=red:s=640x360:r=30:d=2"), lavfi(&folder, "camera.mp4", "color=c=blue:s=320x180:r=30:d=2")) else {
+        eprintln!("FFmpeg isn't installed; skipping");
+        return;
+    };
+    let ff = media::ffmpeg().unwrap();
+    for name in ["Audio - Mic.wav", "Audio - Desktop audio.wav"] {
+        assert!(Command::new(&ff).args(["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=2"]).arg(folder.join(name)).status().unwrap().success());
+    }
+    std::fs::write(
+        folder.join("take.json"),
+        r#"{"duration_ms":2000,"video":[{"name":"Camera","file":"camera.mp4"},{"name":"Screen","file":"screen.mp4"}],"audio":["Audio - Mic.wav","Audio - Desktop audio.wav"]}"#,
+    )
+    .unwrap();
+    let parts = Media::take_parts(&folder);
+    let names: Vec<&str> = parts.iter().map(|m| m.name.as_str()).collect();
+    assert_eq!(names[1..], ["Camera", "Mic", "Desktop audio"]);
+    assert!(parts[0].take.is_some() && parts[0].path.ends_with("screen.mp4"), "the screen, with its look");
+    assert!(parts[0].audio.is_empty(), "its sound is in the parts, not doubled");
+    assert_eq!(parts[1].kind, lightair_render::sequence::MediaKind::Video);
+    assert!(parts[2..].iter().all(|m| m.kind == lightair_render::sequence::MediaKind::Audio));
+    // placed together, each sound on a track of its own
+    let mut seq = Sequence::new((1920, 1080), 30);
+    let ids: Vec<_> = parts.into_iter().map(|m| seq.add_media(m)).collect();
+    let clips: Vec<_> = ids.iter().map(|id| seq.place(*id, 1_000, None).unwrap()).collect();
+    let tracks: Vec<usize> = clips.iter().map(|c| seq.find(*c).unwrap().0).collect();
+    assert!(clips.iter().all(|c| seq.clip(*c).unwrap().start_ms == 1_000));
+    let mut unique = tracks.clone();
+    unique.dedup();
+    assert_eq!(unique.len(), 4, "four tracks: {tracks:?}");
+}
