@@ -206,7 +206,8 @@ pub struct Scene {
 #[serde(default)]
 pub struct ScreenLook {
     /// When it zooms: [`ScreenLook::ZOOM_OFF`], `ZOOM_CLICKS` (in to a click, out after
-    /// `zoom_hold_s` without one) or `ZOOM_ALWAYS` (always in, following the pointer).
+    /// `zoom_hold_s` without one), `ZOOM_ALWAYS` (always in, following the pointer) or
+    /// `ZOOM_TOGGLE` (in, following the pointer, while a shortcut has turned it on).
     pub zoom: i64,
     /// How far (1.25–4×).
     pub zoom_scale: f32,
@@ -236,6 +237,7 @@ impl ScreenLook {
     pub const ZOOM_OFF: i64 = 0;
     pub const ZOOM_CLICKS: i64 = 1;
     pub const ZOOM_ALWAYS: i64 = 2;
+    pub const ZOOM_TOGGLE: i64 = 3;
 }
 
 impl Default for ScreenLook {
