@@ -216,6 +216,8 @@ pub struct ScreenLook {
     pub zoom_motion: f32,
     /// Lightair draws the pointer (bigger, smoothed, styled); else the capture's own.
     pub cursor: bool,
+    /// No pointer at all (neither drawn nor the capture's own; no clicks drawn).
+    pub cursor_hidden: bool,
     /// 0 pointer, 1 dot, 2 ring.
     pub cursor_style: i64,
     pub cursor_size: f32,
@@ -244,6 +246,7 @@ impl Default for ScreenLook {
             zoom_hold_s: 2.0,
             zoom_motion: 0.5,
             cursor: true,
+            cursor_hidden: false,
             cursor_style: 0,
             cursor_size: 1.5,
             cursor_smoothing: 0.5,
