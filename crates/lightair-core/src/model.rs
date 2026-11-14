@@ -782,7 +782,8 @@ impl Default for ClipSettings {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecordingSettings {
-    /// Folder for recordings; `None` means the default (`~/Movies/Lightair`).
+    /// Folder for recordings; `None` means the default (`~/Movies/Lightair` on macOS, the Videos
+    /// folder's `Lightair` on Windows).
     pub folder: Option<std::path::PathBuf>,
     /// `mp4` (hybrid, crash-safe), `mkv` or `mov`.
     pub container: String,
