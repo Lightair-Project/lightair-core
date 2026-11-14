@@ -239,17 +239,31 @@ pub fn fit(aspect: f32, x: f32, y: f32, w: f32, h: f32) -> (f32, f32, f32, f32) 
     (x + (w - bw) / 2.0, y + (h - bh) / 2.0, bw, bh)
 }
 
-impl Compositor {
-    /// A compositor making `size` frames with this look.
-    pub fn new(size: (u32, u32), look: Look) -> Result<Compositor, String> {
+/// The graphics device, made once (making one takes a while) and shared by every compositor.
+fn gpu() -> Result<(wgpu::Device, wgpu::Queue), String> {
+    static GPU: std::sync::OnceLock<Result<(wgpu::Device, wgpu::Queue), String>> = std::sync::OnceLock::new();
+    GPU.get_or_init(|| {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             ..Default::default()
         }))
         .map_err(|e| format!("no graphics adapter: {e}"))?;
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
-            .map_err(|e| format!("no graphics device: {e}"))?;
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).map_err(|e| format!("no graphics device: {e}"))
+    })
+    .clone()
+}
+
+impl Compositor {
+    /// A compositor making `size` frames with this look (RGBA).
+    pub fn new(size: (u32, u32), look: Look) -> Result<Compositor, String> {
+        Self::new_with(size, look, false)
+    }
+
+    /// A compositor whose frames are BGRA when `bgra` (as a window draws them: no swapping).
+    pub fn new_with(size: (u32, u32), look: Look, bgra: bool) -> Result<Compositor, String> {
+        let out_format = if bgra { wgpu::TextureFormat::Bgra8Unorm } else { wgpu::TextureFormat::Rgba8Unorm };
+        let (device, queue) = gpu()?;
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("lightair-render"),
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
@@ -307,7 +321,7 @@ impl Compositor {
                 entry_point: Some("fs"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    format: out_format,
                     blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -326,7 +340,7 @@ impl Compositor {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format: out_format,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });

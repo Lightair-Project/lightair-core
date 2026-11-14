@@ -37,6 +37,22 @@ pub struct SequenceRenderer {
     takes: HashMap<Id, Renderer>,
     /// Text and shapes, made once per content.
     made: crate::generate::Cache,
+    /// The most a preview's frames are (`None`: the sequence's size), and the size they are.
+    preview: Option<(u32, u32)>,
+    out: (u32, u32),
+    /// Proxies found, by medium (looked for again when the sequence is set).
+    proxies: HashMap<Id, Option<PathBuf>>,
+}
+
+/// The size frames are made at: the sequence's, or fitted inside `preview` (never larger).
+fn out_size(size: (u32, u32), preview: Option<(u32, u32)>) -> (u32, u32) {
+    match preview {
+        Some((pw, ph)) if pw < size.0 || ph < size.1 => {
+            let k = (pw as f32 / size.0 as f32).min(ph as f32 / size.1 as f32);
+            (even(size.0 as f32 * k), even(size.1 as f32 * k))
+        }
+        _ => size,
+    }
 }
 
 fn even(v: f32) -> u32 {
@@ -45,7 +61,13 @@ fn even(v: f32) -> u32 {
 
 impl SequenceRenderer {
     pub fn new(seq: &Sequence) -> Result<SequenceRenderer, MediaError> {
-        let compositor = Compositor::new(seq.size, Look::default()).map_err(MediaError::Failed)?;
+        Self::new_with(seq, None)
+    }
+
+    /// A renderer making previews of at most `preview` (see [`SequenceRenderer::set_preview`]).
+    pub fn new_with(seq: &Sequence, preview: Option<(u32, u32)>) -> Result<SequenceRenderer, MediaError> {
+        let out = out_size(seq.size, preview);
+        let compositor = Compositor::new_with(out, Look::default(), preview.is_some()).map_err(MediaError::Failed)?;
         Ok(SequenceRenderer {
             seq: seq.clone(),
             compositor,
@@ -54,17 +76,50 @@ impl SequenceRenderer {
             stills: HashMap::new(),
             takes: HashMap::new(),
             made: Default::default(),
+            preview,
+            out,
+            proxies: HashMap::new(),
         })
+    }
+
+    /// Frames for a preview: at most `max`, and BGRA (as a window draws them); `None`: the
+    /// sequence's own size, RGBA (for the export). Smaller frames are quicker to decode, draw
+    /// and show.
+    pub fn set_preview(&mut self, max: Option<(u32, u32)>) {
+        let was = self.preview.is_some();
+        self.preview = max;
+        let out = out_size(self.seq.size, max);
+        if (out != self.out || was != max.is_some())
+            && let Ok(c) = Compositor::new_with(out, Look::default(), max.is_some())
+        {
+            self.compositor = c;
+            self.out = out;
+            self.takes.clear();
+            self.streams.clear();
+        }
+    }
+
+    /// The size frames come at.
+    pub fn out_size(&self) -> (u32, u32) {
+        self.out
+    }
+
+    /// Result pixels to frame pixels.
+    fn k(&self) -> f32 {
+        self.out.0 as f32 / self.seq.size.0.max(1) as f32
     }
 
     /// Takes a changed sequence (readers of clips that changed size start again).
     pub fn set(&mut self, seq: &Sequence) -> Result<(), MediaError> {
-        if seq.size != self.seq.size {
-            self.compositor = Compositor::new(seq.size, Look::default()).map_err(MediaError::Failed)?;
+        let out = out_size(seq.size, self.preview);
+        if seq.size != self.seq.size || out != self.out {
+            self.compositor = Compositor::new_with(out, Look::default(), self.preview.is_some()).map_err(MediaError::Failed)?;
+            self.out = out;
             self.takes.clear();
         }
         self.fps = seq.fps.max(1) as f64;
         self.seq = seq.clone();
+        self.proxies.clear();
         let alive: Vec<Id> = seq.tracks.iter().flat_map(|t| t.clips.iter().map(|c| c.id)).collect();
         self.streams.retain(|id, _| alive.contains(id));
         Ok(())
@@ -108,14 +163,14 @@ impl SequenceRenderer {
             if !self.takes.contains_key(&media.id) {
                 let look = media.look.clone().unwrap_or_else(|| folder.join("edit.json"));
                 let mut edit = Edit::load(&look).unwrap_or_else(|_| Edit::new(media.duration_ms.max(1)));
-                edit.size = self.seq.size;
+                edit.size = self.out;
                 edit.clips = Edit::new(media.duration_ms.max(1)).clips;
                 let r = Renderer::new(Source::of_take(folder)?, &edit).ok()?;
                 self.takes.insert(media.id, r);
             }
             let fps = self.fps;
             let frame = self.takes.get_mut(&media.id)?.source_frame(s, fps)?;
-            return Some((frame, self.seq.size, false));
+            return Some((frame, self.out, false));
         }
         if media.kind == MediaKind::Image {
             if let std::collections::hash_map::Entry::Vacant(e) = self.stills.entry(media.id) {
@@ -128,10 +183,13 @@ impl SequenceRenderer {
         // the size it's drawn at (enough for its largest scale), never more than the file's own
         let (_, draw) = self.placement(clip, Some(&media), None, t);
         let biggest = clip.keyframes.iter().map(|k| k.transform.scale).fold(clip.transform.scale, f32::max);
-        let k = (draw.0 / clip.transform_at(t).scale.max(0.01) * biggest / media.width.max(1) as f32).min(1.0);
+        let k = (draw.0 * self.k() / clip.transform_at(t).scale.max(0.01) * biggest / media.width.max(1) as f32).min(1.0);
         let size = (even(media.width as f32 * k), even(media.height as f32 * k));
-        if self.streams.get(&clip.id).is_none_or(|s| s.size() != size) {
-            self.streams.insert(clip.id, Stream::new(&media.path, size, self.fps));
+        // a preview reads the proxy when there is one
+        let proxy = if self.preview.is_some() && self.seq.proxies { self.proxies.entry(media.id).or_insert_with(|| media.proxy()).clone() } else { None };
+        let file = proxy.unwrap_or_else(|| media.path.clone());
+        if self.streams.get(&clip.id).is_none_or(|s| s.size() != size || s.path() != file) {
+            self.streams.insert(clip.id, Stream::new(&file, size, self.fps));
         }
         let rgba = self.streams.get_mut(&clip.id)?.frame(s)?.to_vec();
         Some((rgba, size, false))
@@ -144,11 +202,12 @@ impl SequenceRenderer {
         let made = clip.content.as_ref().map(|_| size);
         let (center, draw) = self.placement(clip, media.as_ref(), made, t);
         let tr = clip.transform_at(t);
+        let k = self.k();
         out.push(Pic {
             rgba,
             size,
-            center: (center.0 + dx, center.1),
-            draw: (draw.0 * grow, draw.1 * grow),
+            center: ((center.0 + dx) * k, center.1 * k),
+            draw: (draw.0 * grow * k, draw.1 * grow * k),
             rotation: tr.rotation,
             opacity: tr.opacity * opacity,
             premultiplied,
@@ -256,6 +315,7 @@ impl SequenceRenderer {
         let total = self.seq.duration_ms().max(1);
         // voices to clean up, first
         crate::sound::prepare(&self.seq)?;
+        self.set_preview(None);
         let (inputs, mix) = self.mix();
         let mut enc = Encoder::start_with(out, self.seq.size, self.fps, codec, &inputs, &[], None, mix.as_deref())?;
         let mut failed = None;

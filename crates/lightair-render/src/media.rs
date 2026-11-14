@@ -95,6 +95,10 @@ impl Stream {
         self.size
     }
 
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
     /// The frame at `ms` of the video.
     pub fn frame(&mut self, ms: u64) -> Option<&[u8]> {
         let frame = (1000.0 / self.fps) as u64;
@@ -177,7 +181,9 @@ pub fn frame_at(path: &Path, t_ms: u64, size: (u32, u32)) -> Result<Vec<u8>, Med
 /// A video read frame by frame from `start_ms`, at `fps`, scaled to `size`.
 pub struct Decoder {
     child: Child,
-    out: ChildStdout,
+    /// Frames read ahead on a thread of their own (a few, so decoding runs while the last one
+    /// is drawn).
+    frames: std::sync::mpsc::Receiver<Vec<u8>>,
     size: (u32, u32),
     fps: f64,
     start_ms: u64,
@@ -196,7 +202,10 @@ impl Decoder {
             .stderr(Stdio::null())
             .spawn()?;
         let out = child.stdout.take().ok_or(MediaError::NoFfmpeg)?;
-        Ok(Decoder { child, out, size, fps, start_ms, read: 0 })
+        let (tx, frames) = std::sync::mpsc::sync_channel(AHEAD);
+        let bytes = (size.0 * size.1 * 4) as usize;
+        std::thread::spawn(move || read_ahead(out, bytes, tx));
+        Ok(Decoder { child, frames, size, fps, start_ms, read: 0 })
     }
 
     /// The source time of the next frame.
@@ -206,12 +215,28 @@ impl Decoder {
 
     /// The next frame into `buf` (RGBA, `size`); false at the end.
     pub fn next(&mut self, buf: &mut Vec<u8>) -> bool {
-        buf.resize((self.size.0 * self.size.1 * 4) as usize, 0);
-        let ok = self.out.read_exact(buf).is_ok();
-        if ok {
-            self.read += 1;
+        match self.frames.recv() {
+            Ok(f) => {
+                debug_assert_eq!(f.len(), (self.size.0 * self.size.1 * 4) as usize);
+                *buf = f;
+                self.read += 1;
+                true
+            }
+            Err(_) => false,
         }
-        ok
+    }
+}
+
+/// Frames a decoder reads ahead.
+const AHEAD: usize = 3;
+
+/// Reads whole frames from FFmpeg until it ends or the decoder is gone.
+fn read_ahead(mut out: ChildStdout, bytes: usize, tx: std::sync::mpsc::SyncSender<Vec<u8>>) {
+    loop {
+        let mut f = vec![0u8; bytes];
+        if out.read_exact(&mut f).is_err() || tx.send(f).is_err() {
+            break;
+        }
     }
 }
 
@@ -375,6 +400,97 @@ impl Encoder {
             Err(MediaError::Failed(String::from_utf8_lossy(&out.stderr).trim().lines().last().unwrap_or("").to_string()))
         }
     }
+}
+
+/// A smaller copy of a video for editing (no sound): fitted in 1920×1080, a keyframe every half
+/// second (quick to jump around in), written to `out` once it's whole. `progress(fraction)`
+/// returns false to stop.
+pub fn make_proxy(file: &Path, out: &Path, duration_ms: u64, mut progress: impl FnMut(f32) -> bool) -> Result<(), MediaError> {
+    if let Some(d) = out.parent() {
+        std::fs::create_dir_all(d)?;
+    }
+    let part = out.with_extension("part.mp4");
+    let mut args = video_args(Codec::H264, (1920, 1080), 30.0);
+    args.extend(["-g", "15"].map(String::from));
+    let mut child = Command::new(ffmpeg()?)
+        .args(["-v", "error", "-y", "-hwaccel", "auto", "-i"])
+        .arg(file)
+        .args(["-an", "-vf", "scale=w=1920:h=1080:force_original_aspect_ratio=decrease:force_divisible_by=2"])
+        .args(&args)
+        .args(["-progress", "pipe:1", "-nostats"])
+        .arg(&part)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()?;
+    let out_pipe = child.stdout.take().ok_or(MediaError::NoFfmpeg)?;
+    let mut stopped = false;
+    for line in std::io::BufRead::lines(std::io::BufReader::new(out_pipe)).map_while(Result::ok) {
+        if let Some(us) = line.strip_prefix("out_time_us=").and_then(|v| v.trim().parse::<u64>().ok())
+            && !progress((us as f64 / 1000.0 / duration_ms.max(1) as f64).min(1.0) as f32)
+        {
+            stopped = true;
+            let _ = child.kill();
+            break;
+        }
+    }
+    let ok = child.wait()?.success() && !stopped;
+    if !ok {
+        let _ = std::fs::remove_file(&part);
+        return Err(MediaError::Failed(if stopped { "stopped".into() } else { "the proxy couldn't be made".into() }));
+    }
+    std::fs::rename(&part, out)?;
+    Ok(())
+}
+
+/// Thumbnails (BGRA) and their size.
+pub type Thumbnails = (Vec<Vec<u8>>, (u32, u32));
+
+/// Thumbnails along a video of `duration_ms`, one every `every_ms`, `height` pixels tall and as
+/// wide as the video's shape: BGRA, in order, and their size. Read from its keyframes (quick),
+/// or every frame when it has too few keyframes for that.
+pub fn filmstrip(path: &Path, duration_ms: u64, every_ms: u64, height: u32, aspect: f32) -> Result<Thumbnails, MediaError> {
+    let size = ((((height as f32 * aspect).round() as u32).max(2)) & !1, height & !1);
+    let wanted = (duration_ms / every_ms.max(1)) as usize;
+    let quick = thumbnails(path, every_ms, size, true)?;
+    if quick.len() * 2 >= wanted && !quick.is_empty() {
+        return Ok((quick, size));
+    }
+    let all = thumbnails(path, every_ms, size, false)?;
+    if all.is_empty() {
+        return Err(MediaError::Unreadable(path.to_path_buf()));
+    }
+    Ok((all, size))
+}
+
+fn thumbnails(path: &Path, every_ms: u64, size: (u32, u32), keyframes: bool) -> Result<Vec<Vec<u8>>, MediaError> {
+    let mut cmd = Command::new(ffmpeg()?);
+    cmd.args(["-v", "error"]);
+    if keyframes {
+        cmd.args(["-skip_frame", "nokey"]);
+    } else {
+        cmd.args(["-hwaccel", "auto"]);
+    }
+    let mut child = cmd
+        .arg("-i")
+        .arg(path)
+        .args(["-an", "-vf", &format!("fps={}:eof_action=pass,scale={}:{}", 1000.0 / every_ms.max(1) as f64, size.0, size.1), "-f", "rawvideo", "-pix_fmt", "bgra", "-"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()?;
+    let mut out = child.stdout.take().ok_or(MediaError::NoFfmpeg)?;
+    let bytes = (size.0 * size.1 * 4) as usize;
+    let mut frames = Vec::new();
+    loop {
+        let mut f = vec![0u8; bytes];
+        if out.read_exact(&mut f).is_err() {
+            break;
+        }
+        frames.push(f);
+    }
+    let _ = child.wait();
+    Ok(frames)
 }
 
 #[cfg(test)]

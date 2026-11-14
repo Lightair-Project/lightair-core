@@ -24,7 +24,8 @@ pub fn set_cache(dir: PathBuf) {
     let _ = CACHE.set(dir);
 }
 
-fn cache() -> PathBuf {
+/// The cache folder (cleaned voices, proxies).
+pub fn cache() -> PathBuf {
     CACHE.get().cloned().unwrap_or_else(|| std::env::temp_dir().join("lightair-sound"))
 }
 

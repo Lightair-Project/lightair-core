@@ -475,12 +475,52 @@ pub struct Sequence {
     pub fps: u32,
     pub media: Vec<Media>,
     pub tracks: Vec<Track>,
+    /// Large videos edited through smaller copies (the export reads the originals).
+    #[serde(default = "yes")]
+    pub proxies: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+impl Media {
+    /// Whether it's worth editing through a proxy: a video file larger than 1080p.
+    pub fn wants_proxy(&self) -> bool {
+        self.kind == MediaKind::Video && self.take.is_none() && (self.width > 1920 || self.height > 1080)
+    }
+
+    /// Where its proxy is (or goes): named by the file, its size and time.
+    pub fn proxy_path(&self) -> PathBuf {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.path.hash(&mut h);
+        if let Ok(m) = std::fs::metadata(&self.path) {
+            m.len().hash(&mut h);
+            m.modified().ok().hash(&mut h);
+        }
+        crate::sound::cache().join(format!("proxy-{:016x}.mp4", h.finish()))
+    }
+
+    /// Its proxy, when it has one made.
+    pub fn proxy(&self) -> Option<PathBuf> {
+        self.wants_proxy().then(|| self.proxy_path()).filter(|p| p.is_file())
+    }
 }
 
 impl Sequence {
+    /// The media used on the timeline that want a proxy and have none yet.
+    pub fn proxies_missing(&self) -> Vec<Media> {
+        if !self.proxies {
+            return Vec::new();
+        }
+        let used: Vec<Id> = self.tracks.iter().flat_map(|t| t.clips.iter().map(|c| c.media)).collect();
+        self.media.iter().filter(|m| used.contains(&m.id) && m.wants_proxy() && m.proxy().is_none()).cloned().collect()
+    }
+
     /// Empty: one video track and one audio track.
     pub fn new(size: (u32, u32), fps: u32) -> Sequence {
-        Sequence { version: 1, size, fps, media: Vec::new(), tracks: vec![Track::new(TrackKind::Video), Track::new(TrackKind::Audio)] }
+        Sequence { version: 1, size, fps, media: Vec::new(), tracks: vec![Track::new(TrackKind::Video), Track::new(TrackKind::Audio)], proxies: true }
     }
 
     pub fn load(path: &Path) -> std::io::Result<Sequence> {

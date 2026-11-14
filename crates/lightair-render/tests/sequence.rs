@@ -226,10 +226,62 @@ fn fades_volume_keys_detached_sound_and_clean_voices() {
     sound::prepare(&seq).unwrap();
     assert!(sound::voices_to_clean(&seq).is_empty());
     let (inputs, _) = sound::mix_of(&seq);
-    assert!(inputs[0].starts_with(dir.path().join("cache")), "{inputs:?}");
+    // (the cache is set once a run: whichever test set it first)
+    assert!(inputs[0].starts_with(sound::cache()), "{inputs:?}");
     let cleaned = sound::decode(&inputs[0], 48_000, 2).unwrap();
     assert!((cleaned.len() as i64 - full.len() as i64).abs() < 48 * 2 * 30, "{} vs {}", cleaned.len(), full.len());
     // waveforms
     let p = sound::peaks(&toned).unwrap();
     assert!((p.len() as i64 - 400).abs() < 5 && p[200] > 0.05, "{}", p.len());
+}
+
+#[test]
+fn proxies_and_filmstrips() {
+    let dir = tempfile::tempdir().unwrap();
+    lightair_render::sound::set_cache(dir.path().join("cache"));
+    let Some(big) = lavfi(dir.path(), "big.mp4", "testsrc2=s=2560x1440:r=30:d=3") else {
+        eprintln!("FFmpeg isn't installed; skipping");
+        return;
+    };
+    let mut seq = Sequence::new((1920, 1080), 30);
+    let m = seq.add_media(Media::from_file(&big).unwrap());
+    assert!(seq.proxies_missing().is_empty(), "only media on the timeline");
+    seq.append(m).unwrap();
+    let missing = seq.proxies_missing();
+    assert_eq!(missing.len(), 1);
+    let medium = &missing[0];
+    let mut steps = 0;
+    media::make_proxy(&medium.path, &medium.proxy_path(), medium.duration_ms, |_| {
+        steps += 1;
+        true
+    })
+    .unwrap();
+    assert!(steps > 0, "it tells how far it is");
+    let proxy = medium.proxy().expect("made");
+    let p = media::probe(&proxy).unwrap();
+    assert_eq!((p.width, p.height), (1920, 1080), "fitted in 1080p");
+    assert!(seq.proxies_missing().is_empty());
+    seq.proxies = false;
+    assert!(seq.proxies_missing().is_empty(), "none wanted when they're off");
+    seq.proxies = true;
+
+    // a preview reads the proxy, at the player's size; the export the original
+    let mut r = match SequenceRenderer::new(&seq) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("no renderer here ({e}); skipping");
+            return;
+        }
+    };
+    r.set_preview(Some((960, 540)));
+    assert_eq!(r.out_size(), (960, 540));
+    let f = r.frame(1_000);
+    assert_eq!(f.len(), 960 * 540 * 4);
+    r.set_preview(None);
+    assert_eq!(r.frame(1_000).len(), 1920 * 1080 * 4);
+
+    let (frames, size) = media::filmstrip(&big, 3_000, 500, 80, 16.0 / 9.0).unwrap();
+    assert_eq!(size, (142, 80));
+    assert!((5..=7).contains(&frames.len()), "{}", frames.len());
+    assert_eq!(frames[0].len(), 142 * 80 * 4);
 }
