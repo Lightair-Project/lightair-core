@@ -382,6 +382,22 @@ pub struct Clip {
     /// Effects from the effect catalog ("fx.vhs", …), run in order on its picture.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<ClipEffect>,
+    /// Its picture cut in from each side (fractions: left, top, right, bottom).
+    #[serde(default, skip_serializing_if = "is_uncropped")]
+    pub crop: (f32, f32, f32, f32),
+    /// Its picture mirrored left↔right, top↔bottom.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub flip_h: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub flip_v: bool,
+    /// Clips that go together (a take's parts, a video and its detached sound): picked,
+    /// moved and deleted as one while linkage is on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<Id>,
+}
+
+fn is_uncropped(c: &(f32, f32, f32, f32)) -> bool {
+    *c == (0.0, 0.0, 0.0, 0.0)
 }
 
 /// An effect on a clip's picture: the catalog's kind and its settings (by uniform name).
@@ -563,6 +579,10 @@ impl Clip {
             duck: false,
             hidden: Vec::new(),
             effects: Vec::new(),
+            crop: (0.0, 0.0, 0.0, 0.0),
+            flip_h: false,
+            flip_v: false,
+            link: None,
         }
     }
 
@@ -703,6 +723,11 @@ pub struct Track {
 }
 
 impl Track {
+    /// An empty track of `kind`.
+    pub fn empty(kind: TrackKind) -> Track {
+        Track::new(kind)
+    }
+
     fn new(kind: TrackKind) -> Track {
         Track { id: Id::new(), kind, clips: Vec::new(), muted: false, hidden: false, locked: false, captions: false }
     }
@@ -712,7 +737,7 @@ impl Track {
         self.clips.iter().filter(|c| Some(c.id) != except).all(|c| end <= c.start_ms || start >= c.end_ms())
     }
 
-    fn sort(&mut self) {
+    pub fn sort(&mut self) {
         self.clips.sort_by_key(|c| c.start_ms);
     }
 }
@@ -729,6 +754,9 @@ pub struct Sequence {
     /// Large videos edited through smaller copies (the export reads the originals).
     #[serde(default = "yes")]
     pub proxies: bool,
+    /// Markers on the timeline (ms, in order).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub markers: Vec<u64>,
 }
 
 fn yes() -> bool {
@@ -772,7 +800,7 @@ impl Sequence {
 
     /// Empty: one video track and one audio track.
     pub fn new(size: (u32, u32), fps: u32) -> Sequence {
-        Sequence { version: 1, size, fps, media: Vec::new(), tracks: vec![Track::new(TrackKind::Video), Track::new(TrackKind::Audio)], proxies: true }
+        Sequence { version: 1, size, fps, media: Vec::new(), tracks: vec![Track::new(TrackKind::Video), Track::new(TrackKind::Audio)], proxies: true, markers: Vec::new() }
     }
 
     pub fn load(path: &Path) -> std::io::Result<Sequence> {
@@ -888,6 +916,70 @@ impl Sequence {
         id
     }
 
+    /// The main track: the bottom video track (where the magnet keeps clips end to end).
+    pub fn main_track(&self) -> Option<usize> {
+        self.tracks.iter().rposition(|t| t.kind == TrackKind::Video)
+    }
+
+    /// Track `t`'s clips end to end from the start, in their order (the magnet).
+    pub fn pack(&mut self, t: usize) {
+        let Some(track) = self.tracks.get_mut(t) else { return };
+        track.sort();
+        let mut at = 0;
+        for c in &mut track.clips {
+            c.start_ms = at;
+            at = c.end_ms();
+        }
+    }
+
+    /// Cuts away what's before `at` of the clips under it (`only`: those clips; else every
+    /// unlocked one). Their ids.
+    pub fn delete_left(&mut self, at: u64, only: &[Id]) -> Vec<Id> {
+        let under = self.under(at, only);
+        for c in &under {
+            self.trim_start(*c, at);
+        }
+        under
+    }
+
+    /// Cuts away what's after `at` of the clips under it.
+    pub fn delete_right(&mut self, at: u64, only: &[Id]) -> Vec<Id> {
+        let under = self.under(at, only);
+        for c in &under {
+            self.trim_end(*c, at);
+        }
+        under
+    }
+
+    fn under(&self, at: u64, only: &[Id]) -> Vec<Id> {
+        self.tracks
+            .iter()
+            .filter(|t| !t.locked)
+            .flat_map(|t| t.clips.iter())
+            .filter(|c| c.start_ms < at && at < c.end_ms() && (only.is_empty() || only.contains(&c.id)))
+            .map(|c| c.id)
+            .collect()
+    }
+
+    /// The clips linked with `clip` (itself included).
+    pub fn linked(&self, clip: Id) -> Vec<Id> {
+        let Some(link) = self.clip(clip).and_then(|c| c.link) else { return vec![clip] };
+        self.tracks.iter().flat_map(|t| t.clips.iter()).filter(|c| c.link == Some(link)).map(|c| c.id).collect()
+    }
+
+    /// A marker at `at`, or the one there taken away.
+    pub fn toggle_marker(&mut self, at: u64, near: u64) {
+        match self.markers.iter().position(|m| m.abs_diff(at) <= near) {
+            Some(i) => {
+                self.markers.remove(i);
+            }
+            None => {
+                self.markers.push(at);
+                self.markers.sort();
+            }
+        }
+    }
+
     /// Takes `ranges` (the clip's source time) out of a clip: what's left of it stays in order
     /// from its start, and the clips after it on its track move up to close the gaps. The
     /// timeline time taken out.
@@ -941,13 +1033,18 @@ impl Sequence {
             keyframes: Vec::new(),
             hidden: Vec::new(),
             effects: Vec::new(),
+            crop: (0.0, 0.0, 0.0, 0.0),
+            flip_h: false,
+            flip_v: false,
+            link: Some(cl.link.unwrap_or(cl.id)),
             ..cl
         };
         let id = sound.id;
         self.tracks[at].clips.push(sound);
         self.tracks[at].sort();
         if let Some(v) = self.clip_mut(clip) {
-            // its fades stay: they're its picture's too
+            // its fades stay: they're its picture's too; it and its sound go together
+            v.link = Some(v.link.unwrap_or(clip));
             v.muted = true;
             v.volume_keys.clear();
             v.voice = None;
@@ -1386,5 +1483,36 @@ mod tests {
         let w = |a: u64, b: u64, t: &str| crate::speech::Word { start_ms: a, end_ms: b, text: t.into() };
         let t = crate::speech::Transcript { language: "en".into(), words: vec![w(0, 400, "So"), w(400, 700, "um"), w(700, 1_000, "this"), w(4_000, 4_400, "works")] };
         assert_eq!(crate::speech::tightening(&t, 0, 5_000, 1_000, 300), vec![(400, 700), (1_150, 3_850)]);
+    }
+
+    #[test]
+    fn delete_left_right_magnet_markers_and_links() {
+        let mut s = Sequence::new((1920, 1080), 30);
+        let a = video(&mut s, "a", 4_000);
+        let b = video(&mut s, "b", 4_000);
+        let first = s.append(a).unwrap();
+        let second = s.append(b).unwrap();
+        // the first's start cut at 1 s: the magnet closes the gap
+        s.delete_left(1_000, &[first]);
+        assert_eq!(s.clip(first).unwrap().start_ms, 1_000);
+        let main = s.main_track().unwrap();
+        s.pack(main);
+        assert_eq!((s.clip(first).unwrap().start_ms, s.clip(second).unwrap().start_ms), (0, 3_000));
+        // the second's end cut at 5 s (2 s into it)
+        s.delete_right(5_000, &[]);
+        assert_eq!(s.clip(second).unwrap().end_ms(), 5_000);
+        s.toggle_marker(2_000, 50);
+        s.toggle_marker(500, 50);
+        assert_eq!(s.markers, vec![500, 2_000]);
+        s.toggle_marker(2_020, 50);
+        assert_eq!(s.markers, vec![500], "one near is taken away");
+        // a detached sound goes with its video
+        let sound = s.detach_sound(second).unwrap();
+        let mut both = s.linked(second);
+        both.sort();
+        let mut want = vec![second, sound];
+        want.sort();
+        assert_eq!(both, want);
+        assert_eq!(s.linked(first), vec![first]);
     }
 }

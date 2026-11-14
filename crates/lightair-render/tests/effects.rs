@@ -69,3 +69,37 @@ fn every_effect_changes_the_picture_and_hidden_areas_pixelate() {
     assert!(differ(&half(&plain, true), &half(&f, true)) > 1000, "the left half pixelated");
     assert!(differ(&half(&plain, false), &half(&f, false)) < 50, "the right half as it was");
 }
+
+#[test]
+fn cropped_and_mirrored() {
+    let dir = tempfile::tempdir().unwrap();
+    let Ok(ff) = media::ffmpeg() else { return };
+    // left half red, right half blue
+    let src = dir.path().join("halves.mp4");
+    assert!(Command::new(ff)
+        .args(["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=160x180:r=30:d=1", "-f", "lavfi", "-i", "color=c=blue:s=160x180:r=30:d=1", "-filter_complex", "[0][1]hstack", "-pix_fmt", "yuv420p"])
+        .arg(&src)
+        .status()
+        .unwrap()
+        .success());
+    let mut seq = Sequence::new((320, 180), 30);
+    let m = seq.add_media(Media::from_file(&src).unwrap());
+    let clip = seq.append(m).unwrap();
+    let Ok(mut r) = SequenceRenderer::new(&seq) else { return };
+    let at = |f: &[u8], x: u32, y: u32| f[((y * 320 + x) * 4) as usize..][..3].to_vec();
+    let plain = r.frame(500);
+    assert!(at(&plain, 40, 90)[0] > 200 && at(&plain, 280, 90)[2] > 200);
+    // mirrored: blue on the left
+    seq.clip_mut(clip).unwrap().flip_h = true;
+    r.set(&seq).unwrap();
+    let f = r.frame(500);
+    assert!(at(&f, 40, 90)[2] > 200 && at(&f, 280, 90)[0] > 200, "mirrored");
+    // the left half cut away: blue where it was, nothing left of it
+    let c = seq.clip_mut(clip).unwrap();
+    c.flip_h = false;
+    c.crop = (0.5, 0.0, 0.0, 0.0);
+    r.set(&seq).unwrap();
+    let f = r.frame(500);
+    assert!(at(&f, 280, 90)[2] > 200, "the right half stays where it was");
+    assert!(at(&f, 40, 90).iter().all(|v| *v < 30), "the cut part is gone: {:?}", at(&f, 40, 90));
+}

@@ -216,6 +216,8 @@ pub struct Layer<'a> {
     /// The catalog's effects on it, and the clip's own time (seconds) for those that move.
     pub effects: &'a [crate::sequence::ClipEffect],
     pub time: f32,
+    /// The part of the picture drawn: x, y, w, h (fractions; a negative size mirrors it).
+    pub uv: (f32, f32, f32, f32),
 }
 
 /// Which texture a draw samples.
@@ -557,7 +559,7 @@ impl Compositor {
                 let mut u = [0f32; 60];
                 u[0..4].copy_from_slice(&[ow, oh, 0.0, 0.0]);
                 u[4..8].copy_from_slice(&[l.center.0 - l.draw.0 / 2.0, l.center.1 - l.draw.1 / 2.0, l.draw.0, l.draw.1]);
-                u[8..12].copy_from_slice(&[0.0, 0.0, 1.0, 1.0]);
+                u[8..12].copy_from_slice(&[l.uv.0, l.uv.1, l.uv.2, l.uv.3]);
                 let mode = if l.premultiplied { 2.0 } else { 3.0 };
                 u[12..16].copy_from_slice(&[mode, 0.0, l.opacity.clamp(0.0, 1.0), l.rotation.to_radians()]);
                 u[16..20].copy_from_slice(&[l.center.0, l.center.1, 0.0, 0.0]);

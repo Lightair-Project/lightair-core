@@ -26,6 +26,8 @@ struct Pic {
     masks: Vec<(f32, f32, f32, f32)>,
     effects: Vec<crate::sequence::ClipEffect>,
     time: f32,
+    /// The part of the picture drawn (x, y, w, h; negative: mirrored).
+    uv: (f32, f32, f32, f32),
 }
 
 /// Where a clip's picture landed in the last frame (result pixels; back to front).
@@ -278,6 +280,19 @@ impl SequenceRenderer {
         let media = self.seq.media(clip.media).cloned();
         let made = clip.content.as_ref().map(|_| size);
         let (center, draw) = self.placement(clip, media.as_ref(), made, t);
+        // cropped: what's left stays where it was, its box smaller
+        let (l, top, r, b) = clip.crop;
+        let (l, top) = (l.clamp(0.0, 0.95), top.clamp(0.0, 0.95));
+        let (r, b) = (r.clamp(0.0, 0.95 - l), b.clamp(0.0, 0.95 - top));
+        let center = (center.0 + (l - r) / 2.0 * draw.0, center.1 + (top - b) / 2.0 * draw.1);
+        let draw = (draw.0 * (1.0 - l - r), draw.1 * (1.0 - top - b));
+        let mut uv = (l, top, 1.0 - l - r, 1.0 - top - b);
+        if clip.flip_h {
+            uv = (uv.0 + uv.2, uv.1, -uv.2, uv.3);
+        }
+        if clip.flip_v {
+            uv = (uv.0, uv.1 + uv.3, uv.2, -uv.3);
+        }
         let tr = clip.transform_at(t);
         let k = self.k();
         self.placed.push(Placed { clip: clip.id, center: (center.0 + dx, center.1), size: (draw.0 * grow, draw.1 * grow), rotation: tr.rotation });
@@ -294,6 +309,7 @@ impl SequenceRenderer {
             masks: clip.hidden.clone(),
             effects: clip.effects.clone(),
             time: t.saturating_sub(clip.start_ms) as f32 / 1000.0,
+            uv,
         });
     }
 
@@ -372,6 +388,7 @@ impl SequenceRenderer {
                 masks: &p.masks,
                 effects: &p.effects,
                 time: p.time,
+                uv: p.uv,
             })
             .collect();
         self.compositor.layers(&layers)
