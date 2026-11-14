@@ -111,11 +111,25 @@ pub struct Mix {
     pub to_program: bool,
     /// Balance, −1 (left) .. 1 (right): unity in both sides at the centre.
     pub pan: f32,
+    /// Gain before its inserts.
+    pub trim_db: f32,
+    /// Also heard in the cue mix ([`GraphSpec::cue`]).
+    pub to_cue: bool,
 }
 
 impl Mix {
     pub fn new(id: NodeId) -> Self {
-        Self { id, name: String::new(), inserts: Vec::new(), gain_db: 0.0, mute: false, to_program: false, pan: 0.0 }
+        Self {
+            id,
+            name: String::new(),
+            inserts: Vec::new(),
+            gain_db: 0.0,
+            mute: false,
+            to_program: false,
+            pan: 0.0,
+            trim_db: 0.0,
+            to_cue: false,
+        }
     }
 }
 
@@ -125,6 +139,10 @@ pub struct Master {
     pub inserts: Vec<EffectSpec>,
     pub gain_db: f32,
     pub mute: bool,
+    /// Gain before its inserts (drive the limiter).
+    pub trim_db: f32,
+    /// Also heard in the cue mix: what the stream carries.
+    pub to_cue: bool,
 }
 
 /// The whole mixer.
@@ -133,6 +151,9 @@ pub struct GraphSpec {
     pub strips: Vec<Strip>,
     pub mixes: Vec<Mix>,
     pub program: Master,
+    /// The mix that's the cue (headphones): finished last, after Program, so mixes and Program
+    /// can be heard in it.
+    pub cue: Option<NodeId>,
 }
 
 /// Problems the compiler corrected (the graph still runs).

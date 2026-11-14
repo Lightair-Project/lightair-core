@@ -494,6 +494,12 @@ pub struct Bus {
     pub sends: Vec<Send>,
     #[serde(default)]
     pub record: bool,
+    /// Gain before its effects.
+    #[serde(default)]
+    pub trim_db: f32,
+    /// Heard in headphones (the cue).
+    #[serde(default)]
+    pub cue: bool,
 }
 
 impl Bus {
@@ -508,6 +514,8 @@ impl Bus {
             route: Route::Program,
             sends: Vec::new(),
             record: false,
+            trim_db: 0.0,
+            cue: false,
         }
     }
 }
@@ -529,11 +537,27 @@ pub struct AudioMix {
     /// Balance, −1 (left) .. 1 (right).
     #[serde(default)]
     pub pan: f32,
+    /// Gain before its effects.
+    #[serde(default)]
+    pub trim_db: f32,
+    /// Heard in headphones (to check what it sends out).
+    #[serde(default)]
+    pub cue: bool,
 }
 
 impl AudioMix {
     pub fn new(name: impl Into<String>) -> Self {
-        Self { id: Id::new(), name: name.into(), volume_db: 0.0, muted: false, effects: Vec::new(), to_program: false, pan: 0.0 }
+        Self {
+            id: Id::new(),
+            name: name.into(),
+            volume_db: 0.0,
+            muted: false,
+            effects: Vec::new(),
+            to_program: false,
+            pan: 0.0,
+            trim_db: 0.0,
+            cue: false,
+        }
     }
 }
 
@@ -545,11 +569,17 @@ pub struct Master {
     pub muted: bool,
     #[serde(default)]
     pub effects: Vec<Effect>,
+    /// Gain before its effects (drives the limiter).
+    #[serde(default)]
+    pub trim_db: f32,
+    /// Heard in headphones: exactly what the stream carries.
+    #[serde(default)]
+    pub cue: bool,
 }
 
 impl Default for Master {
     fn default() -> Self {
-        Self { volume_db: 0.0, muted: false, effects: Vec::new() }
+        Self { volume_db: 0.0, muted: false, effects: Vec::new(), trim_db: 0.0, cue: false }
     }
 }
 

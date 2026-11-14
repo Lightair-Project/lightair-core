@@ -33,7 +33,7 @@ fn podcast_graph_cost() {
         inserts: vec![e(3000, Params::Limiter(LimiterParams::default()))],
         ..Default::default()
     };
-    let spec = GraphSpec { strips, mixes: vec![Mix::new(60), Mix::new(61)], program };
+    let spec = GraphSpec { strips, mixes: vec![Mix::new(60), Mix::new(61)], program, cue: None };
     let (_, mut r) = Engine::new(spec, 48_000);
     let chans: Vec<Vec<f32>> = (0..8).map(|c| (0..256).map(|i| ((i * (c + 3)) as f32 * 0.01).sin() * 0.2).collect()).collect();
     let refs: Vec<&[f32]> = chans.iter().map(|c| c.as_slice()).collect();

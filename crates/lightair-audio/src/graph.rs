@@ -126,6 +126,10 @@ struct MixRt {
     id: NodeId,
     /// Added into Program (after its own inserts and fader).
     to_program: bool,
+    /// Added into the cue mix.
+    to_cue: bool,
+    /// Gain before the inserts.
+    trim: Smoothed,
     inserts: Vec<Slot>,
     fader: Smoothed,
     /// Balance: each side's gain (unity at the centre).
@@ -143,6 +147,10 @@ pub struct Graph {
     bus_sums: Vec<Stereo>,
     mixes: Vec<MixRt>,
     program: MixRt,
+    /// Which of `mixes` is the cue (finished last).
+    cue: Option<usize>,
+    /// Program is heard in the cue.
+    program_to_cue: bool,
     /// Sidechain keys (mono post-fader signals of strips something listens to).
     keys: Vec<Box<[f32]>>,
     scratch: [Box<[f32]>; 4],
@@ -282,6 +290,8 @@ impl Graph {
         let mix_rt = |id: NodeId, inserts: &[EffectSpec], gain_db: f32, mute: bool, meter: Arc<Meter>| MixRt {
             id,
             to_program: false,
+            to_cue: false,
+            trim: Smoothed::new(1.0, ramp),
             pan_l: Smoothed::new(1.0, ramp),
             pan_r: Smoothed::new(1.0, ramp),
             inserts: inserts.iter().map(|e| Slot::new(e, sr, &keys)).collect(),
@@ -297,15 +307,22 @@ impl Graph {
                 let (gl, gr) = pan_gains(m.pan);
                 MixRt {
                     to_program: m.to_program,
+                    to_cue: m.to_cue,
+                    trim: Smoothed::new(db_to_gain(m.trim_db), ramp),
                     pan_l: Smoothed::new(gl, ramp),
                     pan_r: Smoothed::new(gr, ramp),
                     ..mix_rt(m.id, &m.inserts, m.gain_db, m.mute, meter(m.id))
                 }
             })
             .collect();
-        let program =
-            mix_rt(crate::PROGRAM, &spec.program.inserts, spec.program.gain_db, spec.program.mute, meter(crate::PROGRAM));
+        let program = MixRt {
+            trim: Smoothed::new(db_to_gain(spec.program.trim_db), ramp),
+            ..mix_rt(crate::PROGRAM, &spec.program.inserts, spec.program.gain_db, spec.program.mute, meter(crate::PROGRAM))
+        };
+        let cue = spec.cue.and_then(|c| spec.mixes.iter().position(|m| m.id == c));
         Self {
+            cue,
+            program_to_cue: spec.program.to_cue,
             sample_rate: sr,
             strips,
             bus_sums: (0..buses.len()).map(|_| Stereo::new()).collect(),
@@ -344,6 +361,7 @@ impl Graph {
         }
         let mix = |new: &mut MixRt, old: &mut MixRt| {
             new.fader.continue_from(&old.fader);
+            new.trim.continue_from(&old.trim);
             new.pan_l.continue_from(&old.pan_l);
             new.pan_r.continue_from(&old.pan_r);
             slots(&mut new.inserts, &mut old.inserts);
@@ -362,7 +380,7 @@ impl Graph {
         let n = frames.min(MAX_BLOCK);
         self.frames = n;
         let sr = self.sample_rate;
-        let Self { strips, bus_sums, mixes, program, keys, scratch, .. } = self;
+        let Self { strips, bus_sums, mixes, program, keys, scratch, cue, program_to_cue, .. } = self;
         program.sum.clear(n);
         for m in mixes.iter_mut() {
             m.sum.clear(n);
@@ -444,6 +462,11 @@ impl Graph {
             }
         }
         let master = |m: &mut MixRt, g: &mut [f32], gl: &mut [f32], gr: &mut [f32]| {
+            m.trim.fill(&mut g[..n]);
+            for i in 0..n {
+                m.sum.l[i] *= g[i];
+                m.sum.r[i] *= g[i];
+            }
             for slot in m.inserts.iter_mut().filter(|e| e.enabled) {
                 let ctx = Ctx { sample_rate: sr, key: slot.key.map(|k| &keys[k][..n]) };
                 slot.proc.process(&mut m.sum.l[..n], &mut m.sum.r[..n], &ctx);
@@ -458,15 +481,36 @@ impl Graph {
             m.meter.feed(&m.sum.l[..n], &m.sum.r[..n]);
             m.loudness.feed(&m.sum.l[..n], &m.sum.r[..n], &m.meter);
         };
-        // mixes first: the ones that feed Program are part of it
+        // mixes first (the ones that feed Program are part of it), then Program, then the cue,
+        // which can hear any of them
+        let cue = *cue;
         g3[..n].fill(1.0);
-        for m in mixes.iter_mut() {
-            master(m, g0, g1, g2);
-            if m.to_program {
-                add_scaled(&mut program.sum, &m.sum.l[..n], &m.sum.r[..n], &g3[..n]);
+        for k in 0..mixes.len() {
+            if Some(k) == cue {
+                continue;
+            }
+            master(&mut mixes[k], g0, g1, g2);
+            if mixes[k].to_program {
+                add_scaled(&mut program.sum, &mixes[k].sum.l[..n], &mixes[k].sum.r[..n], &g3[..n]);
+            }
+            if let Some(c) = cue.filter(|_| mixes[k].to_cue) {
+                let (from, to) = if k < c {
+                    let (a, b) = mixes.split_at_mut(c);
+                    (&a[k], &mut b[0])
+                } else {
+                    let (a, b) = mixes.split_at_mut(k);
+                    (&b[0], &mut a[c])
+                };
+                add_scaled(&mut to.sum, &from.sum.l[..n], &from.sum.r[..n], &g3[..n]);
             }
         }
         master(program, g0, g1, g2);
+        if let Some(c) = cue {
+            if *program_to_cue {
+                add_scaled(&mut mixes[c].sum, &program.sum.l[..n], &program.sum.r[..n], &g3[..n]);
+            }
+            master(&mut mixes[c], g0, g1, g2);
+        }
     }
 
     /// The program (master) output of the last block.

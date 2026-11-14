@@ -286,3 +286,22 @@ fn a_mix_has_its_own_balance() {
     // Program isn't moved by a mix's balance
     assert!(close(last(r.graph().program().0), 0.5));
 }
+
+#[test]
+fn mixes_and_program_can_be_cued_and_trimmed() {
+    // the track (0.5) goes to Program and to a mix; the cue hears the mix and Program
+    let mut t = Strip::track(1, MIC, Channels::Mono(0));
+    t.sends.push(Send { mix: 50, level_db: 0.0, pre_fader: false });
+    let spec = |mix_trim: f32, program_trim: f32| GraphSpec {
+        strips: vec![t.clone()],
+        mixes: vec![Mix { to_cue: true, trim_db: mix_trim, ..Mix::new(50) }, Mix::new(99)],
+        program: lightair_audio::Master { to_cue: true, trim_db: program_trim, ..Default::default() },
+        cue: Some(99),
+    };
+    let (_, r) = run(spec(0.0, 0.0), 4);
+    assert!(close(last(r.graph().mix(99).unwrap().0), 1.0), "cue: mix + program ({})", last(r.graph().mix(99).unwrap().0));
+    let (_, r) = run(spec(-6.0206, -6.0206), 4);
+    assert!(close(last(r.graph().mix(50).unwrap().0), 0.25), "the mix's trim");
+    assert!(close(last(r.graph().program().0), 0.25), "Program's trim");
+    assert!(close(last(r.graph().mix(99).unwrap().0), 0.5), "the cue hears both, trimmed");
+}
