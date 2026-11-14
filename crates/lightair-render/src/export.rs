@@ -124,16 +124,22 @@ impl Renderer {
         Ok(self.compose(&screen, s))
     }
 
-    /// Renders the whole result into `out` at `fps`. `progress(fraction)` returns false to stop.
-    pub fn export(&mut self, out: &Path, fps: f64, codec: Codec, mut progress: impl FnMut(f32) -> bool) -> Result<(), MediaError> {
+    /// The result's frame size.
+    pub fn size(&self) -> (u32, u32) {
+        self.edit.size
+    }
+
+    /// The result from `from_ms` at `fps`: `each(result_ms, rgba)` for every frame, until it
+    /// returns false or the result ends.
+    pub fn frames(&mut self, from_ms: u64, fps: f64, mut each: impl FnMut(u64, Vec<u8>) -> bool) -> Result<(), MediaError> {
         let total = self.duration_ms();
+        let first = (from_ms as f64 * fps / 1000.0).floor() as u64;
         let frames = (total as f64 * fps / 1000.0).ceil() as u64;
-        let mut enc = Encoder::start(out, self.edit.size, fps, codec, &self.source.audio, &self.edit.clips)?;
-        let start = self.edit.clips.first().map_or(0, |c| c.start_ms);
+        let start = timeline::source_at(&self.edit, from_ms).unwrap_or(0);
         let mut dec = Decoder::open(&self.source.video, start, fps, self.decode_size)?;
         let mut current = Vec::new();
         let mut have = false;
-        for i in 0..frames {
+        for i in first..frames {
             let t = (i as f64 * 1000.0 / fps) as u64;
             let Some(s) = timeline::source_at(&self.edit, t) else { break };
             // a long cut: start reading again from there rather than through it
@@ -151,13 +157,36 @@ impl Renderer {
                 break;
             }
             let rgba = self.compose(&current, s);
-            enc.write(&rgba)?;
-            if !progress((i + 1) as f32 / frames as f32) {
-                drop(enc);
-                let _ = std::fs::remove_file(out);
-                return Err(MediaError::Failed("stopped".into()));
+            if !each(t, rgba) {
+                return Ok(());
             }
         }
+        Ok(())
+    }
+
+    /// Renders the whole result into `out` at `fps`. `progress(fraction)` returns false to stop.
+    pub fn export(&mut self, out: &Path, fps: f64, codec: Codec, mut progress: impl FnMut(f32) -> bool) -> Result<(), MediaError> {
+        let total = self.duration_ms().max(1);
+        let mut enc = Encoder::start(out, self.edit.size, fps, codec, &self.source.audio, &self.edit.clips)?;
+        let mut failed = None;
+        let mut stopped = false;
+        self.frames(0, fps, |t, rgba| {
+            if let Err(e) = enc.write(&rgba) {
+                failed = Some(e);
+                return false;
+            }
+            stopped = !progress(((t as f64 + 1000.0 / fps) / total as f64).min(1.0) as f32);
+            !stopped
+        })?;
+        if let Some(e) = failed {
+            return Err(e);
+        }
+        if stopped {
+            drop(enc);
+            let _ = std::fs::remove_file(out);
+            return Err(MediaError::Failed("stopped".into()));
+        }
+        progress(1.0);
         enc.finish()
     }
 }
