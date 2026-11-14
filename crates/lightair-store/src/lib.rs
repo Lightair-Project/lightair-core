@@ -17,6 +17,7 @@
 
 pub mod import_obs;
 
+pub mod recordings;
 pub use import_obs::{EstimatedLayer, ImportError, ImportReport, import_obs_collection};
 
 use std::collections::BTreeMap;
