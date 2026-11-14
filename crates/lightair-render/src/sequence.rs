@@ -720,6 +720,9 @@ pub struct Track {
     /// The track captions were made on (made again in place).
     #[serde(default)]
     pub captions: bool,
+    /// Its height on the timeline (points), when it's been changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<f32>,
 }
 
 impl Track {
@@ -729,7 +732,7 @@ impl Track {
     }
 
     fn new(kind: TrackKind) -> Track {
-        Track { id: Id::new(), kind, clips: Vec::new(), muted: false, hidden: false, locked: false, captions: false }
+        Track { id: Id::new(), kind, clips: Vec::new(), muted: false, hidden: false, locked: false, captions: false, height: None }
     }
 
     /// Whether `start..end` is free on this track (ignoring `except`).
