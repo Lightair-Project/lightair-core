@@ -3,6 +3,7 @@
 //! same functions. The rest of Lightair calls these rather than OS APIs.
 
 pub mod apps;
+pub mod devices;
 pub mod files;
 pub mod input;
 pub mod paths;

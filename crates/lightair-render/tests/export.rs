@@ -80,4 +80,21 @@ fn a_take_exports_through_its_edit() {
     let p = media::probe(&out).unwrap();
     assert_eq!((p.width, p.height), (640, 360));
     assert!((p.duration_ms as i64 - 3_500).abs() < 150, "{} ms", p.duration_ms);
+
+    // with subtitles: a text track beside the video
+    let srt = dir.path().join("captions.srt");
+    std::fs::write(&srt, "1\n00:00:00,000 --> 00:00:01,000\nHello\n").unwrap();
+    r.subtitles = Some(srt);
+    let subbed = dir.path().join("Captioned.mp4");
+    r.export(&subbed, 30.0, Codec::H264, |_| true).unwrap();
+    let ffprobe = media::ffmpeg().unwrap().with_file_name(if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" });
+    let streams = Command::new(ffprobe).args(["-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0"]).arg(&subbed).output().unwrap();
+    let kinds = String::from_utf8_lossy(&streams.stdout).to_string();
+    assert!(kinds.contains("video") && kinds.contains("audio") && kinds.contains("subtitle"), "{kinds}");
+    // a GIF
+    r.subtitles = None;
+    let gif = dir.path().join("Clip.gif");
+    r.export(&gif, 15.0, Codec::Gif, |_| true).unwrap();
+    let g = media::probe(&gif).unwrap();
+    assert_eq!((g.width, g.height), (640, 360));
 }

@@ -221,6 +221,13 @@ impl Index {
         let mut out = Vec::new();
         for entry in entries.flatten() {
             let path = entry.path();
+            // a take (or a take package from someone else): all its files, as one item
+            if path.is_dir() && path.extension().is_some_and(|e| e == "lightair-take") {
+                if let Some(item) = take_item(&path).filter(|i| !i.files.iter().any(|f| self.has_file(&f.path))) {
+                    out.push(item);
+                }
+                continue;
+            }
             if !path.is_file() || !is_media(&path) || self.has_file(&path) {
                 continue;
             }
@@ -288,6 +295,45 @@ impl Index {
     pub fn bytes(&self) -> u64 {
         self.items.iter().map(Item::bytes).sum()
     }
+}
+
+/// A take folder as an item: its files, from its take.json.
+pub fn take_item(folder: &Path) -> Option<Item> {
+    let take: serde_json::Value = serde_json::from_slice(&fs::read(folder.join("take.json")).ok()?).ok()?;
+    let mut files: Vec<File> = take["video"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|v| Some(File { path: folder.join(v["file"].as_str()?), format: v["name"].as_str().map(String::from) }))
+        .collect();
+    files.extend(take["audio"].as_array().into_iter().flatten().filter_map(|a| Some(File { path: folder.join(a.as_str()?), format: None })));
+    for extra in ["input.bin", "take.json", "edit.json"] {
+        if folder.join(extra).exists() {
+            files.push(File { path: folder.join(extra), format: None });
+        }
+    }
+    let title = folder.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let mut item = Item::new(Kind::Take, title, files, take["started_ms"].as_i64().unwrap_or(0));
+    item.duration_ms = take["duration_ms"].as_u64();
+    Some(item)
+}
+
+/// Copies a take, with its edit, into `to` as a package (a `.lightair-take` folder) to give to
+/// someone else or keep. Returns the package.
+pub fn export_package(item: &Item, edit: Option<&Path>, to: &Path) -> io::Result<PathBuf> {
+    let name = format!("{}.lightair-take", item.title.replace(['/', ':', '\\'], "-"));
+    let package = (1..)
+        .map(|n| if n == 1 { to.join(&name) } else { to.join(name.replace(".lightair-take", &format!(" {n}.lightair-take"))) })
+        .find(|p| !p.exists())
+        .unwrap_or_else(|| to.join(&name));
+    fs::create_dir_all(&package)?;
+    for f in item.files.iter().filter(|f| f.path.exists()) {
+        fs::copy(&f.path, package.join(f.path.file_name().unwrap_or_default()))?;
+    }
+    if let Some(e) = edit.filter(|e| e.exists()) {
+        fs::copy(e, package.join("edit.json"))?;
+    }
+    Ok(package)
 }
 
 /// Moves an item from one project's index to another's (its thumbnail too). Returns whether

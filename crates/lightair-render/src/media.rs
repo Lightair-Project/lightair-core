@@ -148,6 +148,8 @@ pub enum Codec {
     H264,
     /// ProRes 422 in MOV (VideoToolbox's on a Mac, FFmpeg's own elsewhere).
     ProRes,
+    /// An animated GIF: 15 frames a second, at most 960 wide, no sound.
+    Gif,
 }
 
 /// FFmpeg's encoders, once.
@@ -168,6 +170,7 @@ fn video_args(codec: Codec, size: (u32, u32), fps: f64) -> Vec<String> {
     match codec {
         Codec::ProRes if has("prores_videotoolbox") => v(&["-c:v", "prores_videotoolbox", "-profile:v", "2", "-pix_fmt", "p210le"]),
         Codec::ProRes => v(&["-c:v", "prores_ks", "-profile:v", "2", "-pix_fmt", "yuv422p10le"]),
+        Codec::Gif => v(&["-loop", "0"]),
         Codec::H264 => {
             let enc = ["h264_videotoolbox", "h264_nvenc", "h264_amf", "h264_qsv"].into_iter().find(|e| has(e)).unwrap_or("libx264");
             let mut a = v(&["-c:v", enc, "-b:v", &format!("{kbps}k"), "-pix_fmt", "yuv420p"]);
@@ -217,15 +220,39 @@ pub struct Encoder {
 }
 
 impl Encoder {
-    pub fn start(out: &Path, size: (u32, u32), fps: f64, codec: Codec, audio: &[PathBuf], clips: &[Clip]) -> Result<Encoder, MediaError> {
+    /// `subtitles`: a SubRip file, added as a subtitle track (MP4 and MOV).
+    pub fn start(
+        out: &Path,
+        size: (u32, u32),
+        fps: f64,
+        codec: Codec,
+        audio: &[PathBuf],
+        clips: &[Clip],
+        subtitles: Option<&Path>,
+    ) -> Result<Encoder, MediaError> {
         let mut cmd = Command::new(ffmpeg()?);
         cmd.args(["-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", &format!("{}x{}", size.0, size.1)])
             .args(["-r", &format!("{fps}"), "-i", "-"]);
-        for a in audio {
-            cmd.arg("-i").arg(a);
-        }
-        if let Some(f) = audio_filter(audio.len(), clips) {
-            cmd.args(["-filter_complex", &f, "-map", "0:v", "-map", "[aout]", "-c:a", "aac", "-b:a", "192k"]);
+        if codec == Codec::Gif {
+            // one palette for the whole clip, made from its own colours
+            cmd.args([
+                "-filter_complex",
+                "[0:v]fps=15,scale='min(960,iw)':-2:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4",
+            ]);
+        } else {
+            for a in audio {
+                cmd.arg("-i").arg(a);
+            }
+            if let Some(subs) = subtitles {
+                cmd.arg("-i").arg(subs);
+            }
+            match audio_filter(audio.len(), clips) {
+                Some(f) => cmd.args(["-filter_complex", &f, "-map", "0:v", "-map", "[aout]", "-c:a", "aac", "-b:a", "192k"]),
+                None => cmd.args(["-map", "0:v"]),
+            };
+            if subtitles.is_some() {
+                cmd.args(["-map", &format!("{}:s", audio.len() + 1), "-c:s", "mov_text"]);
+            }
         }
         cmd.args(video_args(codec, size, fps));
         if codec == Codec::H264 {

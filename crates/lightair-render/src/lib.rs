@@ -16,5 +16,6 @@ pub mod export;
 pub mod media;
 pub mod pointer;
 pub mod shapes;
+pub mod speech;
 pub mod timeline;
 pub mod zoom;

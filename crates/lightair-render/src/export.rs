@@ -47,6 +47,8 @@ pub struct Renderer {
     compositor: Compositor,
     /// The size the screen is decoded at (enough for a 2× zoom of its box).
     decode_size: (u32, u32),
+    /// Subtitles to add to exports (a SubRip file).
+    pub subtitles: Option<PathBuf>,
 }
 
 fn even(v: f32) -> u32 {
@@ -64,7 +66,7 @@ impl Renderer {
         let k = ((bx.2 * 2.0) / probe.width as f32).min(1.0);
         let decode_size = (even(probe.width as f32 * k), even(probe.height as f32 * k));
         let camera = Self::camera_of(edit, &probe, pointer.as_ref());
-        Ok(Renderer { source, probe, edit: edit.clone(), camera, pointer, compositor, decode_size })
+        Ok(Renderer { source, probe, edit: edit.clone(), camera, pointer, compositor, decode_size, subtitles: None })
     }
 
     fn camera_of(edit: &Edit, probe: &Probe, pointer: Option<&Track>) -> Camera {
@@ -167,7 +169,7 @@ impl Renderer {
     /// Renders the whole result into `out` at `fps`. `progress(fraction)` returns false to stop.
     pub fn export(&mut self, out: &Path, fps: f64, codec: Codec, mut progress: impl FnMut(f32) -> bool) -> Result<(), MediaError> {
         let total = self.duration_ms().max(1);
-        let mut enc = Encoder::start(out, self.edit.size, fps, codec, &self.source.audio, &self.edit.clips)?;
+        let mut enc = Encoder::start(out, self.edit.size, fps, codec, &self.source.audio, &self.edit.clips, self.subtitles.as_deref())?;
         let mut failed = None;
         let mut stopped = false;
         self.frames(0, fps, |t, rgba| {

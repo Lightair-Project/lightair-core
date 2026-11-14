@@ -125,3 +125,29 @@ fn existing_recordings_come_in_with_their_length() {
     index.items.extend(found);
     assert!(index.existing_in(media.path()).is_empty(), "already in the index");
 }
+
+#[test]
+fn a_take_goes_out_as_a_package_and_comes_back_in() {
+    let media = tempfile::tempdir().unwrap();
+    let take = media.path().join("Take 1.lightair-take");
+    fs::create_dir_all(&take).unwrap();
+    fs::write(take.join("screen.mp4"), b"v").unwrap();
+    fs::write(take.join("Audio - Mic.wav"), b"a").unwrap();
+    fs::write(take.join("input.bin"), b"i").unwrap();
+    let json = serde_json::json!({"started_ms": 5, "duration_ms": 4000, "video": [{"name": "Screen", "file": "screen.mp4"}], "audio": ["Audio - Mic.wav"]});
+    fs::write(take.join("take.json"), serde_json::to_vec(&json).unwrap()).unwrap();
+    let item = lightair_store::recordings::take_item(&take).unwrap();
+    assert_eq!(item.kind, Kind::Take);
+    assert_eq!(item.files.len(), 4);
+    assert_eq!(item.duration_ms, Some(4000));
+    let edit = media.path().join("edit-source.json");
+    fs::write(&edit, b"{}").unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let package = lightair_store::recordings::export_package(&item, Some(&edit), out.path()).unwrap();
+    assert!(package.join("edit.json").exists() && package.join("screen.mp4").exists());
+    // brought in elsewhere: one item, the take
+    let found = Index::default().existing_in(out.path());
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].kind, Kind::Take);
+    assert!(found[0].files.iter().any(|f| f.path.ends_with("edit.json")));
+}
