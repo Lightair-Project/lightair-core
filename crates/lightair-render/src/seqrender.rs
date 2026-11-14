@@ -55,6 +55,11 @@ impl SequenceRenderer {
         Ok(())
     }
 
+    /// Draws a take with its look again (the look changed).
+    pub fn forget_take(&mut self, media: Id) {
+        self.takes.remove(&media);
+    }
+
     pub fn sequence(&self) -> &Sequence {
         &self.seq
     }
@@ -74,7 +79,8 @@ impl SequenceRenderer {
         let s = clip.source_at(t)?;
         if let Some(folder) = &media.take {
             if !self.takes.contains_key(&media.id) {
-                let mut edit = Edit::load(&folder.join("edit.json")).unwrap_or_else(|_| Edit::new(media.duration_ms.max(1)));
+                let look = media.look.clone().unwrap_or_else(|| folder.join("edit.json"));
+                let mut edit = Edit::load(&look).unwrap_or_else(|_| Edit::new(media.duration_ms.max(1)));
                 edit.size = self.seq.size;
                 edit.clips = Edit::new(media.duration_ms.max(1)).clips;
                 let r = Renderer::new(Source::of_take(folder)?, &edit).ok()?;

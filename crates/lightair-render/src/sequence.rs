@@ -35,6 +35,9 @@ pub struct Media {
     /// The Library item it came from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub item: Option<Id>,
+    /// A take's look (its `Edit`: zooms, pointer, backdrop), kept in the workspace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub look: Option<PathBuf>,
 }
 
 impl Media {
@@ -59,6 +62,7 @@ impl Media {
             audio: if c.audio && kind == MediaKind::Video { vec![path.to_path_buf()] } else { Vec::new() },
             take: None,
             item: None,
+            look: None,
         })
     }
 
@@ -77,6 +81,7 @@ impl Media {
             audio: source.audio,
             take: Some(folder.to_path_buf()),
             item: None,
+            look: None,
         })
     }
 }
@@ -361,6 +366,19 @@ impl Sequence {
         under.into_iter().filter_map(|c| self.split(c, at)).collect()
     }
 
+    /// Sets a clip's speed (its length follows). False if it would then run into the next clip.
+    pub fn set_speed(&mut self, clip: Id, speed: f32) -> bool {
+        let Some((t, c)) = self.find(clip) else { return false };
+        let mut changed = self.tracks[t].clips[c].clone();
+        changed.speed = speed.clamp(0.1, 16.0);
+        let next = self.tracks[t].clips.get(c + 1).map_or(u64::MAX, |n| n.start_ms);
+        if changed.end_ms() > next {
+            return false;
+        }
+        self.tracks[t].clips[c] = changed;
+        true
+    }
+
     pub fn remove(&mut self, clip: Id) {
         if let Some((t, c)) = self.find(clip) {
             self.tracks[t].clips.remove(c);
@@ -508,6 +526,7 @@ mod tests {
             audio: vec![PathBuf::from(format!("/m/{name}.mp4"))],
             take: None,
             item: None,
+            look: None,
         })
     }
 
