@@ -14,6 +14,7 @@ pub mod compose;
 pub mod edit;
 pub mod export;
 pub mod generate;
+pub mod sound;
 pub mod media;
 pub mod pointer;
 pub mod seqrender;

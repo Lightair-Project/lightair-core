@@ -254,6 +254,8 @@ impl SequenceRenderer {
     /// Renders the sequence into `out`. `progress(fraction)` returns false to stop.
     pub fn export(&mut self, out: &Path, codec: Codec, mut progress: impl FnMut(f32) -> bool) -> Result<(), MediaError> {
         let total = self.seq.duration_ms().max(1);
+        // voices to clean up, first
+        crate::sound::prepare(&self.seq)?;
         let (inputs, mix) = self.mix();
         let mut enc = Encoder::start_with(out, self.seq.size, self.fps, codec, &inputs, &[], None, mix.as_deref())?;
         let mut failed = None;
@@ -280,56 +282,4 @@ impl SequenceRenderer {
     }
 }
 
-/// The sound of the whole sequence as an FFmpeg filter over `inputs` (in order, from input
-/// 1), or `None` when nothing makes a sound.
-pub fn mix_of(seq: &Sequence) -> (Vec<PathBuf>, Option<String>) {
-    let mut inputs: Vec<PathBuf> = Vec::new();
-    let mut parts = Vec::new();
-    for track in seq.tracks.iter().filter(|t| !t.muted) {
-        for c in track.clips.iter().filter(|c| !c.muted && c.volume > 0.0 && c.content.is_none()) {
-            let Some(m) = seq.media(c.media) else { continue };
-            // a picture track's clips play their own sound; stills have none
-            if m.kind == MediaKind::Image || (track.kind == TrackKind::Video && m.audio.is_empty()) {
-                continue;
-            }
-            let files = if m.audio.is_empty() { vec![m.path.clone()] } else { m.audio.clone() };
-            for f in files {
-                inputs.push(f);
-                let i = inputs.len();
-                let s = c.speed.clamp(0.25, 16.0);
-                let tempo = if s < 0.5 { format!("atempo={},atempo=0.5", s / 0.5) } else { format!("atempo={s}") };
-                parts.push(format!(
-                    "[{i}:a]atrim=start={:.3}:end={:.3},asetpts=PTS-STARTPTS,{tempo},volume={:.3},adelay={}|{}[s{}]",
-                    c.in_ms as f64 / 1000.0,
-                    c.out_ms as f64 / 1000.0,
-                    c.volume,
-                    c.start_ms,
-                    c.start_ms,
-                    parts.len()
-                ));
-            }
-        }
-    }
-    if parts.is_empty() {
-        return (inputs, None);
-    }
-    let labels: String = (0..parts.len()).map(|k| format!("[s{k}]")).collect();
-    let f = format!("{};{labels}amix=inputs={}:normalize=0:dropout_transition=0[aout]", parts.join(";"), parts.len());
-    (inputs, Some(f))
-}
-
-/// The sequence's sound alone, mixed into `out` (a WAV, 16 kHz mono, for speech). False if it
-/// has none.
-pub fn sound_to(seq: &Sequence, out: &Path) -> Result<bool, MediaError> {
-    let (inputs, mix) = mix_of(seq);
-    let Some(mix) = mix else { return Ok(false) };
-    let mut cmd = std::process::Command::new(media::ffmpeg()?);
-    cmd.args(["-v", "error", "-y"]);
-    for i in &inputs {
-        cmd.arg("-i").arg(i);
-    }
-    // the inputs are numbered from 1 in the mix (0 is the pictures, when exporting)
-    let f = (1..=inputs.len()).fold(mix, |f, n| f.replace(&format!("[{n}:a]"), &format!("[{}:a]", n - 1)));
-    let ok = cmd.args(["-filter_complex", &f, "-map", "[aout]", "-ac", "1", "-ar", "16000"]).arg(out).status().is_ok_and(|s| s.success());
-    if ok { Ok(true) } else { Err(MediaError::Failed("couldn't mix the sound".into())) }
-}
+pub use crate::sound::{mix_of, sound_to};

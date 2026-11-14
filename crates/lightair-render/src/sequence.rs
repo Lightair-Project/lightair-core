@@ -247,6 +247,44 @@ pub struct Clip {
     /// The transform over time, when it moves (in time order).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keyframes: Vec<Keyframe>,
+    /// Its sound faded in from silence and out to it (timeline ms).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub fade_in_ms: u64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub fade_out_ms: u64,
+    /// The volume over time, when it changes (in time order; `volume` otherwise).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub volume_keys: Vec<VolumeKey>,
+    /// A voice cleaned up (noise, harshness, level) before it's mixed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice: Option<VoiceClean>,
+}
+
+fn is_zero(v: &u64) -> bool {
+    *v == 0
+}
+
+/// The volume at a moment of a clip (from its start, timeline time).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct VolumeKey {
+    pub at_ms: u64,
+    pub volume: f32,
+}
+
+/// Voice clean-up: the audio engine's Voice Clarity chain, run on the file once.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct VoiceClean {
+    /// 0 light .. 1 strong.
+    pub amount: f32,
+    /// Warmer and denser, for narration.
+    #[serde(default)]
+    pub podcast: bool,
+}
+
+impl Default for VoiceClean {
+    fn default() -> Self {
+        VoiceClean { amount: 0.5, podcast: false }
+    }
 }
 
 /// Smooth in and out.
@@ -276,7 +314,61 @@ impl Clip {
             transition: None,
             filter: Filter::default(),
             keyframes: Vec::new(),
+            fade_in_ms: 0,
+            fade_out_ms: 0,
+            volume_keys: Vec::new(),
+            voice: None,
         }
+    }
+
+    /// Its volume at timeline time `t` (its volume keys, straight between, or its volume).
+    pub fn volume_at(&self, t: u64) -> f32 {
+        let at = t.saturating_sub(self.start_ms);
+        let k = &self.volume_keys;
+        match (k.first(), k.last()) {
+            (None, _) | (_, None) => self.volume,
+            (Some(f), _) if at <= f.at_ms => f.volume,
+            (_, Some(l)) if at >= l.at_ms => l.volume,
+            _ => {
+                let i = k.partition_point(|f| f.at_ms <= at);
+                let (a, b) = (&k[i - 1], &k[i]);
+                let x = (at - a.at_ms) as f32 / (b.at_ms - a.at_ms).max(1) as f32;
+                a.volume + (b.volume - a.volume) * x
+            }
+        }
+    }
+
+    /// Sets its volume at `t`: a key there when it has keys, else the volume.
+    pub fn set_volume_at(&mut self, t: u64, v: f32) {
+        if self.volume_keys.is_empty() {
+            self.volume = v;
+            return;
+        }
+        let at = t.saturating_sub(self.start_ms).min(self.len_ms());
+        match self.volume_keys.iter_mut().find(|k| k.at_ms.abs_diff(at) < 40) {
+            Some(k) => k.volume = v,
+            None => {
+                self.volume_keys.push(VolumeKey { at_ms: at, volume: v });
+                self.volume_keys.sort_by_key(|k| k.at_ms);
+            }
+        }
+    }
+
+    /// How loud it is at `t`: its volume, faded in and out (0 when muted).
+    pub fn gain_at(&self, t: u64) -> f32 {
+        if self.muted {
+            return 0.0;
+        }
+        let at = t.saturating_sub(self.start_ms) as f32;
+        let left = self.end_ms().saturating_sub(t) as f32;
+        let fin = if self.fade_in_ms > 0 { (at / self.fade_in_ms as f32).min(1.0) } else { 1.0 };
+        let fout = if self.fade_out_ms > 0 { (left / self.fade_out_ms as f32).min(1.0) } else { 1.0 };
+        self.volume_at(t) * fin * fout
+    }
+
+    /// Whether the volume ever changes along the clip (keys, fades).
+    pub fn sound_shaped(&self) -> bool {
+        !self.volume_keys.is_empty() || self.fade_in_ms > 0 || self.fade_out_ms > 0
     }
 
     /// Its transform at timeline time `t` (its keyframes eased between, or its one transform).
@@ -504,6 +596,37 @@ impl Sequence {
         id
     }
 
+    /// A video clip's sound as a clip of its own on an audio track (the video clip muted). The
+    /// new clip's id; `None` for clips without sound.
+    pub fn detach_sound(&mut self, clip: Id) -> Option<Id> {
+        let (t, c) = self.find(clip)?;
+        let cl = self.tracks[t].clips[c].clone();
+        let m = self.media(cl.media)?;
+        if self.tracks[t].kind != TrackKind::Video || cl.content.is_some() || m.audio.is_empty() || cl.muted {
+            return None;
+        }
+        let at = self.free_track(TrackKind::Audio, None, cl.start_ms, cl.end_ms());
+        let sound = Clip {
+            id: Id::new(),
+            transform: Transform::default(),
+            transition: None,
+            filter: Filter::default(),
+            keyframes: Vec::new(),
+            ..cl
+        };
+        let id = sound.id;
+        self.tracks[at].clips.push(sound);
+        self.tracks[at].sort();
+        if let Some(v) = self.clip_mut(clip) {
+            v.muted = true;
+            v.volume_keys.clear();
+            v.fade_in_ms = 0;
+            v.fade_out_ms = 0;
+            v.voice = None;
+        }
+        Some(id)
+    }
+
     /// Captions: a text clip for each line (start, end, text) in `style` at `place`, on the captions track
     /// (made at the top, or emptied first). The track's index.
     pub fn set_captions(&mut self, lines: &[(u64, u64, String)], style: &TextStyle, place: Transform) -> usize {
@@ -616,6 +739,9 @@ impl Sequence {
         for k in &mut cl.keyframes {
             k.at_ms = (k.at_ms as i64 - moved).max(0) as u64;
         }
+        for k in &mut cl.volume_keys {
+            k.at_ms = (k.at_ms as i64 - moved).max(0) as u64;
+        }
     }
 
     /// Moves a clip's right edge to timeline time `at` (its out point follows), within its medium
@@ -647,11 +773,22 @@ impl Sequence {
             after.push(Keyframe { at_ms: 0, transform: here });
             after.extend(cl.keyframes.iter().filter(|k| k.at_ms > cut).map(|k| Keyframe { at_ms: k.at_ms - cut, transform: k.transform }));
         }
+        let loud = cl.volume_at(at);
+        let (mut vbefore, mut vafter) = (Vec::new(), Vec::new());
+        if !cl.volume_keys.is_empty() {
+            vbefore = cl.volume_keys.iter().filter(|k| k.at_ms < cut).copied().collect();
+            vbefore.push(VolumeKey { at_ms: cut, volume: loud });
+            vafter.push(VolumeKey { at_ms: 0, volume: loud });
+            vafter.extend(cl.volume_keys.iter().filter(|k| k.at_ms > cut).map(|k| VolumeKey { at_ms: k.at_ms - cut, volume: k.volume }));
+        }
         let first = &mut self.tracks[t].clips[c];
         first.out_ms = s;
         first.keyframes = before;
+        first.volume_keys = vbefore;
+        // a fade belongs to the end it was on
+        first.fade_out_ms = 0;
         // a transition belongs to the cut it was on: the first half's start
-        let second = Clip { id: Id::new(), start_ms: at, in_ms: s, keyframes: after, transition: None, ..cl };
+        let second = Clip { id: Id::new(), start_ms: at, in_ms: s, keyframes: after, volume_keys: vafter, transition: None, fade_in_ms: 0, ..cl };
         let id = second.id;
         self.tracks[t].clips.insert(c + 1, second);
         Some(id)

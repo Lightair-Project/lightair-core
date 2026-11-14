@@ -157,3 +157,79 @@ fn captions_hear_the_sequences_sound() {
     let again = seq.set_captions(&lines[..1], &style, place);
     assert_eq!((again, seq.tracks[again].clips.len()), (ct, 1));
 }
+
+/// The loudest sample (of the left channel) between `a` and `b` ms of 48 kHz stereo.
+fn loudest(stereo: &[f32], a: u64, b: u64) -> f32 {
+    let f = |ms: u64| ((ms * 48) as usize * 2).min(stereo.len());
+    stereo[f(a)..f(b)].iter().step_by(2).fold(0f32, |m, s| m.max(s.abs()))
+}
+
+#[test]
+fn fades_volume_keys_detached_sound_and_clean_voices() {
+    use lightair_render::sequence::{VoiceClean, VolumeKey};
+    use lightair_render::sound;
+    let dir = tempfile::tempdir().unwrap();
+    sound::set_cache(dir.path().join("cache"));
+    let Some(video) = lavfi(dir.path(), "v.mp4", "color=c=red:s=320x180:r=30:d=4") else {
+        eprintln!("FFmpeg isn't installed; skipping");
+        return;
+    };
+    // the same picture with a tone in it
+    let ff = media::ffmpeg().unwrap();
+    let toned = dir.path().join("toned.mp4");
+    assert!(Command::new(&ff)
+        .args(["-v", "error", "-y", "-i"])
+        .arg(&video)
+        .args(["-f", "lavfi", "-i", "sine=frequency=440:duration=4:sample_rate=48000", "-shortest", "-c:v", "copy", "-c:a", "aac"])
+        .arg(&toned)
+        .status()
+        .unwrap()
+        .success());
+    let mut seq = Sequence::new((640, 360), 30);
+    let m = seq.add_media(Media::from_file(&toned).unwrap());
+    let clip = seq.append(m).unwrap();
+    let full = sound::decode(&toned, 48_000, 2).unwrap();
+    let level = loudest(&full, 1_000, 3_000);
+    assert!(level > 0.05, "a tone to hear: {level}");
+
+    // its sound, detached: the video goes quiet, the new clip sounds
+    let sound_clip = seq.detach_sound(clip).unwrap();
+    assert!(seq.clip(clip).unwrap().muted);
+    let (t, _) = seq.find(sound_clip).unwrap();
+    assert_eq!(seq.tracks[t].kind, TrackKind::Audio);
+    assert!(seq.detach_sound(clip).is_none(), "only once");
+    // faded in over the first second, then down to a fifth from 2 s to 3 s
+    let c = seq.clip_mut(sound_clip).unwrap();
+    c.fade_in_ms = 1_000;
+    c.volume_keys = vec![VolumeKey { at_ms: 2_000, volume: 1.0 }, VolumeKey { at_ms: 3_000, volume: 0.2 }];
+
+    let mut child = sound::stream(&seq, 0, 48_000).unwrap().expect("it has sound");
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(child.stdout.as_mut().unwrap(), &mut bytes).unwrap();
+    child.wait().unwrap();
+    let mixed: Vec<f32> = bytes.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)).collect();
+    assert!(loudest(&mixed, 0, 100) < level * 0.2, "silent at first");
+    assert!(loudest(&mixed, 400, 500) < level * 0.6, "fading in");
+    assert!(loudest(&mixed, 1_200, 1_900) > level * 0.9, "full");
+    assert!(loudest(&mixed, 3_200, 3_800) < level * 0.3, "turned down");
+
+    // from a later point
+    let mut child = sound::stream(&seq, 1_500, 48_000).unwrap().unwrap();
+    let mut later = Vec::new();
+    std::io::Read::read_to_end(child.stdout.as_mut().unwrap(), &mut later).unwrap();
+    child.wait().unwrap();
+    assert!((later.len() as i64 / 8 - 48 * 2_500).abs() < 48 * 150, "{} frames", later.len() / 8);
+
+    // a cleaned voice is made once, as long as the original, and then mixed instead
+    seq.clip_mut(sound_clip).unwrap().voice = Some(VoiceClean::default());
+    assert_eq!(sound::voices_to_clean(&seq).len(), 1);
+    sound::prepare(&seq).unwrap();
+    assert!(sound::voices_to_clean(&seq).is_empty());
+    let (inputs, _) = sound::mix_of(&seq);
+    assert!(inputs[0].starts_with(dir.path().join("cache")), "{inputs:?}");
+    let cleaned = sound::decode(&inputs[0], 48_000, 2).unwrap();
+    assert!((cleaned.len() as i64 - full.len() as i64).abs() < 48 * 2 * 30, "{} vs {}", cleaned.len(), full.len());
+    // waveforms
+    let p = sound::peaks(&toned).unwrap();
+    assert!((p.len() as i64 - 400).abs() < 5 && p[200] > 0.05, "{}", p.len());
+}
