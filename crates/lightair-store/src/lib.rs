@@ -17,6 +17,7 @@
 
 pub mod import_obs;
 
+pub mod input_log;
 pub mod recordings;
 pub use import_obs::{EstimatedLayer, ImportError, ImportReport, import_obs_collection};
 
