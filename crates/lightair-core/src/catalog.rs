@@ -1264,6 +1264,12 @@ pub const AUDIO: &[EffectDef] = &[
         needs: Nothing,
         controls: &[
             a("amount", "Amount", 0.0, 1.0, 0.5, Unit::Percent),
+            Control::Choice {
+                key: "character",
+                label: "Character",
+                options: &[("Clear", Pick::Int(0)), ("Podcast", Pick::Int(1))],
+                default: Pick::Int(0),
+            },
             Control::Heading("Stages"),
             on("noise", "Noise suppression", true),
             on("gate", "Expander", true),

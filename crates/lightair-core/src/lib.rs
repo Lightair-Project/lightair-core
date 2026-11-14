@@ -8,6 +8,7 @@ pub mod document;
 pub mod hierarchy;
 pub mod kinds;
 pub mod model;
+pub mod screen_layouts;
 pub mod templates;
 
 pub use clipboard::{Clip, SceneAsset};

@@ -19,11 +19,13 @@ pub struct VoiceParams {
     pub eq: bool,
     pub compress: bool,
     pub limit: bool,
+    /// Podcast: warmer and denser, for narration (Screen Studio's voice preset).
+    pub podcast: bool,
 }
 
 impl Default for VoiceParams {
     fn default() -> Self {
-        Self { amount: 0.5, noise: true, gate: true, deess: true, eq: true, compress: true, limit: true }
+        Self { amount: 0.5, noise: true, gate: true, deess: true, eq: true, compress: true, limit: true, podcast: false }
     }
 }
 
@@ -56,14 +58,22 @@ impl VoiceParams {
         bands[1] = Band { on: true, kind: BandKind::Bell, freq: 300.0, gain_db: -2.0 * a, q: 1.0 };
         bands[2] = Band { on: true, kind: BandKind::Bell, freq: 3500.0, gain_db: 3.0 * a, q: 0.8 };
         bands[3] = Band { on: true, kind: BandKind::HighShelf, freq: 10_000.0, gain_db: 2.0 * a, q: 0.7 };
+        if self.podcast {
+            // close-mic warmth, less boxiness, presence without harshness
+            bands[1] = Band { on: true, kind: BandKind::Bell, freq: 350.0, gain_db: -2.5 * a, q: 1.2 };
+            bands[2] = Band { on: true, kind: BandKind::Bell, freq: 3000.0, gain_db: 2.0 * a, q: 0.9 };
+            bands[4] = Band { on: true, kind: BandKind::LowShelf, freq: 140.0, gain_db: 2.5 * a, q: 0.7 };
+        }
         EqParams { bands, output_db: 0.0 }
     }
     fn compress(&self) -> Params {
+        // a podcast voice is held steadier
+        let (t, r) = if self.podcast { (-24.0, 3.5) } else { (-20.0, 2.5) };
         Params::Compressor(CompressorParams {
-            threshold_db: -20.0 - 6.0 * self.amount,
-            ratio: 2.5 + 2.0 * self.amount,
-            attack_ms: 8.0,
-            release_ms: 120.0,
+            threshold_db: t - 6.0 * self.amount,
+            ratio: r + 2.0 * self.amount,
+            attack_ms: if self.podcast { 5.0 } else { 8.0 },
+            release_ms: if self.podcast { 90.0 } else { 120.0 },
             ..CompressorParams::default()
         })
     }
