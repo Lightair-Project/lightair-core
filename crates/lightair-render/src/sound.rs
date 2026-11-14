@@ -194,7 +194,8 @@ fn sound_files(seq: &Sequence, c: &Clip, video_track: bool) -> Vec<Source> {
 }
 
 fn sounding(seq: &Sequence) -> impl Iterator<Item = (&Clip, bool)> {
-    seq.tracks.iter().filter(|t| !t.muted).flat_map(|t| {
+    // (a video track isn't muted: its sound is on the audio tracks)
+    seq.tracks.iter().filter(|t| !t.muted || t.kind == TrackKind::Video).flat_map(|t| {
         let video = t.kind == TrackKind::Video;
         t.clips.iter().filter(|c| !c.muted && c.content.is_none() && (c.volume > 0.0 || !c.volume_keys.is_empty())).map(move |c| (c, video))
     })
