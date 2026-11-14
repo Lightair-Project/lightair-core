@@ -101,6 +101,13 @@ pub fn open_input_monitoring_settings() {
     imp::open_settings()
 }
 
+/// Asks the OS for Input Monitoring (macOS), only when the user asks for it (a button): the
+/// first time, macOS shows its own prompt; either way Lightair is then listed in the pane, off,
+/// for the user to turn on. True if it's already on. Always true on Windows.
+pub fn request_listen() -> bool {
+    imp::request_listen()
+}
+
 /// Records input until stopped (or dropped): the pointer at `hz` (moves only), shape changes,
 /// and clicks, scrolls and keys when [`can_listen`].
 pub struct Recorder {
@@ -208,6 +215,7 @@ mod imp {
         fn CGEventGetIntegerValueField(event: CGEventRef, field: u32) -> i64;
         fn CGEventGetFlags(event: CGEventRef) -> u64;
         fn CGPreflightListenEventAccess() -> bool;
+        fn CGRequestListenEventAccess() -> bool;
         fn CGEventTapCreate(
             tap: u32,
             place: u32,
@@ -264,6 +272,10 @@ mod imp {
 
     pub fn can_listen() -> bool {
         unsafe { CGPreflightListenEventAccess() }
+    }
+
+    pub fn request_listen() -> bool {
+        unsafe { CGRequestListenEventAccess() }
     }
 
     pub fn open_settings() {
@@ -445,6 +457,10 @@ mod imp {
 
     pub fn open_settings() {}
 
+    pub fn request_listen() -> bool {
+        true
+    }
+
     struct Sink {
         started: Instant,
         samples: Arc<Mutex<Vec<Sample>>>,
@@ -608,6 +624,10 @@ mod imp {
         false
     }
     pub fn open_settings() {}
+
+    pub fn request_listen() -> bool {
+        true
+    }
     pub fn listen(_: Instant, _: Arc<AtomicBool>, _: Arc<Mutex<Vec<Sample>>>) -> Option<std::thread::JoinHandle<()>> {
         None
     }
