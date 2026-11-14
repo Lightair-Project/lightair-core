@@ -128,6 +128,11 @@ pub enum Command {
         strip: MixerStrip,
         name: String,
     },
+    /// A strip's colour in the mixer (`None`: the default).
+    SetStripColor {
+        strip: MixerStrip,
+        color: Option<u32>,
+    },
     MoveTrack {
         track: Id,
         to: usize,
@@ -343,6 +348,7 @@ impl Command {
             Command::RemoveTrack { .. } => "Remove track".into(),
             Command::RenameTrack { .. } => "Rename track".into(),
             Command::RenameStrip { .. } => "Rename".into(),
+            Command::SetStripColor { .. } => "Strip colour".into(),
             Command::MoveTrack { .. } => "Reorder tracks".into(),
             Command::SetTrackVolume { .. } => "Change volume".into(),
             Command::SetTrackMuted { muted: true, .. } => "Mute".into(),
@@ -612,6 +618,16 @@ impl Command {
                     project.audio.mixes.iter_mut().find(|m| m.id == id).ok_or(CommandError::NoMix(id))?.name = name.clone()
                 }
                 MixerStrip::Master => {}
+            },
+            Command::SetStripColor { strip, color } => match *strip {
+                MixerStrip::Track(id) => track_mut(project, id)?.color = *color,
+                MixerStrip::Bus(id) => {
+                    project.audio.buses.iter_mut().find(|b| b.id == id).ok_or(CommandError::NoBus(id))?.color = *color
+                }
+                MixerStrip::Mix(id) => {
+                    project.audio.mixes.iter_mut().find(|m| m.id == id).ok_or(CommandError::NoMix(id))?.color = *color
+                }
+                MixerStrip::Master => project.audio.master.color = *color,
             },
             Command::MoveTrack { track, to } => {
                 let idx = project.track_index(*track).ok_or(CommandError::NoTrack(*track))?;

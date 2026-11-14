@@ -417,6 +417,9 @@ pub struct Track {
     /// Recorded to its own audio file in multitrack recordings.
     #[serde(default)]
     pub record: bool,
+    /// The strip's colour in the mixer (0xRRGGBB).
+    #[serde(default)]
+    pub color: Option<u32>,
 }
 
 impl Track {
@@ -438,6 +441,7 @@ impl Track {
             route: Route::Program,
             sends: Vec::new(),
             record: false,
+            color: None,
         }
     }
 }
@@ -500,6 +504,9 @@ pub struct Bus {
     /// Heard in headphones (the cue).
     #[serde(default)]
     pub cue: bool,
+    /// The strip's colour in the mixer (0xRRGGBB).
+    #[serde(default)]
+    pub color: Option<u32>,
 }
 
 impl Bus {
@@ -516,6 +523,7 @@ impl Bus {
             record: false,
             trim_db: 0.0,
             cue: false,
+            color: None,
         }
     }
 }
@@ -543,6 +551,9 @@ pub struct AudioMix {
     /// Heard in headphones (to check what it sends out).
     #[serde(default)]
     pub cue: bool,
+    /// The strip's colour in the mixer (0xRRGGBB).
+    #[serde(default)]
+    pub color: Option<u32>,
 }
 
 impl AudioMix {
@@ -557,6 +568,7 @@ impl AudioMix {
             pan: 0.0,
             trim_db: 0.0,
             cue: false,
+            color: None,
         }
     }
 }
@@ -575,11 +587,14 @@ pub struct Master {
     /// Heard in headphones: exactly what the stream carries.
     #[serde(default)]
     pub cue: bool,
+    /// The strip's colour in the mixer (0xRRGGBB).
+    #[serde(default)]
+    pub color: Option<u32>,
 }
 
 impl Default for Master {
     fn default() -> Self {
-        Self { volume_db: 0.0, muted: false, effects: Vec::new(), trim_db: 0.0, cue: false }
+        Self { volume_db: 0.0, muted: false, effects: Vec::new(), trim_db: 0.0, cue: false, color: None }
     }
 }
 
