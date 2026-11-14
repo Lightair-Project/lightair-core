@@ -38,6 +38,9 @@ pub struct Media {
     /// A take's look (its `Edit`: zooms, pointer, backdrop), kept in the workspace.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub look: Option<PathBuf>,
+    /// Its words, when it's been transcribed (source time).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcript: Option<crate::speech::Transcript>,
 }
 
 impl Media {
@@ -63,6 +66,7 @@ impl Media {
             take: None,
             item: None,
             look: None,
+            transcript: None,
         })
     }
 
@@ -82,6 +86,7 @@ impl Media {
             take: Some(folder.to_path_buf()),
             item: None,
             look: None,
+            transcript: None,
         })
     }
 }
@@ -258,6 +263,25 @@ pub struct Clip {
     /// A voice cleaned up (noise, harshness, level) before it's mixed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub voice: Option<VoiceClean>,
+    /// Its sound turned down while the other (unducked) clips sound: music under voices.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub duck: bool,
+    /// Areas of its picture hidden (pixelated): fractions of the picture (x, y, w, h).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hidden: Vec<(f32, f32, f32, f32)>,
+    /// Effects from the effect catalog ("fx.vhs", …), run in order on its picture.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<ClipEffect>,
+}
+
+/// An effect on a clip's picture: the catalog's kind and its settings (by uniform name).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClipEffect {
+    pub kind: String,
+    #[serde(default)]
+    pub settings: serde_json::Map<String, serde_json::Value>,
+    #[serde(default = "yes")]
+    pub on: bool,
 }
 
 fn is_zero(v: &u64) -> bool {
@@ -318,6 +342,9 @@ impl Clip {
             fade_out_ms: 0,
             volume_keys: Vec::new(),
             voice: None,
+            duck: false,
+            hidden: Vec::new(),
+            effects: Vec::new(),
         }
     }
 
@@ -354,16 +381,22 @@ impl Clip {
         }
     }
 
+    /// How far faded in and out it is at `t` (0..1): its picture's opacity and its sound's
+    /// level both follow it.
+    pub fn fade_at(&self, t: u64) -> f32 {
+        let at = t.saturating_sub(self.start_ms) as f32;
+        let left = self.end_ms().saturating_sub(t) as f32;
+        let fin = if self.fade_in_ms > 0 { (at / self.fade_in_ms as f32).min(1.0) } else { 1.0 };
+        let fout = if self.fade_out_ms > 0 { (left / self.fade_out_ms as f32).min(1.0) } else { 1.0 };
+        fin * fout
+    }
+
     /// How loud it is at `t`: its volume, faded in and out (0 when muted).
     pub fn gain_at(&self, t: u64) -> f32 {
         if self.muted {
             return 0.0;
         }
-        let at = t.saturating_sub(self.start_ms) as f32;
-        let left = self.end_ms().saturating_sub(t) as f32;
-        let fin = if self.fade_in_ms > 0 { (at / self.fade_in_ms as f32).min(1.0) } else { 1.0 };
-        let fout = if self.fade_out_ms > 0 { (left / self.fade_out_ms as f32).min(1.0) } else { 1.0 };
-        self.volume_at(t) * fin * fout
+        self.volume_at(t) * self.fade_at(t)
     }
 
     /// Whether the volume ever changes along the clip (keys, fades).
@@ -485,9 +518,10 @@ fn yes() -> bool {
 }
 
 impl Media {
-    /// Whether it's worth editing through a proxy: a video file larger than 1080p.
+    /// Whether it's worth editing through a proxy: a video larger than 1080p (a take's: its
+    /// screen recording).
     pub fn wants_proxy(&self) -> bool {
-        self.kind == MediaKind::Video && self.take.is_none() && (self.width > 1920 || self.height > 1080)
+        self.kind == MediaKind::Video && (self.width > 1920 || self.height > 1080)
     }
 
     /// Where its proxy is (or goes): named by the file, its size and time.
@@ -636,6 +670,41 @@ impl Sequence {
         id
     }
 
+    /// Takes `ranges` (the clip's source time) out of a clip: what's left of it stays in order
+    /// from its start, and the clips after it on its track move up to close the gaps. The
+    /// timeline time taken out.
+    pub fn cut_out(&mut self, clip: Id, ranges: &[(u64, u64)]) -> u64 {
+        let mut removed = 0;
+        // from the last range back: what's still to cut stays in the first piece, `clip`
+        for &(a, b) in ranges.iter().rev() {
+            let Some((t, _)) = self.find(clip) else { break };
+            let piece = self.tracks[t].clips.iter().find(|c| c.id == clip).cloned().expect("found");
+            let (a, b) = (a.max(piece.in_ms), b.min(piece.out_ms));
+            if b <= a {
+                continue;
+            }
+            let speed = piece.speed.max(0.05) as f64;
+            let at = |s: u64| piece.start_ms + ((s - piece.in_ms) as f64 / speed).round() as u64;
+            let (ta, tb) = (at(a), at(b).min(piece.end_ms()));
+            // split out the middle and drop it
+            let middle = if ta > piece.start_ms { self.split(clip, ta) } else { Some(clip) };
+            let Some(middle) = middle else { continue };
+            if tb < piece.end_ms() {
+                self.split(middle, tb);
+            }
+            self.remove(middle);
+            // what follows moves up
+            for c in self.tracks[t].clips.iter_mut().filter(|c| c.start_ms >= tb) {
+                c.start_ms -= tb - ta;
+            }
+            removed += tb - ta;
+            if middle == clip {
+                break;
+            }
+        }
+        removed
+    }
+
     /// A video clip's sound as a clip of its own on an audio track (the video clip muted). The
     /// new clip's id; `None` for clips without sound.
     pub fn detach_sound(&mut self, clip: Id) -> Option<Id> {
@@ -652,16 +721,17 @@ impl Sequence {
             transition: None,
             filter: Filter::default(),
             keyframes: Vec::new(),
+            hidden: Vec::new(),
+            effects: Vec::new(),
             ..cl
         };
         let id = sound.id;
         self.tracks[at].clips.push(sound);
         self.tracks[at].sort();
         if let Some(v) = self.clip_mut(clip) {
+            // its fades stay: they're its picture's too
             v.muted = true;
             v.volume_keys.clear();
-            v.fade_in_ms = 0;
-            v.fade_out_ms = 0;
             v.voice = None;
         }
         Some(id)
@@ -1006,6 +1076,7 @@ mod tests {
             take: None,
             item: None,
             look: None,
+            transcript: None,
         })
     }
 
@@ -1076,5 +1147,26 @@ mod tests {
         assert_eq!(first.transform_at(3_000).x, 200.0);
         s.trim_end(second, 9_000);
         assert_eq!(s.clip(second).unwrap().end_ms(), 9_000);
+    }
+
+    #[test]
+    fn cutting_words_out_closes_up_the_track() {
+        let mut s = Sequence::new((1920, 1080), 30);
+        let a = video(&mut s, "a", 10_000);
+        let b = video(&mut s, "b", 4_000);
+        let first = s.append(a).unwrap();
+        let next = s.append(b).unwrap();
+        // the clip starts 1 s into its medium: cut 2–3 s and 6–8 s of the medium
+        s.trim_start(first, 1_000);
+        s.move_clip(first, 0, 0);
+        let removed = s.cut_out(first, &[(2_000, 3_000), (6_000, 8_000)]);
+        assert_eq!(removed, 3_000);
+        let pieces: Vec<(u64, u64, u64)> = s.tracks[0].clips.iter().map(|c| (c.start_ms, c.in_ms, c.out_ms)).collect();
+        assert_eq!(pieces[..3], [(0, 1_000, 2_000), (1_000, 3_000, 6_000), (4_000, 8_000, 10_000)]);
+        assert_eq!(s.clip(next).unwrap().start_ms, 7_000, "the next clip moved up by what was cut");
+        // fillers and long pauses
+        let w = |a: u64, b: u64, t: &str| crate::speech::Word { start_ms: a, end_ms: b, text: t.into() };
+        let t = crate::speech::Transcript { language: "en".into(), words: vec![w(0, 400, "So"), w(400, 700, "um"), w(700, 1_000, "this"), w(4_000, 4_400, "works")] };
+        assert_eq!(crate::speech::tightening(&t, 0, 5_000, 1_000, 300), vec![(400, 700), (1_150, 3_850)]);
     }
 }

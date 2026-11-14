@@ -81,14 +81,21 @@ pub struct Stream {
     size: (u32, u32),
     fps: f64,
     dec: Option<Decoder>,
-    current: Vec<u8>,
-    /// The time of the frame in `current`.
+    /// The frames read lately, in time order (the last is the current one): scrubbing back
+    /// finds them here.
+    recent: std::collections::VecDeque<(u64, Vec<u8>)>,
+    keep: usize,
+    /// The time of the current frame.
     at: Option<u64>,
 }
 
+/// What a stream keeps of the frames it read lately.
+const RECENT_BYTES: usize = 160 << 20;
+
 impl Stream {
     pub fn new(path: &Path, size: (u32, u32), fps: f64) -> Stream {
-        Stream { path: path.to_path_buf(), size, fps, dec: None, current: Vec::new(), at: None }
+        let keep = (RECENT_BYTES / (size.0 as usize * size.1 as usize * 4).max(1)).clamp(4, 150);
+        Stream { path: path.to_path_buf(), size, fps, dec: None, recent: Default::default(), keep, at: None }
     }
 
     pub fn size(&self) -> (u32, u32) {
@@ -102,21 +109,33 @@ impl Stream {
     /// The frame at `ms` of the video.
     pub fn frame(&mut self, ms: u64) -> Option<&[u8]> {
         let frame = (1000.0 / self.fps) as u64;
+        // read lately (scrubbing back): no decoding
         let behind = self.at.is_some_and(|a| ms + frame / 2 < a);
+        if behind && let Some(i) = self.recent.iter().position(|(t, _)| *t <= ms && ms < t + frame.max(1)) {
+            return Some(self.recent[i].1.as_slice());
+        }
         let far = self.dec.as_ref().is_some_and(|d| ms > d.next_ms() + 2_000);
         if self.dec.is_none() || behind || far {
-            self.dec = Decoder::open(&self.path, ms, self.fps, self.size).ok();
+            // going back: from a second before, so the frames around land in `recent`
+            let from = if behind { ms.saturating_sub(1_000) } else { ms };
+            self.dec = Decoder::open(&self.path, from, self.fps, self.size).ok();
             self.at = None;
+            self.recent.clear();
         }
         let dec = self.dec.as_mut()?;
         while self.at.is_none() || dec.next_ms() <= ms {
             let t = dec.next_ms();
-            if !dec.next(&mut self.current) {
+            let mut f = Vec::new();
+            if !dec.next(&mut f) {
                 break;
+            }
+            self.recent.push_back((t, f));
+            if self.recent.len() > self.keep {
+                self.recent.pop_front();
             }
             self.at = Some(t);
         }
-        self.at.map(|_| self.current.as_slice())
+        self.recent.back().map(|(_, f)| f.as_slice())
     }
 }
 

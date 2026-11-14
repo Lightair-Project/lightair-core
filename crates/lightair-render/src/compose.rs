@@ -120,8 +120,17 @@ fn fs(v: V) -> @location(0) vec4<f32> {
     }
     let colour = textureSample(tex, samp, uv);
     if (mode > 2.5) {
-        // a picture layer (straight alpha), through its filter
+        // a picture layer (straight alpha): its hidden areas pixelated, through its filter
         var c = colour;
+        let dims = vec2<f32>(textureDimensions(tex));
+        for (var i = 0u; i < u32(u.mask_info.x); i++) {
+            let m = u.masks[i];
+            if (uv.x >= m.x && uv.y >= m.y && uv.x <= m.x + m.z && uv.y <= m.y + m.w) {
+                let cell = vec2(u.mask_info.y, u.mask_info.y) / dims;
+                uv = (floor(uv / cell) + vec2(0.5, 0.5)) * cell;
+                c = textureSampleLevel(tex, samp, uv, 0.0);
+            }
+        }
         let blur = u.c1.y;
         if (blur > 0.0) {
             var sum = c;
@@ -202,6 +211,11 @@ pub struct Layer<'a> {
     /// Made pictures (text, shapes) come premultiplied, and take no filter.
     pub premultiplied: bool,
     pub filter: crate::sequence::Filter,
+    /// Hidden areas: pixelated (fractions of the picture: x, y, w, h; at most 4).
+    pub masks: &'a [(f32, f32, f32, f32)],
+    /// The catalog's effects on it, and the clip's own time (seconds) for those that move.
+    pub effects: &'a [crate::sequence::ClipEffect],
+    pub time: f32,
 }
 
 /// Which texture a draw samples.
@@ -210,6 +224,8 @@ enum Tex {
     Screen,
     Sprite(Sprite),
     Slot(usize),
+    /// A slot's picture through its effects.
+    Fx(usize),
 }
 
 pub struct Compositor {
@@ -227,6 +243,15 @@ pub struct Compositor {
     sprites: HashMap<Sprite, (wgpu::Texture, (f32, f32))>,
     /// Picture layers' textures, by position in the frame.
     slots: Vec<(wgpu::Texture, (u32, u32))>,
+    /// Clip effects, made when first used, and each slot's picture through its effects.
+    fx: Option<crate::fx::Fx>,
+    fx_out: Vec<Option<wgpu::Texture>>,
+    /// macOS: frames drawn into an IOSurface for the window (no read back).
+    #[cfg(target_os = "macos")]
+    surface: Option<crate::surface::Target>,
+    /// Its frames are BGRA (an IOSurface can be drawn into).
+    #[cfg(target_os = "macos")]
+    bgra: bool,
 }
 
 fn rgb(c: u32) -> [f32; 4] {
@@ -364,6 +389,12 @@ impl Compositor {
             screen: None,
             sprites: HashMap::new(),
             slots: Vec::new(),
+            fx: None,
+            fx_out: Vec::new(),
+            #[cfg(target_os = "macos")]
+            surface: None,
+            #[cfg(target_os = "macos")]
+            bgra,
         };
         let pointer = rgb(0x0090FF);
         let col = [pointer[0], pointer[1], pointer[2]];
@@ -508,6 +539,17 @@ impl Compositor {
                 }
             }
         }
+        // effects, on the GPU, before they're drawn
+        self.fx_out.clear();
+        for (i, l) in layers.iter().enumerate() {
+            let out = if l.effects.iter().any(|e| e.on) {
+                let fx = self.fx.get_or_insert_with(|| crate::fx::Fx::new(&self.device, &self.queue));
+                fx.run(&self.slots[i].0, l.size, l.effects, l.time)
+            } else {
+                None
+            };
+            self.fx_out.push(out);
+        }
         let draws = layers
             .iter()
             .enumerate()
@@ -522,14 +564,43 @@ impl Compositor {
                 let f = l.filter;
                 u[20..24].copy_from_slice(&[f.brightness, f.contrast, f.saturation, f.temperature]);
                 u[24..28].copy_from_slice(&[f.vignette, f.blur, 0.0, 0.0]);
-                (u, Tex::Slot(i))
+                let masks: Vec<_> = l.masks.iter().take(4).collect();
+                u[40..44].copy_from_slice(&[masks.len() as f32, (l.size.0 as f32 / 40.0).max(4.0), 0.0, 0.0]);
+                for (k, m) in masks.iter().enumerate() {
+                    u[44 + k * 4..48 + k * 4].copy_from_slice(&[m.0, m.1, m.2, m.3]);
+                }
+                (u, if self.fx_out[i].is_some() { Tex::Fx(i) } else { Tex::Slot(i) })
             })
             .collect();
         self.draw(draws)
     }
 
-    /// Draws, then reads the frame back: RGBA, top row first.
+    /// macOS: frames go into an IOSurface from now on (see [`Compositor::surface_frame`]), not
+    /// read back; for a BGRA compositor. False if it couldn't be made.
+    #[cfg(target_os = "macos")]
+    pub fn attach_surface(&mut self) -> bool {
+        if !self.bgra {
+            return false;
+        }
+        self.surface = crate::surface::Target::new(&self.device, self.size);
+        self.surface.is_some()
+    }
+
+    /// macOS: the last frame drawn into the IOSurface, ready for the window.
+    #[cfg(target_os = "macos")]
+    pub fn surface_frame(&self) -> Option<crate::surface::Frame> {
+        self.surface.as_ref()?.frame()
+    }
+
+    /// Draws, then reads the frame back: RGBA (BGRA for a BGRA compositor), top row first;
+    /// nothing when it draws into an IOSurface.
     fn draw(&mut self, draws: Vec<([f32; 60], Tex)>) -> Vec<u8> {
+        #[cfg(target_os = "macos")]
+        let view = match &self.surface {
+            Some(s) => s.texture.create_view(&Default::default()),
+            None => self.target.create_view(&Default::default()),
+        };
+        #[cfg(not(target_os = "macos"))]
         let view = self.target.create_view(&Default::default());
         let mut encoder = self.device.create_command_encoder(&Default::default());
         let groups: Vec<wgpu::BindGroup> = draws
@@ -547,6 +618,7 @@ impl Compositor {
                     Tex::Sprite(s) => &self.sprites[s].0,
                     Tex::Screen => self.screen.as_ref().map_or(&self.blank, |(t, _)| t),
                     Tex::Slot(i) => self.slots.get(*i).map_or(&self.blank, |(t, _)| t),
+                    Tex::Fx(i) => self.fx_out.get(*i).and_then(Option::as_ref).unwrap_or(&self.blank),
                     Tex::Blank => &self.blank,
                 };
                 let tv = tex.create_view(&Default::default());
@@ -580,6 +652,13 @@ impl Compositor {
                 pass.set_bind_group(0, g, &[]);
                 pass.draw(0..6, 0..1);
             }
+        }
+        #[cfg(target_os = "macos")]
+        if self.surface.is_some() {
+            // the IOSurface is complete once the GPU is done
+            self.queue.submit([encoder.finish()]);
+            let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+            return Vec::new();
         }
         let row = padded_row(self.size.0);
         encoder.copy_texture_to_buffer(

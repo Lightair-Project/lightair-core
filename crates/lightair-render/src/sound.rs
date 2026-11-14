@@ -206,6 +206,8 @@ fn volume_expr(c: &Clip) -> String {
 pub fn mix_of(seq: &Sequence) -> (Vec<PathBuf>, Option<String>) {
     let mut inputs: Vec<PathBuf> = Vec::new();
     let mut parts = Vec::new();
+    // which parts are turned down under the others
+    let mut ducked: Vec<bool> = Vec::new();
     for (c, video) in sounding(seq) {
         for f in sound_files(seq, c, video) {
             inputs.push(f);
@@ -229,13 +231,29 @@ pub fn mix_of(seq: &Sequence) -> (Vec<PathBuf>, Option<String>) {
                 c.start_ms,
                 parts.len()
             ));
+            ducked.push(c.duck);
         }
     }
     if parts.is_empty() {
         return (inputs, None);
     }
-    let labels: String = (0..parts.len()).map(|k| format!("[s{k}]")).collect();
-    let f = format!("{};{labels}amix=inputs={}:normalize=0:dropout_transition=0[aout]", parts.join(";"), parts.len());
+    let labels = |pick: &dyn Fn(bool) -> bool| -> (String, usize) {
+        let l: Vec<String> = (0..parts.len()).filter(|k| pick(ducked[*k])).map(|k| format!("[s{k}]")).collect();
+        (l.concat(), l.len())
+    };
+    let (voices, nv) = labels(&|d| !d);
+    let (music, nm) = labels(&|d| d);
+    let f = if nv == 0 || nm == 0 {
+        let (all, n) = labels(&|_| true);
+        format!("{};{all}amix=inputs={n}:normalize=0:dropout_transition=0[aout]", parts.join(";"))
+    } else {
+        // the music pressed down by the voices (their sound as the key, padded so the music
+        // carries on after them)
+        format!(
+            "{};{voices}amix=inputs={nv}:normalize=0:dropout_transition=0,asplit=2[vmix][vkey];[vkey]apad[vk];{music}amix=inputs={nm}:normalize=0:dropout_transition=0[music];[music][vk]sidechaincompress=threshold=0.02:ratio=8:attack=20:release=400[ducked];[vmix][ducked]amix=inputs=2:normalize=0:dropout_transition=0[aout]",
+            parts.join(";")
+        )
+    };
     (inputs, Some(f))
 }
 

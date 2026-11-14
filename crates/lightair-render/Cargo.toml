@@ -21,3 +21,15 @@ tiny-skia = "0.11"
 
 [dev-dependencies]
 tempfile = "3"
+
+# The Editor's player on macOS: frames drawn into IOSurfaces the window shows as they are.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.3"
+objc2-metal = { version = "0.3.2", default-features = false, features = ["std", "MTLDevice", "MTLTexture", "MTLPixelFormat", "MTLResource", "MTLTypes", "objc2-io-surface"] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFBase", "CFDictionary", "CFNumber", "CFString"] }
+objc2-core-video = { version = "0.3.2", default-features = false, features = ["std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVPixelBufferIOSurface", "CVPixelBufferPool", "CVReturn", "objc2-io-surface"] }
+objc2-io-surface = { version = "0.3", default-features = false, features = ["std", "IOSurfaceRef", "IOSurfaceTypes", "objc2-core-foundation"] }
+objc2-video-toolbox = { version = "0.3.2", default-features = false, features = ["std", "VTPixelTransferSession", "VTPixelTransferProperties", "VTSession", "objc2-core-video"] }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2-core-video = { version = "0.3.2", default-features = false, features = ["std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn"] }

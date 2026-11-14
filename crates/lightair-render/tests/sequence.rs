@@ -285,3 +285,70 @@ fn proxies_and_filmstrips() {
     assert!((5..=7).contains(&frames.len()), "{}", frames.len());
     assert_eq!(frames[0].len(), 142 * 80 * 4);
 }
+
+#[test]
+fn music_ducks_under_voices() {
+    use lightair_render::sound;
+    let dir = tempfile::tempdir().unwrap();
+    let Ok(ff) = media::ffmpeg() else {
+        eprintln!("FFmpeg isn't installed; skipping");
+        return;
+    };
+    let tone = |name: &str, f: u32, d: u32| {
+        let p = dir.path().join(name);
+        assert!(Command::new(&ff).args(["-v", "error", "-y", "-f", "lavfi", "-i", &format!("sine=frequency={f}:duration={d}:sample_rate=48000")]).arg(&p).status().unwrap().success());
+        p
+    };
+    let (voice, music) = (tone("voice.wav", 300, 2), tone("music.wav", 800, 6));
+    let mut seq = Sequence::new((640, 360), 30);
+    let v = seq.add_media(Media::from_file(&voice).unwrap());
+    let m = seq.add_media(Media::from_file(&music).unwrap());
+    seq.place(v, 2_000, None).unwrap();
+    let bed = seq.place(m, 0, None).unwrap();
+    let level = |seq: &Sequence, a: u64, b: u64| {
+        let mut child = sound::stream(seq, 0, 48_000).unwrap().unwrap();
+        let mut bytes = Vec::new();
+        std::io::Read::read_to_end(child.stdout.as_mut().unwrap(), &mut bytes).unwrap();
+        child.wait().unwrap();
+        let s: Vec<f32> = bytes.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)).collect();
+        assert!((s.len() as i64 / 2 - 48 * 6_000).abs() < 48 * 100, "the music carries on to its end: {} frames", s.len() / 2);
+        // the music's own frequency, by its energy against the voice: a band-pass by ear is too
+        // much here, so its loudness while it's alone and while the voice sounds is compared
+        let f = |ms: u64| (ms * 48) as usize * 2;
+        (s[f(a)..f(b)].iter().step_by(2).map(|x| x * x).sum::<f32>() / ((b - a) * 48) as f32).sqrt()
+    };
+    let alone = level(&seq, 500, 1_500);
+    seq.clip_mut(bed).unwrap().duck = true;
+    let ducked_alone = level(&seq, 500, 1_500);
+    assert!((ducked_alone - alone).abs() < alone * 0.1, "not ducked while nobody speaks: {alone} vs {ducked_alone}");
+    // after the voice: the music alone again, back to full
+    let after = level(&seq, 5_000, 5_800);
+    assert!(after > alone * 0.8, "back up after the voice: {after} vs {alone}");
+    // while the voice sounds: the sum is quieter than voice + full music
+    let mut plain = seq.clone();
+    plain.clip_mut(bed).unwrap().duck = false;
+    let (with, without) = (level(&seq, 2_500, 3_500), level(&plain, 2_500, 3_500));
+    assert!(with < without * 0.85, "the music turned down under the voice: {with} vs {without}");
+}
+
+#[test]
+fn scrubbing_back_reads_frames_already_decoded() {
+    let dir = tempfile::tempdir().unwrap();
+    let Some(src) = lavfi(dir.path(), "count.mp4", "testsrc2=s=320x180:r=30:d=4") else {
+        eprintln!("FFmpeg isn't installed; skipping");
+        return;
+    };
+    let fresh = |ms: u64| media::Stream::new(&src, (320, 180), 30.0).frame(ms).unwrap().to_vec();
+    let mut s = media::Stream::new(&src, (320, 180), 30.0);
+    s.frame(3_000).unwrap();
+    // back a little at a time, as a scrub goes: the same pictures as read afresh
+    for ms in [2_900, 2_500, 2_200, 2_100] {
+        let f = s.frame(ms).unwrap().to_vec();
+        assert!(f == fresh(ms), "the frame at {ms} ms");
+    }
+    let start = std::time::Instant::now();
+    for k in 0..20 {
+        s.frame(2_100 - k * 10).unwrap();
+    }
+    assert!(start.elapsed() < std::time::Duration::from_millis(400), "from what was read: {:?}", start.elapsed());
+}

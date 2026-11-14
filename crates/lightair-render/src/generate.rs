@@ -50,9 +50,12 @@ fn rounded(x: f32, y: f32, w: f32, h: f32, r: f32) -> Option<tiny_skia::Path> {
     p.finish()
 }
 
-/// Lays text out; draws its glyph coverage through `each(x, y, alpha)` (pixels from the text's
-/// own top-left) and returns its size.
-fn layout(style: &TextStyle, mut each: impl FnMut(i32, i32, u8)) -> (f32, f32) {
+/// The colour plain glyphs are drawn in (a mark: colour glyphs, emoji, come in their own).
+const PLAIN: (u8, u8, u8) = (1, 2, 3);
+
+/// Lays text out; draws its glyph coverage through `each(x, y, alpha, colour)` (pixels from the
+/// text's own top-left; the colour of colour glyphs, emoji) and returns its size.
+fn layout(style: &TextStyle, mut each: impl FnMut(i32, i32, u8, Option<u32>)) -> (f32, f32) {
     let mut guard = FONTS.lock().unwrap();
     let fonts = guard.get_or_insert_with(|| Fonts { system: FontSystem::new(), cache: SwashCache::new() });
     let metrics = Metrics::new(style.size.max(4.0), style.size.max(4.0) * 1.2);
@@ -79,10 +82,11 @@ fn layout(style: &TextStyle, mut each: impl FnMut(i32, i32, u8)) -> (f32, f32) {
         return (0.0, 0.0);
     }
     let dx = left.floor() as i32;
-    buf.draw(&mut fonts.system, &mut fonts.cache, Color::rgb(255, 255, 255), |x, y, w, h, c| {
+    buf.draw(&mut fonts.system, &mut fonts.cache, Color::rgb(PLAIN.0, PLAIN.1, PLAIN.2), |x, y, w, h, c| {
+        let own = ((c.r(), c.g(), c.b()) != PLAIN).then(|| ((c.r() as u32) << 16) | ((c.g() as u32) << 8) | c.b() as u32);
         for yy in y..y + h as i32 {
             for xx in x..x + w as i32 {
-                each(xx - dx, yy, c.a());
+                each(xx - dx, yy, c.a(), own);
             }
         }
     });
@@ -91,10 +95,10 @@ fn layout(style: &TextStyle, mut each: impl FnMut(i32, i32, u8)) -> (f32, f32) {
 
 /// Text as a picture: its words, an outline and a box behind them if the style asks.
 pub fn text(style: &TextStyle) -> Raster {
-    let mut cover: Vec<(i32, i32, u8)> = Vec::new();
-    let (w, h) = layout(style, |x, y, a| {
+    let mut cover: Vec<(i32, i32, u8, Option<u32>)> = Vec::new();
+    let (w, h) = layout(style, |x, y, a, own| {
         if a > 0 {
-            cover.push((x, y, a));
+            cover.push((x, y, a, own));
         }
     });
     let pad = if style.background.is_some() { style.size * 0.35 } else { style.size * 0.12 };
@@ -122,14 +126,14 @@ pub fn text(style: &TextStyle) -> Raster {
     };
     if let Some(o) = style.outline {
         let r = (style.size * 0.06).max(1.5) as i32;
-        for (x, y, a) in &cover {
+        for (x, y, a, _) in &cover {
             for (dx, dy) in [(-r, 0), (r, 0), (0, -r), (0, r), (-r, -r), (r, r), (-r, r), (r, -r)] {
                 put(x + off + dx, y + off + dy, o, *a);
             }
         }
     }
-    for (x, y, a) in &cover {
-        put(x + off, y + off, style.color, *a);
+    for (x, y, a, own) in &cover {
+        put(x + off, y + off, own.unwrap_or(style.color), *a);
     }
     Raster { rgba: pm.data().to_vec(), size: (cw, ch) }
 }
@@ -216,5 +220,18 @@ mod tests {
         let at = |x: u32, y: u32| r.rgba[((y * r.size.0 + x) * 4) as usize..][..4].to_vec();
         assert_eq!(at(50, 25), vec![255, 0, 0, 255], "the middle is filled");
         assert_eq!(at(1, 1)[3], 0, "the corner isn't");
+    }
+}
+
+/// Emoji come in their own colours (the system's colour emoji font).
+#[cfg(all(test, target_os = "macos"))]
+mod emoji {
+    #[test]
+    fn emoji_keep_their_colours() {
+        let mut s = crate::sequence::TextStyle::title("😀🎉");
+        s.size = 120.0;
+        let r = super::text(&s);
+        let coloured = r.rgba.chunks(4).filter(|p| p[3] > 200 && (p[0] as i32 - p[2] as i32).abs() > 60).count();
+        assert!(coloured > 2_000, "{coloured} coloured pixels");
     }
 }

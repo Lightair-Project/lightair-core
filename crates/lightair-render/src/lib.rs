@@ -13,6 +13,7 @@
 pub mod compose;
 pub mod edit;
 pub mod export;
+pub mod fx;
 pub mod generate;
 pub mod sound;
 pub mod media;
@@ -20,6 +21,8 @@ pub mod pointer;
 pub mod seqrender;
 pub mod sequence;
 pub mod shapes;
+#[cfg(target_os = "macos")]
+pub mod surface;
 pub mod speech;
 pub mod timeline;
 pub mod zoom;

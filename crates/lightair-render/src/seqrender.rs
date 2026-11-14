@@ -23,6 +23,19 @@ struct Pic {
     opacity: f32,
     premultiplied: bool,
     filter: crate::sequence::Filter,
+    masks: Vec<(f32, f32, f32, f32)>,
+    effects: Vec<crate::sequence::ClipEffect>,
+    time: f32,
+}
+
+/// Where a clip's picture landed in the last frame (result pixels; back to front).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Placed {
+    pub clip: Id,
+    pub center: (f32, f32),
+    pub size: (f32, f32),
+    /// Degrees.
+    pub rotation: f32,
 }
 
 pub struct SequenceRenderer {
@@ -34,7 +47,7 @@ pub struct SequenceRenderer {
     /// Stills, by medium: RGBA and size.
     stills: HashMap<Id, (Vec<u8>, (u32, u32))>,
     /// Takes, by medium: drawn with their screen recording look at the sequence's size.
-    takes: HashMap<Id, Renderer>,
+    takes: HashMap<Id, (Renderer, Option<PathBuf>)>,
     /// Text and shapes, made once per content.
     made: crate::generate::Cache,
     /// The most a preview's frames are (`None`: the sequence's size), and the size they are.
@@ -42,6 +55,16 @@ pub struct SequenceRenderer {
     out: (u32, u32),
     /// Proxies found, by medium (looked for again when the sequence is set).
     proxies: HashMap<Id, Option<PathBuf>>,
+    placed: Vec<Placed>,
+    /// Previews drawn into IOSurfaces for the window (macOS), not read back.
+    zero_copy: bool,
+}
+
+/// A frame for the player: its pixels (BGRA in a preview), or (macOS) an IOSurface picture.
+pub enum Shown {
+    Pixels(Vec<u8>),
+    #[cfg(target_os = "macos")]
+    Surface(crate::surface::Frame),
 }
 
 /// The size frames are made at: the sequence's, or fitted inside `preview` (never larger).
@@ -79,6 +102,8 @@ impl SequenceRenderer {
             preview,
             out,
             proxies: HashMap::new(),
+            placed: Vec::new(),
+            zero_copy: false,
         })
     }
 
@@ -96,6 +121,51 @@ impl SequenceRenderer {
             self.out = out;
             self.takes.clear();
             self.streams.clear();
+            self.attach();
+        }
+    }
+
+    /// macOS: previews drawn into IOSurfaces the window shows as they are (see
+    /// [`SequenceRenderer::shown`]). Elsewhere it does nothing.
+    pub fn set_zero_copy(&mut self, on: bool) {
+        self.zero_copy = on;
+        self.attach();
+    }
+
+    fn attach(&mut self) {
+        #[cfg(target_os = "macos")]
+        if self.zero_copy && self.preview.is_some() {
+            self.compositor.attach_surface();
+        }
+    }
+
+    /// The frame at `t` for the player.
+    pub fn shown(&mut self, t: u64) -> Shown {
+        let pixels = self.frame(t);
+        #[cfg(target_os = "macos")]
+        if pixels.is_empty()
+            && let Some(f) = self.compositor.surface_frame()
+        {
+            return Shown::Surface(f);
+        }
+        Shown::Pixels(pixels)
+    }
+
+    /// Frames for the player from `from` to the end (see [`SequenceRenderer::play`]).
+    pub fn play_shown(&mut self, from: u64, mut each: impl FnMut(u64, Shown) -> bool) {
+        let end = self.seq.duration_ms();
+        let step = 1000.0 / self.fps;
+        let mut i = (from as f64 / step).ceil() as u64;
+        loop {
+            let t = (i as f64 * step) as u64;
+            if t >= end {
+                break;
+            }
+            let f = self.shown(t);
+            if !each(t, f) {
+                break;
+            }
+            i += 1;
         }
     }
 
@@ -116,6 +186,7 @@ impl SequenceRenderer {
             self.compositor = Compositor::new_with(out, Look::default(), self.preview.is_some()).map_err(MediaError::Failed)?;
             self.out = out;
             self.takes.clear();
+            self.attach();
         }
         self.fps = seq.fps.max(1) as f64;
         self.seq = seq.clone();
@@ -160,16 +231,22 @@ impl SequenceRenderer {
         let media = self.seq.media(clip.media)?.clone();
         let s = clip.source_held(t);
         if let Some(folder) = &media.take {
-            if !self.takes.contains_key(&media.id) {
+            // a preview reads the screen's proxy when there is one
+            let proxy = if self.preview.is_some() && self.seq.proxies { self.proxies.entry(media.id).or_insert_with(|| media.proxy()).clone() } else { None };
+            if self.takes.get(&media.id).is_none_or(|(_, used)| *used != proxy) {
+                let mut source = Source::of_take(folder)?;
+                if let Some(p) = &proxy {
+                    source.video = p.clone();
+                }
                 let look = media.look.clone().unwrap_or_else(|| folder.join("edit.json"));
                 let mut edit = Edit::load(&look).unwrap_or_else(|_| Edit::new(media.duration_ms.max(1)));
                 edit.size = self.out;
                 edit.clips = Edit::new(media.duration_ms.max(1)).clips;
-                let r = Renderer::new(Source::of_take(folder)?, &edit).ok()?;
-                self.takes.insert(media.id, r);
+                let r = Renderer::new(source, &edit).ok()?;
+                self.takes.insert(media.id, (r, proxy));
             }
             let fps = self.fps;
-            let frame = self.takes.get_mut(&media.id)?.source_frame(s, fps)?;
+            let frame = self.takes.get_mut(&media.id)?.0.source_frame(s, fps)?;
             return Some((frame, self.out, false));
         }
         if media.kind == MediaKind::Image {
@@ -203,20 +280,31 @@ impl SequenceRenderer {
         let (center, draw) = self.placement(clip, media.as_ref(), made, t);
         let tr = clip.transform_at(t);
         let k = self.k();
+        self.placed.push(Placed { clip: clip.id, center: (center.0 + dx, center.1), size: (draw.0 * grow, draw.1 * grow), rotation: tr.rotation });
         out.push(Pic {
             rgba,
             size,
             center: ((center.0 + dx) * k, center.1 * k),
             draw: (draw.0 * grow * k, draw.1 * grow * k),
             rotation: tr.rotation,
-            opacity: tr.opacity * opacity,
+            // faded in and out, with its sound
+            opacity: tr.opacity * opacity * clip.fade_at(t),
             premultiplied,
             filter: clip.filter,
+            masks: clip.hidden.clone(),
+            effects: clip.effects.clone(),
+            time: t.saturating_sub(clip.start_ms) as f32 / 1000.0,
         });
     }
 
     /// The frame at timeline time `t`: RGBA at the sequence's size.
+    /// Where each clip's picture landed in the last frame.
+    pub fn placed(&self) -> &[Placed] {
+        &self.placed
+    }
+
     pub fn frame(&mut self, t: u64) -> Vec<u8> {
+        self.placed.clear();
         let w = self.seq.size.0 as f32;
         let tracks: Vec<Vec<Clip>> = self
             .seq
@@ -281,6 +369,9 @@ impl SequenceRenderer {
                 opacity: p.opacity,
                 premultiplied: p.premultiplied,
                 filter: p.filter,
+                masks: &p.masks,
+                effects: &p.effects,
+                time: p.time,
             })
             .collect();
         self.compositor.layers(&layers)
@@ -315,6 +406,7 @@ impl SequenceRenderer {
         let total = self.seq.duration_ms().max(1);
         // voices to clean up, first
         crate::sound::prepare(&self.seq)?;
+        self.zero_copy = false;
         self.set_preview(None);
         let (inputs, mix) = self.mix();
         let mut enc = Encoder::start_with(out, self.seq.size, self.fps, codec, &inputs, &[], None, mix.as_deref())?;
