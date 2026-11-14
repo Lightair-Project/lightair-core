@@ -123,6 +123,11 @@ pub enum Command {
         track: Id,
         name: String,
     },
+    /// Renames a track, bus or mix (Program keeps its name).
+    RenameStrip {
+        strip: MixerStrip,
+        name: String,
+    },
     MoveTrack {
         track: Id,
         to: usize,
@@ -337,6 +342,7 @@ impl Command {
             Command::AddTrack { .. } => "Add track".into(),
             Command::RemoveTrack { .. } => "Remove track".into(),
             Command::RenameTrack { .. } => "Rename track".into(),
+            Command::RenameStrip { .. } => "Rename".into(),
             Command::MoveTrack { .. } => "Reorder tracks".into(),
             Command::SetTrackVolume { .. } => "Change volume".into(),
             Command::SetTrackMuted { muted: true, .. } => "Mute".into(),
@@ -597,6 +603,16 @@ impl Command {
                 project.tracks.remove(idx);
             }
             Command::RenameTrack { track, name } => track_mut(project, *track)?.name = name.clone(),
+            Command::RenameStrip { strip, name } => match *strip {
+                MixerStrip::Track(id) => track_mut(project, id)?.name = name.clone(),
+                MixerStrip::Bus(id) => {
+                    project.audio.buses.iter_mut().find(|b| b.id == id).ok_or(CommandError::NoBus(id))?.name = name.clone()
+                }
+                MixerStrip::Mix(id) => {
+                    project.audio.mixes.iter_mut().find(|m| m.id == id).ok_or(CommandError::NoMix(id))?.name = name.clone()
+                }
+                MixerStrip::Master => {}
+            },
             Command::MoveTrack { track, to } => {
                 let idx = project.track_index(*track).ok_or(CommandError::NoTrack(*track))?;
                 let t = project.tracks.remove(idx);

@@ -105,3 +105,22 @@ fn effects_on_buses_mixes_and_the_master() {
     doc.apply(&Command::RemoveStripEffect { strip: MixerStrip::Master, effect: first }).unwrap();
     assert!(doc.project().audio.master.effects.is_empty());
 }
+
+#[test]
+fn strips_rename() {
+    use lightair_core::MixerStrip;
+    let (mut doc, tid) = project();
+    let (bus, mix) = (Bus::new("Bus 1"), AudioMix::new("Mix 1"));
+    let (bid, mid) = (bus.id, mix.id);
+    doc.apply(&Command::AddBus { bus, index: None }).unwrap();
+    doc.apply(&Command::AddMix { mix }).unwrap();
+    for (strip, name) in [(MixerStrip::Track(tid), "Host"), (MixerStrip::Bus(bid), "Guests"), (MixerStrip::Mix(mid), "Headphones")] {
+        doc.apply(&Command::RenameStrip { strip, name: name.into() }).unwrap();
+    }
+    let p = doc.project();
+    assert_eq!(p.track(tid).unwrap().name, "Host");
+    assert_eq!(p.audio.bus(bid).unwrap().name, "Guests");
+    assert_eq!(p.audio.mix(mid).unwrap().name, "Headphones");
+    assert!(doc.undo().is_some());
+    assert_eq!(doc.project().audio.mix(mid).unwrap().name, "Mix 1", "one undo step each");
+}
