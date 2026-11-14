@@ -558,3 +558,35 @@ fn a_clips_waveform_is_what_it_plays() {
         assert!((at(&pmix, s) - at(&both, s)).abs() < 0.03, "at {s} s: {} vs {}", at(&pmix, s), at(&both, s));
     }
 }
+
+#[test]
+fn a_takes_zooms_from_the_zoom_track_show() {
+    use lightair_render::edit::{Focus, Zoom};
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("Take.lightair-take");
+    std::fs::create_dir_all(&folder).unwrap();
+    let Some(_) = lavfi(&folder, "screen.mp4", "testsrc2=size=640x360:rate=30:duration=3") else {
+        eprintln!("FFmpeg isn't installed; skipping");
+        return;
+    };
+    std::fs::write(folder.join("take.json"), r#"{"duration_ms":3000,"video":[{"name":"Screen","file":"screen.mp4"}],"audio":[]}"#).unwrap();
+    let mut m = Media::take_parts(&folder).into_iter().next().expect("the screen");
+    m.zooms = Some(Vec::new());
+    let mut seq = Sequence::new((640, 360), 30);
+    let id = seq.add_media(m);
+    seq.place(id, 0, None).unwrap();
+    let mut r = SequenceRenderer::new(&seq).unwrap();
+    let flat = r.frame(2_500);
+    // a zoom added on the zoom track: the same moment, magnified
+    seq.media[0].zooms = Some(vec![Zoom { start_ms: 0, end_ms: 3_000, scale: 3.0, focus: Focus::Point { x: 0.5, y: 0.5 }, auto: false }]);
+    r.set(&seq).unwrap();
+    let zoomed = r.frame(2_500);
+    let differ = flat.chunks(4).zip(zoomed.chunks(4)).filter(|(a, b)| a[..3].iter().zip(&b[..3]).any(|(x, y)| x.abs_diff(*y) > 30)).count();
+    assert!(differ > flat.len() / 4 / 3, "the picture changed: {differ} pixels");
+    // and taken away again
+    seq.media[0].zooms = Some(Vec::new());
+    r.set(&seq).unwrap();
+    let back = r.frame(2_500);
+    let differ = flat.chunks(4).zip(back.chunks(4)).filter(|(a, b)| a[..3].iter().zip(&b[..3]).any(|(x, y)| x.abs_diff(*y) > 30)).count();
+    assert!(differ < flat.len() / 4 / 50, "as it was: {differ} pixels");
+}

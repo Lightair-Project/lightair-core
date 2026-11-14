@@ -214,6 +214,17 @@ impl SequenceRenderer {
             self.attach();
         }
         self.fps = seq.fps.max(1) as f64;
+        // a take whose zooms changed: its camera made again
+        for m in &seq.media {
+            if self.seq.media(m.id).is_some_and(|old| old.zooms != m.zooms) {
+                match (&m.zooms, self.takes.get_mut(&m.id)) {
+                    (Some(z), Some((r, _))) => r.set_zooms(z),
+                    _ => {
+                        self.takes.remove(&m.id);
+                    }
+                }
+            }
+        }
         self.seq = seq.clone();
         self.proxies.clear();
         let alive: Vec<Id> = seq.tracks.iter().flat_map(|t| t.clips.iter().map(|c| c.id)).collect();
@@ -267,6 +278,10 @@ impl SequenceRenderer {
                 let mut edit = Edit::load(&look).unwrap_or_else(|_| Edit::new(media.duration_ms.max(1)));
                 edit.size = self.out;
                 edit.clips = Edit::new(media.duration_ms.max(1)).clips;
+                // the zooms as edited on the zoom track
+                if let Some(z) = &media.zooms {
+                    edit.zooms = z.clone();
+                }
                 let r = Renderer::new(source, &edit).ok()?;
                 self.takes.insert(media.id, (r, proxy));
             }

@@ -44,6 +44,9 @@ pub struct Media {
     /// The names of its audio tracks, when the file has several.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tracks: Vec<String>,
+    /// A take's zooms (source time), as edited on the zoom track; `None`: its look's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zooms: Option<Vec<crate::edit::Zoom>>,
 }
 
 impl Media {
@@ -71,6 +74,7 @@ impl Media {
             look: None,
             transcript: None,
             tracks: if c.audio { Some(crate::media::audio_tracks(path)).filter(|t| t.len() > 1).unwrap_or_default() } else { Vec::new() },
+            zooms: None,
         })
     }
 
@@ -204,6 +208,7 @@ impl Media {
             look: None,
             transcript: None,
             tracks: Vec::new(),
+            zooms: None,
         })
     }
 }
@@ -1489,6 +1494,7 @@ mod tests {
             look: None,
             transcript: None,
             tracks: Vec::new(),
+            zooms: None,
         })
     }
 

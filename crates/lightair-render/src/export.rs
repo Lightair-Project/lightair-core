@@ -90,6 +90,12 @@ impl Renderer {
         Ok(())
     }
 
+    /// Takes changed zooms (only the camera is made again).
+    pub fn set_zooms(&mut self, zooms: &[crate::edit::Zoom]) {
+        self.edit.zooms = zooms.to_vec();
+        self.camera = Self::camera_of(&self.edit, &self.probe, self.pointer.as_ref());
+    }
+
     pub fn duration_ms(&self) -> u64 {
         timeline::duration_ms(&self.edit)
     }
