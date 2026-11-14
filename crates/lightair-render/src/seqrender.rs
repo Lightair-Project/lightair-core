@@ -30,6 +30,29 @@ struct Pic {
     uv: (f32, f32, f32, f32),
 }
 
+/// How a transition draws one of its two clips: faded, moved (frame widths and heights),
+/// grown, turned, blurred, and shown only from its left edge to `reveal` (0..1).
+#[derive(Clone, Copy)]
+struct Shift {
+    opacity: f32,
+    dx: f32,
+    dy: f32,
+    grow: f32,
+    spin: f32,
+    blur: f32,
+    reveal: f32,
+}
+
+impl Default for Shift {
+    fn default() -> Self {
+        Shift { opacity: 1.0, dx: 0.0, dy: 0.0, grow: 1.0, spin: 0.0, blur: 0.0, reveal: 1.0 }
+    }
+}
+
+fn faded(opacity: f32) -> Shift {
+    Shift { opacity, ..Shift::default() }
+}
+
 /// Where a clip's picture landed in the last frame (result pixels; back to front).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Placed {
@@ -261,7 +284,7 @@ impl SequenceRenderer {
         }
         // the size it's drawn at (enough for its largest scale), never more than the file's own
         let (_, draw) = self.placement(clip, Some(&media), None, t);
-        let biggest = clip.keyframes.iter().map(|k| k.transform.scale).fold(clip.transform.scale, f32::max);
+        let biggest = clip.keyframes.iter().map(|k| k.transform.scale).chain(clip.keys_of("scale").iter().map(|k| k.v)).fold(clip.transform.scale, f32::max);
         let k = (draw.0 * self.k() / clip.transform_at(t).scale.max(0.01) * biggest / media.width.max(1) as f32).min(1.0);
         let size = (even(media.width as f32 * k), even(media.height as f32 * k));
         // a preview reads the proxy when there is one
@@ -274,14 +297,38 @@ impl SequenceRenderer {
         Some((rgba, size, false))
     }
 
-    /// One clip as a layer at `t`: faded by `opacity`, moved by `dx`, scaled by `grow`.
-    fn layer_of(&mut self, clip: &Clip, t: u64, opacity: f32, dx: f32, grow: f32, out: &mut Vec<Pic>) {
+    /// White across the frame (a dip to white).
+    fn white(&self, opacity: f32) -> Pic {
+        let (w, h, k) = (self.seq.size.0 as f32, self.seq.size.1 as f32, self.k());
+        Pic {
+            rgba: vec![255; 16],
+            size: (2, 2),
+            center: (w / 2.0 * k, h / 2.0 * k),
+            draw: (w * k, h * k),
+            rotation: 0.0,
+            opacity,
+            premultiplied: false,
+            filter: Default::default(),
+            masks: Vec::new(),
+            effects: Vec::new(),
+            time: 0.0,
+            uv: (0.0, 0.0, 1.0, 1.0),
+        }
+    }
+
+    /// One clip as a layer at `t`, with its animations, shifted by a transition.
+    fn layer_of(&mut self, clip: &Clip, t: u64, sh: Shift, out: &mut Vec<Pic>) {
         let Some((rgba, size, premultiplied)) = self.picture(clip, t) else { return };
         let media = self.seq.media(clip.media).cloned();
         let made = clip.content.as_ref().map(|_| size);
         let (center, draw) = self.placement(clip, media.as_ref(), made, t);
+        // its animation and the transition's move, on top of where it is
+        let (fw, fh) = (self.seq.size.0 as f32, self.seq.size.1 as f32);
+        let m = clip.motion_at(t);
+        let center = (center.0 + (m.dx + sh.dx) * fw, center.1 + (m.dy + sh.dy) * fh);
+        let grow = m.scale * sh.grow;
         // cropped: what's left stays where it was, its box smaller
-        let (l, top, r, b) = clip.crop;
+        let (l, top, r, b) = clip.crop_at(t);
         let (l, top) = (l.clamp(0.0, 0.95), top.clamp(0.0, 0.95));
         let (r, b) = (r.clamp(0.0, 0.95 - l), b.clamp(0.0, 0.95 - top));
         let center = (center.0 + (l - r) / 2.0 * draw.0, center.1 + (top - b) / 2.0 * draw.1);
@@ -293,21 +340,33 @@ impl SequenceRenderer {
         if clip.flip_v {
             uv = (uv.0, uv.1 + uv.3, uv.2, -uv.3);
         }
+        // a wipe: only its left part, up to where the edge has got to
+        let (center, draw) = if sh.reveal < 1.0 {
+            let r = sh.reveal.clamp(0.0, 1.0);
+            let left = center.0 - draw.0 * grow / 2.0;
+            uv = (uv.0, uv.1, uv.2 * r, uv.3);
+            ((left + draw.0 * grow * r / 2.0, center.1), (draw.0 * r, draw.1))
+        } else {
+            (center, draw)
+        };
         let tr = clip.transform_at(t);
+        let rotation = tr.rotation + m.rotation + sh.spin;
         let k = self.k();
-        self.placed.push(Placed { clip: clip.id, center: (center.0 + dx, center.1), size: (draw.0 * grow, draw.1 * grow), rotation: tr.rotation });
+        self.placed.push(Placed { clip: clip.id, center, size: (draw.0 * grow, draw.1 * grow), rotation });
+        let mut filter = clip.filter_at(t);
+        filter.blur = (filter.blur + m.blur + sh.blur).min(1.0);
         out.push(Pic {
             rgba,
             size,
-            center: ((center.0 + dx) * k, center.1 * k),
+            center: (center.0 * k, center.1 * k),
             draw: (draw.0 * grow * k, draw.1 * grow * k),
-            rotation: tr.rotation,
+            rotation,
             // faded in and out, with its sound
-            opacity: tr.opacity * opacity * clip.fade_at(t),
+            opacity: tr.opacity * sh.opacity * m.opacity * clip.fade_at(t),
             premultiplied,
-            filter: clip.filter,
+            filter,
             masks: clip.hidden.clone(),
-            effects: clip.effects.clone(),
+            effects: clip.effects_at(t),
             time: t.saturating_sub(clip.start_ms) as f32 / 1000.0,
             uv,
         });
@@ -321,7 +380,6 @@ impl SequenceRenderer {
 
     pub fn frame(&mut self, t: u64) -> Vec<u8> {
         self.placed.clear();
-        let w = self.seq.size.0 as f32;
         let tracks: Vec<Vec<Clip>> = self
             .seq
             .tracks
@@ -346,30 +404,39 @@ impl SequenceRenderer {
                 }),
             };
             match across {
-                None => self.layer_of(c, t, 1.0, 0.0, 1.0, &mut pics),
+                None => self.layer_of(c, t, Shift::default(), &mut pics),
                 Some((a, b, k, kind)) => {
                     let k = k.clamp(0.0, 1.0);
-                    match kind {
-                        TransitionKind::Crossfade => {
-                            self.layer_of(&a, t, 1.0, 0.0, 1.0, &mut pics);
-                            self.layer_of(&b, t, k, 0.0, 1.0, &mut pics);
+                    let e = k * k * (3.0 - 2.0 * k);
+                    let d = Shift::default();
+                    let (sa, sb) = match kind {
+                        TransitionKind::Crossfade => (d, faded(k)),
+                        TransitionKind::DipToBlack | TransitionKind::DipToWhite => {
+                            // black: the frame shows through; white: drawn over the clips
+                            let dip = if kind == TransitionKind::DipToBlack { 1.0 } else { 0.0 };
+                            if k < 0.5 { (faded(1.0 - 2.0 * k * dip), faded(0.0)) } else { (faded(0.0), faded(1.0 - (2.0 - 2.0 * k) * dip)) }
                         }
-                        TransitionKind::DipToBlack => {
-                            if k < 0.5 {
-                                self.layer_of(&a, t, 1.0 - 2.0 * k, 0.0, 1.0, &mut pics);
-                            } else {
-                                self.layer_of(&b, t, 2.0 * k - 1.0, 0.0, 1.0, &mut pics);
-                            }
+                        TransitionKind::Slide => (Shift { dx: -e, ..d }, Shift { dx: 1.0 - e, ..d }),
+                        TransitionKind::SlideRight => (Shift { dx: e, ..d }, Shift { dx: e - 1.0, ..d }),
+                        TransitionKind::SlideUp => (Shift { dy: -e, ..d }, Shift { dy: 1.0 - e, ..d }),
+                        TransitionKind::SlideDown => (Shift { dy: e, ..d }, Shift { dy: e - 1.0, ..d }),
+                        TransitionKind::Zoom => (Shift { grow: 1.0 + 0.15 * k, ..d }, Shift { opacity: k, grow: 1.25 - 0.25 * k, ..d }),
+                        TransitionKind::ZoomOut => (Shift { opacity: 1.0 - e, grow: 1.0 - 0.4 * e, ..d }, Shift { grow: 1.0 + 0.3 * (1.0 - e), ..d }),
+                        TransitionKind::Spin => (Shift { opacity: 1.0 - e, spin: e * 180.0, grow: 1.0 - 0.6 * e, ..d }, Shift { opacity: e, spin: (e - 1.0) * 180.0, grow: 0.4 + 0.6 * e, ..d }),
+                        TransitionKind::Blur => {
+                            let haze = 1.0 - (2.0 * k - 1.0).abs();
+                            (Shift { blur: haze * 0.9, ..d }, Shift { opacity: e, blur: haze * 0.9, ..d })
                         }
-                        TransitionKind::Slide => {
-                            let e = k * k * (3.0 - 2.0 * k);
-                            self.layer_of(&a, t, 1.0, -e * w, 1.0, &mut pics);
-                            self.layer_of(&b, t, 1.0, (1.0 - e) * w, 1.0, &mut pics);
-                        }
-                        TransitionKind::Zoom => {
-                            self.layer_of(&a, t, 1.0, 0.0, 1.0 + 0.15 * k, &mut pics);
-                            self.layer_of(&b, t, k, 0.0, 1.25 - 0.25 * k, &mut pics);
-                        }
+                        TransitionKind::Wipe => (d, Shift { reveal: e, ..d }),
+                    };
+                    if sa.opacity > 0.0 {
+                        self.layer_of(&a, t, sa, &mut pics);
+                    }
+                    if sb.opacity > 0.0 {
+                        self.layer_of(&b, t, sb, &mut pics);
+                    }
+                    if kind == TransitionKind::DipToWhite {
+                        pics.push(self.white(1.0 - (2.0 * k - 1.0).abs()));
                     }
                 }
             }

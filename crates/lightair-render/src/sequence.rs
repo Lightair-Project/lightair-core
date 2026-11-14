@@ -288,6 +288,36 @@ pub enum TransitionKind {
     DipToBlack,
     Slide,
     Zoom,
+    DipToWhite,
+    SlideRight,
+    SlideUp,
+    SlideDown,
+    ZoomOut,
+    Spin,
+    Blur,
+    Wipe,
+}
+
+impl TransitionKind {
+    /// Every transition, by name.
+    pub const ALL: [(&'static str, TransitionKind); 12] = [
+        ("Crossfade", TransitionKind::Crossfade),
+        ("Dip to black", TransitionKind::DipToBlack),
+        ("Dip to white", TransitionKind::DipToWhite),
+        ("Slide left", TransitionKind::Slide),
+        ("Slide right", TransitionKind::SlideRight),
+        ("Slide up", TransitionKind::SlideUp),
+        ("Slide down", TransitionKind::SlideDown),
+        ("Zoom in", TransitionKind::Zoom),
+        ("Zoom out", TransitionKind::ZoomOut),
+        ("Spin", TransitionKind::Spin),
+        ("Blur", TransitionKind::Blur),
+        ("Wipe", TransitionKind::Wipe),
+    ];
+
+    pub fn name(self) -> &'static str {
+        Self::ALL.iter().find(|(_, k)| *k == self).map_or("Transition", |(n, _)| n)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -366,9 +396,13 @@ pub struct Clip {
     pub transition: Option<Transition>,
     #[serde(default, skip_serializing_if = "Filter::is_none")]
     pub filter: Filter,
-    /// The transform over time, when it moves (in time order).
+    /// The transform over time, when it moves (in time order). The older kind: keys per
+    /// property are in `anim`, which these become when one is set.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keyframes: Vec<Keyframe>,
+    /// Keys per property (transform, filter, crop, effect settings).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub anim: crate::keys::Anim,
     /// Its sound faded in from silence and out to it (timeline ms).
     #[serde(default, skip_serializing_if = "is_zero")]
     pub fade_in_ms: u64,
@@ -405,6 +439,9 @@ pub struct Clip {
     /// moved and deleted as one while linkage is on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link: Option<Id>,
+    /// Its animations: coming in, going out, or a combo across it.
+    #[serde(default, skip_serializing_if = "crate::motion::Motions::is_none")]
+    pub motion: crate::motion::Motions,
 }
 
 fn is_uncropped(c: &(f32, f32, f32, f32)) -> bool {
@@ -585,6 +622,7 @@ impl Clip {
             transition: None,
             filter: Filter::default(),
             keyframes: Vec::new(),
+            anim: Default::default(),
             fade_in_ms: 0,
             fade_out_ms: 0,
             volume_keys: Vec::new(),
@@ -597,6 +635,7 @@ impl Clip {
             flip_v: false,
             stream: None,
             link: None,
+            motion: Default::default(),
         }
     }
 
@@ -658,6 +697,17 @@ impl Clip {
 
     /// Its transform at timeline time `t` (its keyframes eased between, or its one transform).
     pub fn transform_at(&self, t: u64) -> Transform {
+        let mut tr = self.transform_of_keyframes(t);
+        // keys per property over that
+        for (i, p) in crate::keys::TRANSFORM.iter().enumerate() {
+            if let Some(v) = crate::keys::value(self.keys_of(p), t.saturating_sub(self.start_ms)) {
+                crate::keys::set_transform_field(&mut tr, i, v);
+            }
+        }
+        tr
+    }
+
+    fn transform_of_keyframes(&self, t: u64) -> Transform {
         let at = t.saturating_sub(self.start_ms);
         let k = &self.keyframes;
         match (k.first(), k.last()) {
@@ -1071,12 +1121,14 @@ impl Sequence {
             transition: None,
             filter: Filter::default(),
             keyframes: Vec::new(),
+            anim: Default::default(),
             hidden: Vec::new(),
             effects: Vec::new(),
             crop: (0.0, 0.0, 0.0, 0.0),
             flip_h: false,
             flip_v: false,
             link: Some(cl.link.unwrap_or(cl.id)),
+            motion: Default::default(),
             ..cl
         };
         let id = sound.id;
@@ -1207,6 +1259,7 @@ impl Sequence {
         for k in &mut cl.volume_keys {
             k.at_ms = (k.at_ms as i64 - moved).max(0) as u64;
         }
+        cl.shift_keys(-moved);
     }
 
     /// Moves a clip's right edge to timeline time `at` (its out point follows), within its medium
@@ -1246,14 +1299,17 @@ impl Sequence {
             vafter.push(VolumeKey { at_ms: 0, volume: loud });
             vafter.extend(cl.volume_keys.iter().filter(|k| k.at_ms > cut).map(|k| VolumeKey { at_ms: k.at_ms - cut, volume: k.volume }));
         }
+        let (abefore, aafter) = cl.split_keys(cut);
         let first = &mut self.tracks[t].clips[c];
         first.out_ms = s;
         first.keyframes = before;
         first.volume_keys = vbefore;
-        // a fade belongs to the end it was on
+        first.anim = abefore;
+        // a fade (and an animation in or out) belongs to the end it was on
         first.fade_out_ms = 0;
+        first.motion.exit = None;
         // a transition belongs to the cut it was on: the first half's start
-        let second = Clip { id: Id::new(), start_ms: at, in_ms: s, keyframes: after, volume_keys: vafter, transition: None, fade_in_ms: 0, ..cl };
+        let second = Clip { id: Id::new(), start_ms: at, in_ms: s, keyframes: after, volume_keys: vafter, anim: aafter, transition: None, fade_in_ms: 0, motion: crate::motion::Motions { enter: None, ..cl.motion }, ..cl };
         let id = second.id;
         self.tracks[t].clips.insert(c + 1, second);
         Some(id)
