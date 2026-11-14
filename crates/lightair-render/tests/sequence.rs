@@ -388,3 +388,65 @@ fn a_take_comes_as_its_parts() {
     unique.dedup();
     assert_eq!(unique.len(), 4, "four tracks: {tracks:?}");
 }
+
+#[test]
+fn a_takes_scene_comes_back_as_layers_where_they_were() {
+    use lightair_render::sequence::{Content, MediaKind};
+    use lightair_store::take_scene::{SceneLayer, TakeScene, What};
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("Take.lightair-take");
+    std::fs::create_dir_all(folder.join("layers")).unwrap();
+    let Some(_) = lavfi(&folder, "camera.mp4", "color=c=blue:s=640x360:r=30:d=2") else {
+        eprintln!("FFmpeg isn't installed; skipping");
+        return;
+    };
+    let ff = media::ffmpeg().unwrap();
+    assert!(Command::new(&ff).args(["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=yellow:s=200x200", "-frames:v", "1"]).arg(folder.join("layers/0-logo.png")).status().unwrap().success());
+    assert!(Command::new(&ff).args(["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=2"]).arg(folder.join("Audio - Mic.wav")).status().unwrap().success());
+    let camera = lightair_core::Id::new();
+    std::fs::write(
+        folder.join("take.json"),
+        format!(r#"{{"duration_ms":2000,"video":[{{"name":"Camera","file":"camera.mp4","input":"{camera}"}}],"audio":["Audio - Mic.wav"]}}"#),
+    )
+    .unwrap();
+    let layer = |name: &str, x, y, w, h, what| SceneLayer { name: name.into(), x, y, w, h, rotation: 0.0, opacity: 1.0, what };
+    TakeScene {
+        canvas: (1920, 1080),
+        layers: vec![
+            layer("Background", 0.0, 0.0, 1.0, 1.0, What::Colour { color: 0x00FF00, alpha: 1.0 }),
+            layer("Camera", 0.05, 0.1, 0.5, 0.5, What::Recorded { input: camera }),
+            layer("Logo", 0.8, 0.05, 0.1, 0.1 * 16.0 / 9.0, What::Image { file: "layers/0-logo.png".into() }),
+            layer("Title", 0.6, 0.7, 0.35, 0.2, What::Text { text: "Hello".into(), size: 96.0, color: 0xFFFFFF, bold: true }),
+            layer("Web", 0.0, 0.0, 0.1, 0.1, What::Other { kind: "browser_source".into() }),
+        ],
+    }
+    .write(&folder)
+    .unwrap();
+
+    let parts = Media::take_layout(&folder);
+    let names: Vec<&str> = parts.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(names, ["Background", "Camera", "Logo", "Title", "Mic"], "the browser left out; no screen, so no look");
+    assert!(parts[1].media.as_ref().is_some_and(|m| m.take.is_none() && m.kind == MediaKind::Video));
+    assert!(matches!(parts[0].content, Some(Content::Shape(_))) && matches!(parts[3].content, Some(Content::Text(_))));
+
+    let mut seq = Sequence::new((1920, 1080), 30);
+    let clips: Vec<_> = parts.into_iter().map(|p| seq.place_part(p, 0, 2_000, None).unwrap()).collect();
+    // bottom to top as in the scene: each later layer on a higher track (track 0 is the top)
+    let tracks: Vec<usize> = clips[..4].iter().map(|c| seq.find(*c).unwrap().0).collect();
+    assert!(tracks.windows(2).all(|w| w[0] > w[1]), "{tracks:?}");
+    let mut r = match SequenceRenderer::new(&seq) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("no renderer here ({e}); skipping");
+            return;
+        }
+    };
+    let f = r.frame(1_000);
+    let at = |x: f32, y: f32| px(&f, 1920, (x * 1920.0) as u32, (y * 1080.0) as u32);
+    assert!(at(0.02, 0.95)[1] > 200 && at(0.02, 0.95)[0] < 60, "the green background: {:?}", at(0.02, 0.95));
+    let cam = at(0.3, 0.35);
+    assert!(cam[2] > 200 && cam[0] < 60, "the camera in its box: {cam:?}");
+    assert!(at(0.6, 0.35)[1] > 200 && at(0.6, 0.35)[2] < 60, "and not beyond it");
+    let logo = at(0.85, 0.14);
+    assert!(logo[0] > 200 && logo[1] > 200 && logo[2] < 80, "the logo: {logo:?}");
+}

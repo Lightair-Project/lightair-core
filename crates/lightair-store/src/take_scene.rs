@@ -1,0 +1,151 @@
+//! A Studio take's scene (`scene.json` in the take's folder): every layer of the program scene
+//! as it was when the take began, in drawing order (bottom first), so the Editor can rebuild it:
+//! the recorded screens and cameras where they were, and what wasn't recorded (images, text,
+//! colours, video files) as layers of their own. Images are copied into the take's `layers`
+//! folder, so a take carries what it needs.
+
+use std::path::{Path, PathBuf};
+
+use lightair_core::{Id, Project, kinds};
+use serde::{Deserialize, Serialize};
+
+pub const FILE: &str = "scene.json";
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TakeScene {
+    /// The canvas's size (pixels).
+    pub canvas: (u32, u32),
+    pub layers: Vec<SceneLayer>,
+}
+
+/// A layer: where it was (fractions of the canvas: its box's top-left and size), and what it
+/// showed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SceneLayer {
+    pub name: String,
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+    /// Degrees clockwise.
+    #[serde(default)]
+    pub rotation: f32,
+    #[serde(default = "one")]
+    pub opacity: f32,
+    pub what: What,
+}
+
+fn one() -> f32 {
+    1.0
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum What {
+    /// A recorded screen or camera (its input: take.json's video entry of that input).
+    Recorded { input: Id },
+    /// A picture copied into the take (relative to its folder).
+    Image { file: String },
+    /// A video file, where it is.
+    Video { path: PathBuf },
+    /// Text: its words, size (canvas pixels), colour (0xRRGGBB) and weight.
+    Text { text: String, size: f32, color: u32, bold: bool },
+    /// A solid colour (0xRRGGBB and its opacity).
+    Colour { color: u32, alpha: f32 },
+    /// Something the Editor can't rebuild (a browser, a timer…): named, left out.
+    Other { kind: String },
+}
+
+/// OBS's 0xAABBGGRR as 0xRRGGBB and an opacity.
+fn obs_colour(c: u64) -> (u32, f32) {
+    let c = c as u32;
+    ((c & 0xFF) << 16 | (c & 0xFF00) | ((c >> 16) & 0xFF), ((c >> 24) & 0xFF) as f32 / 255.0)
+}
+
+impl TakeScene {
+    /// The program scene of `project` as it is, its pictures copied into `folder` (the take's).
+    pub fn of(project: &Project, folder: &Path) -> Option<TakeScene> {
+        let scene = project.program.and_then(|p| project.scene(p))?.flatten();
+        let format = project.primary_format();
+        let (cw, ch) = (format.width.max(1) as f32, format.height.max(1) as f32);
+        let mut layers = Vec::new();
+        for (n, layer) in scene.layers.iter().enumerate() {
+            let Some(layout) = layer.layouts.get(&format.id).filter(|l| l.visible) else { continue };
+            let Some(input) = layer.input.and_then(|i| project.inputs.get(&i)) else { continue };
+            let s = &input.settings;
+            let what = match input.kind.as_str() {
+                kinds::SCREEN | kinds::CAMERA => What::Recorded { input: input.id },
+                kinds::MIC | kinds::DESKTOP_AUDIO | kinds::APP_AUDIO => continue,
+                "image_source" => {
+                    let Some(src) = s["file"].as_str().map(PathBuf::from).filter(|p| p.is_file()) else { continue };
+                    let name = format!("{n}-{}", src.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| "image".into()));
+                    let rel = format!("layers/{name}");
+                    let copied = std::fs::create_dir_all(folder.join("layers")).and_then(|_| std::fs::copy(&src, folder.join(&rel)));
+                    if copied.is_err() {
+                        continue;
+                    }
+                    What::Image { file: rel }
+                }
+                "ffmpeg_source" => match s["local_file"].as_str() {
+                    Some(p) => What::Video { path: PathBuf::from(p) },
+                    None => What::Other { kind: input.kind.clone() },
+                },
+                k if k.starts_with("text_") => {
+                    let (color, _) = obs_colour(s["color1"].as_u64().unwrap_or(0xFFFF_FFFF));
+                    What::Text {
+                        text: s["text"].as_str().unwrap_or("").to_string(),
+                        size: s["font"]["size"].as_f64().unwrap_or(64.0) as f32,
+                        color,
+                        bold: s["font"]["flags"].as_u64().is_some_and(|f| f & 1 != 0),
+                    }
+                }
+                k if k.starts_with("color_source") => {
+                    let (color, alpha) = obs_colour(s["color"].as_u64().unwrap_or(0xFFFF_FFFF));
+                    What::Colour { color, alpha }
+                }
+                k => What::Other { kind: k.to_string() },
+            };
+            layers.push(SceneLayer {
+                name: layer.name.clone(),
+                x: layout.x / cw,
+                y: layout.y / ch,
+                w: layout.width / cw,
+                h: layout.height / ch,
+                rotation: layout.rotation,
+                opacity: layout.opacity,
+                what,
+            });
+        }
+        Some(TakeScene { canvas: (format.width, format.height), layers })
+    }
+
+    pub fn read(folder: &Path) -> Option<TakeScene> {
+        serde_json::from_slice(&std::fs::read(folder.join(FILE)).ok()?).ok()
+    }
+
+    pub fn write(&self, folder: &Path) -> std::io::Result<()> {
+        std::fs::write(folder.join(FILE), serde_json::to_vec_pretty(self).map_err(std::io::Error::other)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn obs_colours_read_as_rgb() {
+        assert_eq!(obs_colour(0xFF0000FF), (0xFF0000, 1.0));
+        assert_eq!(obs_colour(0x80FF0000).0, 0x0000FF);
+    }
+
+    #[test]
+    fn a_scene_reads_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = TakeScene {
+            canvas: (1920, 1080),
+            layers: vec![SceneLayer { name: "Logo".into(), x: 0.1, y: 0.1, w: 0.2, h: 0.1, rotation: 0.0, opacity: 1.0, what: What::Text { text: "Hi".into(), size: 64.0, color: 0xFFFFFF, bold: true } }],
+        };
+        s.write(dir.path()).unwrap();
+        assert_eq!(TakeScene::read(dir.path()), Some(s));
+    }
+}

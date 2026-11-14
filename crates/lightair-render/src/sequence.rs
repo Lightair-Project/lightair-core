@@ -70,6 +70,87 @@ impl Media {
         })
     }
 
+    /// A Studio take as layers, as its scene was (its `scene.json`): the screen drawn with its
+    /// look across the frame (when it has one), then each layer in drawing order where it was
+    /// (cameras, pictures, video files, text, colours), then each recorded mixer track's
+    /// sound. A take without a scene: its parts ([`Media::take_parts`]), unplaced.
+    pub fn take_layout(folder: &Path) -> Vec<TakePart> {
+        let parts = Media::take_parts(folder);
+        let Some(scene) = lightair_store::take_scene::TakeScene::read(folder) else {
+            return parts.into_iter().map(TakePart::of).collect();
+        };
+        let take: serde_json::Value = std::fs::read(folder.join("take.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        let videos: Vec<&serde_json::Value> = take["video"].as_array().map(|a| a.iter().collect()).unwrap_or_default();
+        let screen = videos.iter().find(|v| v["name"].as_str().is_some_and(|n| n.starts_with("Screen")));
+        let (canvas_w, canvas_h) = (scene.canvas.0.max(1) as f32, scene.canvas.1.max(1) as f32);
+        let mut out = Vec::new();
+        // the screen, with its look, across the frame
+        if screen.is_some()
+            && let Some(main) = parts.first()
+        {
+            out.push(TakePart { name: "Screen".into(), ..TakePart::of(main.clone()) });
+        }
+        for layer in &scene.layers {
+            use lightair_store::take_scene::What;
+            let place = Some(Placement { x: layer.x, y: layer.y, w: layer.w, h: layer.h, rotation: layer.rotation, opacity: layer.opacity, canvas: scene.canvas });
+            let part = match &layer.what {
+                What::Recorded { input } => {
+                    let Some(v) = videos.iter().find(|v| v["input"].as_str() == Some(&input.to_string())) else { continue };
+                    if screen.is_some_and(|s| std::ptr::eq(*s, *v)) {
+                        continue;
+                    }
+                    let Some(file) = v["file"].as_str() else { continue };
+                    let Ok(mut m) = Media::from_file(&folder.join(file)) else { continue };
+                    m.name = layer.name.clone();
+                    TakePart { name: layer.name.clone(), media: Some(m), content: None, place }
+                }
+                What::Image { file } => {
+                    let Ok(mut m) = Media::from_file(&folder.join(file)) else { continue };
+                    m.name = layer.name.clone();
+                    TakePart { name: layer.name.clone(), media: Some(m), content: None, place }
+                }
+                What::Video { path } => {
+                    let Ok(mut m) = Media::from_file(path) else { continue };
+                    m.name = layer.name.clone();
+                    TakePart { name: layer.name.clone(), media: Some(m), content: None, place }
+                }
+                What::Text { text, size, color, bold } => TakePart {
+                    name: layer.name.clone(),
+                    media: None,
+                    content: Some(Content::Text(TextStyle {
+                        text: text.clone(),
+                        size: *size,
+                        color: *color,
+                        bold: *bold,
+                        align: 0,
+                        background: None,
+                        outline: None,
+                        width: (layer.w * canvas_w).max(*size),
+                    })),
+                    place,
+                },
+                What::Colour { color, alpha } => TakePart {
+                    name: layer.name.clone(),
+                    media: None,
+                    content: Some(Content::Shape(ShapeStyle {
+                        shape: ShapeKind::Rectangle,
+                        width: layer.w * canvas_w,
+                        height: layer.h * canvas_h,
+                        fill: Some((*color, *alpha)),
+                        stroke: None,
+                        radius: 0.0,
+                    })),
+                    place,
+                },
+                What::Other { .. } => continue,
+            };
+            out.push(part);
+        }
+        // the sounds
+        out.extend(parts.into_iter().filter(|m| m.kind == MediaKind::Audio).map(TakePart::of));
+        out
+    }
+
     /// A Studio take as the media it's made of: its main picture (the screen, else the first
     /// video) drawn with its look and silent, its other pictures (the camera beside a screen)
     /// as plain videos, and each recorded mixer track's sound as a medium of its own. The main
@@ -315,6 +396,114 @@ pub struct ClipEffect {
 
 fn is_zero(v: &u64) -> bool {
     *v == 0
+}
+
+/// Where a layer goes: its box as fractions of the frame (top-left, size), turned and faded.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Placement {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+    pub rotation: f32,
+    pub opacity: f32,
+    /// The canvas the box was on (made content's sizes are its pixels).
+    pub canvas: (u32, u32),
+}
+
+/// A part of something added to the Editor: a medium or made content, and where it goes (its
+/// place in a take's scene; `None`: as media go).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TakePart {
+    pub name: String,
+    pub media: Option<Media>,
+    pub content: Option<Content>,
+    pub place: Option<Placement>,
+}
+
+impl TakePart {
+    pub fn of(m: Media) -> TakePart {
+        TakePart { name: m.name.clone(), media: Some(m), content: None, place: None }
+    }
+
+    /// The file it is (a take's screen: the screen recording itself); `None` for made layers.
+    pub fn file(&self) -> Option<&Path> {
+        self.media.as_ref().map(|m| m.path.as_path())
+    }
+
+    /// What it is, in a word: "Screen", "Video", "Sound", "Picture", "Text", "Colour".
+    pub fn what(&self) -> &'static str {
+        match (&self.media, &self.content) {
+            (Some(m), _) if m.take.is_some() => "Screen",
+            (Some(m), _) => match m.kind {
+                MediaKind::Video => "Video",
+                MediaKind::Audio => "Sound",
+                MediaKind::Image => "Picture",
+            },
+            (None, Some(Content::Text(_))) => "Text",
+            (None, Some(Content::Shape(_))) => "Colour",
+            _ => "",
+        }
+    }
+}
+
+impl Sequence {
+    /// Places a part at `start` (made content lasting `len`): a medium as [`Sequence::place`]
+    /// does, made content over the pictures; in its box when it has one. The clip's id.
+    pub fn place_part(&mut self, part: TakePart, start: u64, len: u64, track: Option<usize>) -> Option<Id> {
+        let (w, h) = (self.size.0 as f32, self.size.1 as f32);
+        match (part.media, part.content) {
+            (Some(m), _) => {
+                let id = self.add_media(m);
+                let c = self.place(id, start, track)?;
+                if let Some(p) = part.place {
+                    let tr = self.transform_for(self.media(id), None, p);
+                    self.clip_mut(c)?.transform = tr;
+                }
+                Some(c)
+            }
+            (None, Some(mut content)) => {
+                // its sizes from the canvas's pixels to the sequence's
+                let k = part.place.map_or(1.0, |p| h / p.canvas.1.max(1) as f32);
+                match &mut content {
+                    Content::Text(t) => {
+                        t.size *= k;
+                        t.width *= k;
+                    }
+                    Content::Shape(sh) => {
+                        sh.width *= k;
+                        sh.height *= k;
+                        sh.radius *= k;
+                    }
+                }
+                let c = self.place_content_on(content, start, len.max(500), track);
+                if let Some(p) = part.place {
+                    let tr = Transform { x: (p.x + p.w / 2.0) * w - w / 2.0, y: (p.y + p.h / 2.0) * h - h / 2.0, scale: 1.0, rotation: p.rotation, opacity: p.opacity };
+                    self.clip_mut(c)?.transform = tr;
+                }
+                Some(c)
+            }
+            _ => None,
+        }
+    }
+
+    /// The transform that puts `clip`'s picture (a medium fitted to the frame, or made content
+    /// `made` pixels big) in the box `p`.
+    pub fn transform_for(&self, media: Option<&Media>, made: Option<(f32, f32)>, p: Placement) -> Transform {
+        let (w, h) = (self.size.0 as f32, self.size.1 as f32);
+        let (bx, by, bw, bh) = (p.x * w, p.y * h, p.w * w, p.h * h);
+        let base = match (made, media) {
+            (Some(s), _) => s,
+            (None, Some(m)) if m.width > 0 && m.height > 0 => {
+                let (_, _, fw, fh) = crate::compose::fit(m.width as f32 / m.height as f32, 0.0, 0.0, w, h);
+                (fw, fh)
+            }
+            _ => (w, h),
+        };
+        // fitted in its box, as the scene fits a picture in its layer
+        let scale = (bw / base.0.max(1.0)).min(bh / base.1.max(1.0));
+        Transform { x: bx + bw / 2.0 - w / 2.0, y: by + bh / 2.0 - h / 2.0, scale, rotation: p.rotation, opacity: p.opacity }
+    }
 }
 
 /// The volume at a moment of a clip (from its start, timeline time).
