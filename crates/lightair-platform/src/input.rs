@@ -79,6 +79,11 @@ pub fn pointer() -> (f32, f32) {
     imp::pointer()
 }
 
+/// The main display's frame in global points: (x, y, width, height).
+pub fn main_display() -> (f32, f32, f32, f32) {
+    imp::main_display()
+}
+
 /// The pointer's shape now (Windows; macOS reports the arrow).
 pub fn shape() -> Shape {
     imp::shape()
@@ -238,6 +243,23 @@ mod imp {
 
     pub fn shape() -> Shape {
         Shape::Arrow
+    }
+
+    #[repr(C)]
+    struct CGRect {
+        origin: CGPoint,
+        size: CGPoint,
+    }
+
+    #[link(name = "CoreGraphics", kind = "framework")]
+    unsafe extern "C" {
+        fn CGMainDisplayID() -> u32;
+        fn CGDisplayBounds(display: u32) -> CGRect;
+    }
+
+    pub fn main_display() -> (f32, f32, f32, f32) {
+        let r = unsafe { CGDisplayBounds(CGMainDisplayID()) };
+        (r.origin.x as f32, r.origin.y as f32, r.size.x as f32, r.size.y as f32)
     }
 
     pub fn can_listen() -> bool {
@@ -411,6 +433,12 @@ mod imp {
         .map_or(Shape::Arrow, |(_, s)| s)
     }
 
+    pub fn main_display() -> (f32, f32, f32, f32) {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+        let (w, h) = unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
+        (0.0, 0.0, w as f32, h as f32)
+    }
+
     pub fn can_listen() -> bool {
         true
     }
@@ -572,6 +600,9 @@ mod imp {
     }
     pub fn shape() -> Shape {
         Shape::Arrow
+    }
+    pub fn main_display() -> (f32, f32, f32, f32) {
+        (0.0, 0.0, 1920.0, 1080.0)
     }
     pub fn can_listen() -> bool {
         false

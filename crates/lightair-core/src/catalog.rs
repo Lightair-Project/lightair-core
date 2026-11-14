@@ -27,6 +27,8 @@ pub enum Category {
     Blur,
     Distort,
     Keying,
+    /// Screen recording: the drawn pointer, and later zooms.
+    Screen,
     // audio
     Voice,
     Dynamics,
@@ -36,7 +38,7 @@ pub enum Category {
 }
 
 impl Category {
-    pub const ALL: [Category; 7] = [
+    pub const ALL: [Category; 8] = [
         Category::Face,
         Category::Background,
         Category::Colour,
@@ -44,6 +46,7 @@ impl Category {
         Category::Blur,
         Category::Distort,
         Category::Keying,
+        Category::Screen,
     ];
 
     /// The audio effects' categories, in catalog order.
@@ -64,6 +67,7 @@ impl Category {
             Category::Blur => "Blur & sharpen",
             Category::Distort => "Distort & motion",
             Category::Keying => "Keying & utility",
+            Category::Screen => "Screen",
         }
     }
 }
@@ -389,8 +393,41 @@ const QUALITY: Control = Control::Choice {
     default: Pick::Int(1),
 };
 
+/// The drawn pointer (docs/plans/screen-studio.md, "Cursor"): the engine's own filter.
+pub const CURSOR_KIND: &str = "lightair_cursor";
+
 /// Every effect, in catalog order.
 pub const CATALOG: &[EffectDef] = &[
+    // ---------------------------------------------------------------- Screen
+    EffectDef {
+        kind: CURSOR_KIND,
+        name: "Drawn pointer",
+        category: Category::Screen,
+        description: "Lightair draws the pointer: bigger, smooth, with clicks",
+        icon: "mouse-pointer-2",
+        needs: Nothing,
+        controls: &[
+            Control::Choice {
+                key: "style",
+                label: "Look",
+                options: &[("Pointer", Pick::Int(0)), ("Dot", Pick::Int(1)), ("Ring", Pick::Int(2))],
+                default: Pick::Int(0),
+            },
+            f("size", "Size", 0.5, 4.0, 1.5, Unit::Number),
+            f("smoothing", "Smoothing", 0.0, 1.0, 0.5, Unit::Percent),
+            Control::Switch { key: "tilt", label: "Tilt while moving", default: true },
+            f("idle_s", "Hide when still (s)", 0.0, 10.0, 3.0, Unit::Number),
+            Control::Choice {
+                key: "clicks",
+                label: "Clicks",
+                options: &[("None", Pick::Int(0)), ("Circle", Pick::Int(1)), ("Ripple", Pick::Int(2))],
+                default: Pick::Int(2),
+            },
+            Control::Switch { key: "arrow_only", label: "Always the arrow", default: false },
+            colour("color", "Colour", 0xFFFF_9000),
+        ],
+        fixed: &[],
+    },
     // ---------------------------------------------------------------- Face
     EffectDef {
         kind: "studio.beauty",
