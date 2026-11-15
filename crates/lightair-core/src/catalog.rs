@@ -372,13 +372,8 @@ const FEATHER: Control = s("bg_feather", "Edge softness", 30.0);
 const SHIFT: Control = sb("bg_shift", "Edge shift");
 /// Which model finds the person, and how hard it looks (Apple Vision's levels).
 const SEGMENTATION: Control = Control::Heading("Segmentation");
-const MODEL: Control = Control::Choice {
-    key: "bg_model",
-    label: "Model",
-    options: &[("Apple Vision", Pick::Int(0)), ("MediaPipe", Pick::Int(1))],
-    default: Pick::Int(0),
-};
-/// With macOS's own camera effect too (Portrait blurs, Backgrounds replaces; it can't remove).
+/// With macOS's own camera effect too: Portrait blurs, Backgrounds replaces, and for Background
+/// removal Backgrounds paints green (Lightair sets its picture) and Camera Studio keys it out.
 pub const BG_MODEL_SYSTEM: i64 = 2;
 const MODEL_OR_SYSTEM: Control = Control::Choice {
     key: "bg_model",
@@ -562,7 +557,7 @@ pub const CATALOG: &[EffectDef] = &[
         description: "Remove the background; the objects below show through",
         icon: "eraser",
         needs: Needs::Person,
-        controls: &[FEATHER, SHIFT, SEGMENTATION, MODEL, QUALITY],
+        controls: &[FEATHER, SHIFT, SEGMENTATION, MODEL_OR_SYSTEM, QUALITY],
         fixed: &[("bg_mode", Pick::Int(2))],
     },
     EffectDef {
