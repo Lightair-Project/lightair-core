@@ -84,7 +84,19 @@ pub fn main_display() -> (f32, f32, f32, f32) {
     imp::main_display()
 }
 
-/// The pointer's shape now (Windows; macOS reports the arrow).
+/// A display's frame in global points, by the id its screen capture uses (macOS: the display's
+/// UUID); `None` when it isn't connected or can't be told (Windows: the capture's own monitor id).
+pub fn display_frame(display: &str) -> Option<(f32, f32, f32, f32)> {
+    imp::display_frame(display)
+}
+
+/// A window's frame in global points now, by the id its window capture uses (macOS: the
+/// window's number; Windows: libobs's `title:class:exe`); `None` when it's gone.
+pub fn window_frame(window: &str) -> Option<(f32, f32, f32, f32)> {
+    imp::window_frame(window)
+}
+
+/// The pointer's shape now (an app's own pointer counts as the arrow).
 pub fn shape() -> Shape {
     imp::shape()
 }
@@ -250,7 +262,7 @@ mod imp {
     }
 
     pub fn shape() -> Shape {
-        Shape::Arrow
+        crate::system_pointer::now().and_then(|p| p.shape).unwrap_or(Shape::Arrow)
     }
 
     #[repr(C)]
@@ -268,6 +280,76 @@ mod imp {
     pub fn main_display() -> (f32, f32, f32, f32) {
         let r = unsafe { CGDisplayBounds(CGMainDisplayID()) };
         (r.origin.x as f32, r.origin.y as f32, r.size.x as f32, r.size.y as f32)
+    }
+
+    #[link(name = "CoreGraphics", kind = "framework")]
+    unsafe extern "C" {
+        fn CGGetActiveDisplayList(max: u32, displays: *mut u32, count: *mut u32) -> i32;
+        fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> *const c_void;
+        fn CGRectMakeWithDictionaryRepresentation(dict: *const c_void, rect: *mut CGRect) -> bool;
+    }
+    #[link(name = "ColorSync", kind = "framework")]
+    unsafe extern "C" {
+        fn CGDisplayCreateUUIDFromDisplayID(display: u32) -> *const c_void;
+    }
+    #[link(name = "CoreFoundation", kind = "framework")]
+    unsafe extern "C" {
+        fn CFUUIDCreateString(alloc: *const c_void, uuid: *const c_void) -> *const c_void;
+        fn CFStringGetCString(s: *const c_void, buf: *mut std::ffi::c_char, size: isize, encoding: u32) -> bool;
+        fn CFArrayGetCount(array: *const c_void) -> isize;
+        fn CFArrayGetValueAtIndex(array: *const c_void, index: isize) -> *const c_void;
+        fn CFDictionaryGetValue(dict: *const c_void, key: *const c_void) -> *const c_void;
+        fn CFStringCreateWithCString(alloc: *const c_void, s: *const std::ffi::c_char, encoding: u32) -> *const c_void;
+    }
+    const UTF8: u32 = 0x0800_0100;
+
+    fn uuid_of(display: u32) -> Option<String> {
+        unsafe {
+            let uuid = CGDisplayCreateUUIDFromDisplayID(display);
+            if uuid.is_null() {
+                return None;
+            }
+            let text = CFUUIDCreateString(std::ptr::null(), uuid);
+            let mut buf = [0 as std::ffi::c_char; 64];
+            let ok = !text.is_null() && CFStringGetCString(text, buf.as_mut_ptr(), buf.len() as isize, UTF8);
+            if !text.is_null() {
+                CFRelease(text);
+            }
+            CFRelease(uuid);
+            ok.then(|| std::ffi::CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned())
+        }
+    }
+
+    pub fn display_frame(display: &str) -> Option<(f32, f32, f32, f32)> {
+        let mut ids = [0u32; 16];
+        let mut n = 0u32;
+        if unsafe { CGGetActiveDisplayList(ids.len() as u32, ids.as_mut_ptr(), &mut n) } != 0 {
+            return None;
+        }
+        let id = ids[..n as usize].iter().copied().find(|d| uuid_of(*d).is_some_and(|u| u.eq_ignore_ascii_case(display)))?;
+        let r = unsafe { CGDisplayBounds(id) };
+        Some((r.origin.x as f32, r.origin.y as f32, r.size.x as f32, r.size.y as f32))
+    }
+
+    pub fn window_frame(window: &str) -> Option<(f32, f32, f32, f32)> {
+        let number: u32 = window.parse().ok()?;
+        unsafe {
+            // kCGWindowListOptionIncludingWindow: just that window
+            let list = CGWindowListCopyWindowInfo(1 << 3, number);
+            if list.is_null() {
+                return None;
+            }
+            let mut rect = CGRect { origin: CGPoint { x: 0.0, y: 0.0 }, size: CGPoint { x: 0.0, y: 0.0 } };
+            let found = CFArrayGetCount(list) > 0 && {
+                let info = CFArrayGetValueAtIndex(list, 0);
+                let key = CFStringCreateWithCString(std::ptr::null(), c"kCGWindowBounds".as_ptr(), UTF8);
+                let bounds = CFDictionaryGetValue(info, key);
+                CFRelease(key);
+                !bounds.is_null() && CGRectMakeWithDictionaryRepresentation(bounds, &mut rect)
+            };
+            CFRelease(list);
+            found.then_some((rect.origin.x as f32, rect.origin.y as f32, rect.size.x as f32, rect.size.y as f32))
+        }
     }
 
     pub fn can_listen() -> bool {
@@ -451,6 +533,28 @@ mod imp {
         (0.0, 0.0, w as f32, h as f32)
     }
 
+    pub fn display_frame(_: &str) -> Option<(f32, f32, f32, f32)> {
+        None
+    }
+
+    pub fn window_frame(window: &str) -> Option<(f32, f32, f32, f32)> {
+        use windows_sys::Win32::Foundation::RECT;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{FindWindowW, GetWindowRect};
+        // libobs's `title:class:exe`, `#3A` for ":" and `#22` for "#" inside each part
+        let mut parts = window.splitn(3, ':').map(|p| p.replace("#3A", ":").replace("#22", "#"));
+        let (title, class) = (parts.next()?, parts.next()?);
+        let wide = |s: &str| s.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
+        let (title, class) = (wide(&title), wide(&class));
+        unsafe {
+            let hwnd = FindWindowW(class.as_ptr(), title.as_ptr());
+            if hwnd.is_null() {
+                return None;
+            }
+            let mut r = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+            (GetWindowRect(hwnd, &mut r) != 0).then(|| (r.left as f32, r.top as f32, (r.right - r.left) as f32, (r.bottom - r.top) as f32))
+        }
+    }
+
     pub fn can_listen() -> bool {
         true
     }
@@ -619,6 +723,12 @@ mod imp {
     }
     pub fn main_display() -> (f32, f32, f32, f32) {
         (0.0, 0.0, 1920.0, 1080.0)
+    }
+    pub fn display_frame(_: &str) -> Option<(f32, f32, f32, f32)> {
+        None
+    }
+    pub fn window_frame(_: &str) -> Option<(f32, f32, f32, f32)> {
+        None
     }
     pub fn can_listen() -> bool {
         false

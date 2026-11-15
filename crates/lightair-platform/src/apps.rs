@@ -36,7 +36,7 @@ mod imp {
 
     #[link(name = "CoreGraphics", kind = "framework")]
     unsafe extern "C" {
-        fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> *mut AnyObject;
+        fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> *const std::ffi::c_void;
     }
     #[link(name = "CoreFoundation", kind = "framework")]
     unsafe extern "C" {
@@ -46,11 +46,11 @@ mod imp {
     /// The process that owns window `number` (CoreGraphics' window list).
     fn window_owner(number: u32) -> Option<i32> {
         // kCGWindowListOptionIncludingWindow: just that window
-        let list = unsafe { CGWindowListCopyWindowInfo(1 << 3, number) };
+        let list = unsafe { CGWindowListCopyWindowInfo(1 << 3, number) } as *mut AnyObject;
         if list.is_null() {
             return None;
         }
-        let pid = unsafe {
+        unsafe {
             let n: usize = msg_send![&*list, count];
             let pid = if n > 0 {
                 let info: *mut AnyObject = msg_send![&*list, objectAtIndex: 0usize];
@@ -62,8 +62,7 @@ mod imp {
             };
             CFRelease(list as *const std::ffi::c_void);
             pid
-        };
-        pid
+        }
     }
 
     pub fn hide_window(window: &str) -> bool {

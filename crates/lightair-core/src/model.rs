@@ -218,6 +218,8 @@ pub struct ScreenZoomPointer {
     pub zoom_hold_s: f32,
     /// How it moves: 0 focused (quick) … 1 smooth (slow).
     pub zoom_motion: f32,
+    /// On clicks: typing zooms in too, looking where the last click was (the text field).
+    pub zoom_typing: bool,
     /// Lightair draws the pointer (bigger, smoothed, styled); else the capture's own.
     #[serde(alias = "cursor")]
     pub pointer_drawn: bool,
@@ -258,6 +260,7 @@ impl Default for ScreenZoomPointer {
             zoom_scale: 2.0,
             zoom_hold_s: 2.0,
             zoom_motion: 0.5,
+            zoom_typing: true,
             pointer_drawn: true,
             pointer_hidden: false,
             pointer_style: 0,
