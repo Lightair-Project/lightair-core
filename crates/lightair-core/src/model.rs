@@ -201,6 +201,10 @@ pub struct Scene {
     /// and clicks are drawn on them (`None`: as captured).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub screen: Option<ScreenZoomPointer>,
+    /// How switching to this scene looks on air; `None`: the workspace's transition. (A stinger
+    /// plays the workspace's stinger video.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transition: Option<TransitionSettings>,
 }
 
 /// How a scene's screen captures zoom and show the pointer, live (docs/plans/screen-studio.md,
@@ -280,7 +284,7 @@ impl Default for ScreenZoomPointer {
 
 impl Scene {
     pub fn new(name: impl Into<String>) -> Self {
-        Self { id: Id::new(), name: name.into(), objects: Vec::new(), screen: None }
+        Self { id: Id::new(), name: name.into(), objects: Vec::new(), screen: None, transition: None }
     }
     pub fn object(&self, id: Id) -> Option<&Object> {
         self.objects.iter().find(|l| l.id == id)

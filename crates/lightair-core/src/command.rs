@@ -71,6 +71,11 @@ pub enum Command {
         scene: Id,
         screen: Option<crate::model::ScreenZoomPointer>,
     },
+    /// A scene's own transition (used when switching to it); `None`: the workspace's.
+    SetSceneTransition {
+        scene: Id,
+        transition: Option<TransitionSettings>,
+    },
     MoveScene {
         scene: Id,
         to: usize,
@@ -389,6 +394,7 @@ impl Command {
             Command::RemoveScene { .. } => "Remove scene".into(),
             Command::RenameScene { .. } => "Rename scene".into(),
             Command::SetScreenZoomPointer { .. } => "Change screen zoom and pointer".into(),
+            Command::SetSceneTransition { .. } => "Change the scene's transition".into(),
             Command::MoveScene { .. } => "Reorder scenes".into(),
             Command::SetProgram { .. } => "Switch scene".into(),
             Command::AddObject { .. } => "Add object".into(),
@@ -891,6 +897,10 @@ impl Command {
                     workspace.canvas(f).ok_or(CommandError::NoCanvas(f))?;
                 }
                 workspace.outputs.clips = ClipSettings { seconds: settings.seconds.clamp(10, 300), ..*settings }
+            }
+            Command::SetSceneTransition { scene, transition } => {
+                scene_mut(workspace, *scene)?.transition =
+                    transition.map(|t| TransitionSettings { duration_ms: t.duration_ms.clamp(50, 5000), ..t })
             }
             Command::SetTransition { settings } => {
                 workspace.transition =

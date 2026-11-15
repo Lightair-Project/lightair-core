@@ -342,3 +342,19 @@ fn removing_a_mix_takes_it_off_destinations() {
     let d = &doc.workspace().outputs.destinations[0];
     assert_eq!((d.audio_mix, d.vod_mix), (None, None), "back to the master, no VOD track");
 }
+
+#[test]
+fn a_scene_can_have_its_own_transition() {
+    let (mut doc, scene, ..) = setup();
+    let own = lightair_core::TransitionSettings { kind: lightair_core::TransitionKind::Dip, duration_ms: 99_999, ..doc.workspace().transition };
+    doc.apply(&Command::SetSceneTransition { scene, transition: Some(own) }).unwrap();
+    let t = doc.workspace().scene(scene).unwrap().transition.unwrap();
+    assert_eq!(t.kind, lightair_core::TransitionKind::Dip);
+    assert_eq!(t.duration_ms, 5000, "clamped like the default's");
+    // kept with the scene
+    let json = serde_json::to_string(&**doc.workspace().scene(scene).unwrap()).unwrap();
+    let back: lightair_core::Scene = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.transition, Some(t));
+    doc.apply(&Command::SetSceneTransition { scene, transition: None }).unwrap();
+    assert_eq!(doc.workspace().scene(scene).unwrap().transition, None, "back to the default");
+}
