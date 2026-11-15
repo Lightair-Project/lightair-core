@@ -1,7 +1,7 @@
-//! A Studio take's scene (`scene.json` in the take's folder): every layer of the program scene
+//! A Studio take's scene (`scene.json` in the take's folder): every object of the program scene
 //! as it was when the take began, in drawing order (bottom first), so the Editor can rebuild it:
 //! the recorded screens and cameras where they were, and what wasn't recorded (images, text,
-//! colours, video files) as layers of their own. Images are copied into the take's `layers`
+//! colours, video files) as objects of their own. Images are copied into the take's `objects`
 //! folder, so a take carries what it needs.
 
 use std::path::{Path, PathBuf};
@@ -15,13 +15,14 @@ pub const FILE: &str = "scene.json";
 pub struct TakeScene {
     /// The canvas's size (pixels).
     pub canvas: (u32, u32),
-    pub layers: Vec<SceneLayer>,
+    #[serde(alias = "layers")]
+    pub objects: Vec<SceneObject>,
 }
 
-/// A layer: where it was (fractions of the canvas: its box's top-left and size), and what it
+/// A object: where it was (fractions of the canvas: its box's top-left and size), and what it
 /// showed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SceneLayer {
+pub struct SceneObject {
     pub name: String,
     pub x: f32,
     pub y: f32,
@@ -71,10 +72,10 @@ impl TakeScene {
         let scene = workspace.program.and_then(|p| workspace.scene(p))?.flatten();
         let canvas = workspace.primary_canvas();
         let (cw, ch) = (canvas.width.max(1) as f32, canvas.height.max(1) as f32);
-        let mut layers = Vec::new();
-        for (n, layer) in scene.layers.iter().enumerate() {
-            let Some(layout) = layer.layouts.get(&canvas.id).filter(|l| l.visible) else { continue };
-            let Some(source) = layer.source.and_then(|i| workspace.sources.get(&i)) else { continue };
+        let mut objects = Vec::new();
+        for (n, object) in scene.objects.iter().enumerate() {
+            let Some(layout) = object.layouts.get(&canvas.id).filter(|l| l.visible) else { continue };
+            let Some(source) = object.source.and_then(|i| workspace.sources.get(&i)) else { continue };
             let s = &source.settings;
             let what = match source.kind.as_str() {
                 kinds::SCREEN | kinds::CAMERA => What::Recorded { source: source.id },
@@ -108,8 +109,8 @@ impl TakeScene {
                 }
                 k => What::Other { kind: k.to_string() },
             };
-            layers.push(SceneLayer {
-                name: layer.name.clone(),
+            objects.push(SceneObject {
+                name: object.name.clone(),
                 x: layout.x / cw,
                 y: layout.y / ch,
                 w: layout.width / cw,
@@ -119,7 +120,7 @@ impl TakeScene {
                 what,
             });
         }
-        Some(TakeScene { canvas: (canvas.width, canvas.height), layers })
+        Some(TakeScene { canvas: (canvas.width, canvas.height), objects })
     }
 
     pub fn read(folder: &Path) -> Option<TakeScene> {
@@ -146,7 +147,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let s = TakeScene {
             canvas: (1920, 1080),
-            layers: vec![SceneLayer { name: "Logo".into(), x: 0.1, y: 0.1, w: 0.2, h: 0.1, rotation: 0.0, opacity: 1.0, what: What::Text { text: "Hi".into(), size: 64.0, color: 0xFFFFFF, bold: true } }],
+            objects: vec![SceneObject { name: "Logo".into(), x: 0.1, y: 0.1, w: 0.2, h: 0.1, rotation: 0.0, opacity: 1.0, what: What::Text { text: "Hi".into(), size: 64.0, color: 0xFFFFFF, bold: true } }],
         };
         s.write(dir.path()).unwrap();
         assert_eq!(TakeScene::read(dir.path()), Some(s));

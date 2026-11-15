@@ -39,7 +39,7 @@ fn routing_to_buses_and_loops() {
     assert!(matches!(missing, Err(CommandError::NoBus(_))));
     // removing Guests sends the track back to Program
     doc.apply(&Command::RemoveBus { bus: a.id }).unwrap();
-    assert_eq!(track(&doc, tid).route, Route::Program);
+    assert_eq!(track(&doc, tid).route, Route::Master);
 }
 
 #[test]
@@ -70,7 +70,7 @@ fn older_projects_load_and_their_filters_become_engine_effects() {
         "effects": [{"id": lightair_core::Id::new(), "name": "Gate", "kind": "noise_gate_filter", "enabled": true,
             "settings": {"open_threshold": -30.0, "close_threshold": -36.0}}]});
     let t: Track = serde_json::from_value(old).unwrap();
-    assert_eq!((t.route, t.channels, t.pan, t.record), (Route::Program, TrackChannels::All, 0.0, false));
+    assert_eq!((t.route, t.channels, t.pan, t.record), (Route::Master, TrackChannels::All, 0.0, false));
     let gate = lightair_core::catalog::migrate_audio_effect(&t.effects[0]).unwrap();
     assert_eq!(gate.kind, "audio.gate");
     assert_eq!(gate.settings["threshold_db"], -30.0);

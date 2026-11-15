@@ -392,7 +392,7 @@ fn a_take_comes_as_its_parts() {
 #[test]
 fn a_takes_scene_comes_back_as_layers_where_they_were() {
     use lightair_render::sequence::{Content, MediaKind};
-    use lightair_store::take_scene::{SceneLayer, TakeScene, What};
+    use lightair_store::take_scene::{SceneObject, TakeScene, What};
     let dir = tempfile::tempdir().unwrap();
     let folder = dir.path().join("Take.lightair-take");
     std::fs::create_dir_all(folder.join("layers")).unwrap();
@@ -409,10 +409,10 @@ fn a_takes_scene_comes_back_as_layers_where_they_were() {
         format!(r#"{{"duration_ms":2000,"video":[{{"name":"Camera","file":"camera.mp4","input":"{camera}"}}],"audio":["Audio - Mic.wav"]}}"#),
     )
     .unwrap();
-    let layer = |name: &str, x, y, w, h, what| SceneLayer { name: name.into(), x, y, w, h, rotation: 0.0, opacity: 1.0, what };
+    let layer = |name: &str, x, y, w, h, what| SceneObject { name: name.into(), x, y, w, h, rotation: 0.0, opacity: 1.0, what };
     TakeScene {
         canvas: (1920, 1080),
-        layers: vec![
+        objects: vec![
             layer("Background", 0.0, 0.0, 1.0, 1.0, What::Colour { color: 0x00FF00, alpha: 1.0 }),
             layer("Camera", 0.05, 0.1, 0.5, 0.5, What::Recorded { source: camera }),
             layer("Logo", 0.8, 0.05, 0.1, 0.1 * 16.0 / 9.0, What::Image { file: "layers/0-logo.png".into() }),

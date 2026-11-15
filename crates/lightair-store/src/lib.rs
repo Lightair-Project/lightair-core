@@ -20,7 +20,7 @@ pub mod import_obs;
 pub mod input_log;
 pub mod recordings;
 pub mod take_scene;
-pub use import_obs::{EstimatedLayer, ImportError, ImportReport, import_obs_collection};
+pub use import_obs::{EstimatedObject, ImportError, ImportReport, import_obs_collection};
 
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};

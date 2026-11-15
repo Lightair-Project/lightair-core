@@ -7,7 +7,7 @@
 
 use serde_json::json;
 
-use crate::{Command, Fit, Id, Source, Layer, Layout, Workspace, Scene, Shape, ShapeKind, TransitionKind, TransitionSettings};
+use crate::{Command, Fit, Id, Source, Object, Layout, Workspace, Scene, Shape, ShapeKind, TransitionKind, TransitionSettings};
 
 /// Space around the screen, as a fraction of the canvas's height.
 const PADDING: f32 = 0.07;
@@ -53,16 +53,16 @@ pub fn scenes(workspace: &Workspace, s: &Sources) -> Vec<Command> {
                     "shadow_radius": bh.min(bw) * 0.025, "shadow_blur": h * 0.035, "shadow_opacity": 0.5,
                 }),
             );
-            scene.layers.push(Layer { link: Some(backdrop_link), ..Layer::new("Backdrop", backdrop.id, [(fid, Layout::boxed(0.0, 0.0, w, h))]) });
+            scene.objects.push(Object { link: Some(backdrop_link), ..Object::new("Backdrop", backdrop.id, [(fid, Layout::boxed(0.0, 0.0, w, h))]) });
             commands.push(Command::AddSource { source: backdrop });
             let mut l = Layout::boxed(x, y, bw, bh);
             l.fit = Fit::Stretch;
             // corners about 1.5% of the short side
             l.shape = Some(rounded(0.05));
-            scene.layers.push(Layer::new("Screen", s.screen, [(fid, l)]));
+            scene.objects.push(Object::new("Screen", s.screen, [(fid, l)]));
         }
         if let (Some(cam), Some((layout, label))) = (s.camera, camera) {
-            scene.layers.push(Layer::new(label, cam, [(fid, layout)]));
+            scene.objects.push(Object::new(label, cam, [(fid, layout)]));
         }
         commands.push(Command::AddScene { scene, index: None });
     };
@@ -123,9 +123,9 @@ mod tests {
         assert_eq!(names, ["Screen", "Screen + camera", "Split", "Camera"]);
         let f = p.primary_canvas().id;
         for scene in &p.scenes[..3] {
-            let screen = scene.layers.iter().find(|l| l.source == Some(sid)).unwrap().layouts[&f];
+            let screen = scene.objects.iter().find(|l| l.source == Some(sid)).unwrap().layouts[&f];
             assert!((screen.width / screen.height - 1.6).abs() < 0.01, "the box has the screen's shape");
-            let backdrop = p.sources.get(&scene.layers[0].source.unwrap()).unwrap();
+            let backdrop = p.sources.get(&scene.objects[0].source.unwrap()).unwrap();
             assert_eq!(backdrop.kind, "lightair_backdrop");
             assert_eq!(backdrop.settings["shadow_x"].as_f64().unwrap() as f32, screen.x, "the shadow is under it");
             assert_eq!(backdrop.settings["shadow_w"].as_f64().unwrap() as f32, screen.width);

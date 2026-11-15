@@ -20,14 +20,14 @@ fn scenes_inputs_and_order() {
     assert!(names.ends_with(&["Live", "Break"]), "{names:?}");
     let live = p.scenes.iter().find(|s| s.name == "Live").unwrap();
     assert_eq!(p.program, Some(live.id), "program is OBS's program scene");
-    assert_eq!(live.layers.len(), 3);
+    assert_eq!(live.objects.len(), 3);
     let cam = p.sources.values().find(|i| i.name == "Camera").unwrap();
     assert_eq!(cam.kind, lightair_core::kinds::CAMERA, "a portable kind");
     assert_eq!(cam.settings["device"], "cam-1");
     let bg = p.sources.values().find(|i| i.name == "Backdrop").unwrap();
     assert_eq!(bg.kind, "color_source_v3", "versioned id wins");
     // The nested scene item in Break is skipped.
-    assert_eq!(p.scenes.iter().find(|s| s.name == "Break").unwrap().layers.len(), 1);
+    assert_eq!(p.scenes.iter().find(|s| s.name == "Break").unwrap().objects.len(), 1);
 }
 
 #[test]
@@ -35,16 +35,16 @@ fn geometry() {
     let (p, _) = imported();
     let f = p.primary_canvas().id;
     let live = p.scenes.iter().find(|s| s.name == "Live").unwrap();
-    let bg = &live.layers[0].layouts[&f];
+    let bg = &live.objects[0].layouts[&f];
     // Centre-aligned at (960,540), 1920x1080 at half scale.
     assert_eq!((bg.x, bg.y, bg.width, bg.height), (480.0, 270.0, 960.0, 540.0));
     assert_eq!((bg.crop.left, bg.crop.bottom), (10, 20));
     // Bottom-right aligned bounds box ending at (1900,1060).
-    let cam = &live.layers[1].layouts[&f];
+    let cam = &live.objects[1].layouts[&f];
     assert_eq!((cam.x, cam.y, cam.width, cam.height), (1260.0, 700.0, 640.0, 360.0));
     assert_eq!(cam.fit, Fit::Fit);
     assert!(!cam.visible);
-    assert!(p.scenes.iter().find(|s| s.name == "Break").unwrap().layers[0].locked);
+    assert!(p.scenes.iter().find(|s| s.name == "Break").unwrap().objects[0].locked);
 }
 
 #[test]
@@ -92,7 +92,7 @@ fn names_stay_unique_and_import_is_one_undo_step() {
 }
 
 #[test]
-fn estimated_layers_refit_to_the_real_size() {
+fn estimated_objects_refit_to_the_real_size() {
     let (cmd, report) = import_obs_collection(FIXTURE, &Workspace::new("Mine")).unwrap();
     drop(cmd);
     // Viz is a plugin source at scale 0.25 with top-left alignment at (100,100); its size was

@@ -1,7 +1,7 @@
-//! Layers inside layers: empties, children placed in their parent's space, and the flat list
+//! Objects inside objects: empties, children placed in their parent's space, and the flat list
 //! the engine draws.
 
-use lightair_core::{Command, CommandError, Document, Id, Source, Layer, Layout, Workspace, Scene};
+use lightair_core::{Command, CommandError, Document, Id, Source, Object, Layout, Workspace, Scene};
 
 struct Setup {
     doc: Document,
@@ -24,18 +24,18 @@ fn setup() -> Setup {
 }
 
 impl Setup {
-    fn add(&mut self, layer: Layer, index: Option<usize>) -> Id {
-        let id = layer.id;
-        self.doc.apply(&Command::AddLayer { scene: self.scene, layer, index }).unwrap();
+    fn add(&mut self, object: Object, index: Option<usize>) -> Id {
+        let id = object.id;
+        self.doc.apply(&Command::AddObject { scene: self.scene, object, index }).unwrap();
         id
     }
     fn picture(&mut self, name: &str, at: (f32, f32, f32, f32), parent: Option<Id>) -> Id {
-        let mut l = Layer::new(name, self.source, [(self.canvas, Layout::boxed(at.0, at.1, at.2, at.3))]);
+        let mut l = Object::new(name, self.source, [(self.canvas, Layout::boxed(at.0, at.1, at.2, at.3))]);
         l.parent = parent;
         self.add(l, None)
     }
     fn empty(&mut self, name: &str, at: (f32, f32), parent: Option<Id>) -> Id {
-        let mut l = Layer::empty(name, [(self.canvas, at)]);
+        let mut l = Object::empty(name, [(self.canvas, at)]);
         l.parent = parent;
         self.add(l, None)
     }
@@ -43,16 +43,16 @@ impl Setup {
         self.doc.workspace().scene(self.scene).unwrap()
     }
     fn names(&self) -> Vec<String> {
-        self.scene().layers.iter().map(|l| l.name.clone()).collect()
+        self.scene().objects.iter().map(|l| l.name.clone()).collect()
     }
     fn world(&self, id: Id) -> Layout {
         self.scene().world(id, self.canvas).unwrap()
     }
     fn set(&mut self, id: Id, f: impl FnOnce(&mut Layout)) {
-        let mut layout = self.scene().layer(id).unwrap().layouts[&self.canvas];
+        let mut layout = self.scene().object(id).unwrap().layouts[&self.canvas];
         f(&mut layout);
         let (scene, canvas) = (self.scene, self.canvas);
-        self.doc.apply(&Command::SetLayout { scene, layer: id, canvas, layout }).unwrap();
+        self.doc.apply(&Command::SetLayout { scene, object: id, canvas, layout }).unwrap();
     }
 }
 
@@ -108,30 +108,30 @@ fn reparenting_keeps_the_picture_in_place() {
     let logo = s.picture("Logo", (100.0, 50.0, 200.0, 100.0), None);
     let before = s.world(logo);
     let (scene, canvas) = (s.scene, s.canvas);
-    s.doc.apply(&Command::ReparentLayer { scene, layer: logo, parent: Some(group), index: None }).unwrap();
-    assert_eq!(s.scene().layer(logo).unwrap().parent, Some(group));
+    s.doc.apply(&Command::ReparentObject { scene, object: logo, parent: Some(group), index: None }).unwrap();
+    assert_eq!(s.scene().object(logo).unwrap().parent, Some(group));
     let inside = s.world(logo);
     assert!(close(inside.x, before.x) && close(inside.y, before.y), "{before:?} → {inside:?}");
     assert!(close(inside.width, before.width) && close(inside.rotation, before.rotation));
     // Stored in the group's space: unturned by it and unscaled.
-    let local = s.scene().layer(logo).unwrap().layouts[&canvas];
+    let local = s.scene().object(logo).unwrap().layouts[&canvas];
     assert!(close(local.rotation, -30.0) && close(local.width, 200.0 / 1.5), "{local:?}");
 
     // And back out.
-    s.doc.apply(&Command::ReparentLayer { scene, layer: logo, parent: None, index: None }).unwrap();
+    s.doc.apply(&Command::ReparentObject { scene, object: logo, parent: None, index: None }).unwrap();
     let out = s.world(logo);
     assert!(close(out.x, before.x) && close(out.y, before.y) && close(out.rotation, 0.0), "{out:?}");
     assert!(s.scene().is_well_formed());
 }
 
 #[test]
-fn a_layer_cant_go_inside_itself() {
+fn a_object_cant_go_inside_itself() {
     let mut s = setup();
     let outer = s.empty("Outer", (0.0, 0.0), None);
     let inner = s.empty("Inner", (0.0, 0.0), Some(outer));
     let (scene, _) = (s.scene, s.canvas);
-    for (layer, parent) in [(outer, inner), (outer, outer)] {
-        let err = s.doc.apply(&Command::ReparentLayer { scene, layer, parent: Some(parent), index: None });
+    for (object, parent) in [(outer, inner), (outer, outer)] {
+        let err = s.doc.apply(&Command::ReparentObject { scene, object, parent: Some(parent), index: None });
         assert!(matches!(err, Err(CommandError::BadHierarchy)), "{err:?}");
     }
 }
@@ -149,18 +149,18 @@ fn moves_and_removals_take_the_whole_subtree() {
 
     // The group to the back of the top level.
     let scene = s.scene;
-    s.doc.apply(&Command::MoveLayer { scene, layer: group, to: 0 }).unwrap();
+    s.doc.apply(&Command::MoveObject { scene, object: group, to: 0 }).unwrap();
     assert_eq!(s.names(), ["Group", "A", "Inner", "C", "Back", "Front"]);
     // Inner behind A, inside the group.
-    s.doc.apply(&Command::MoveLayer { scene, layer: inner, to: 0 }).unwrap();
+    s.doc.apply(&Command::MoveObject { scene, object: inner, to: 0 }).unwrap();
     assert_eq!(s.names(), ["Group", "Inner", "C", "A", "Back", "Front"]);
     assert!(s.scene().is_well_formed());
-    // Into Back (a picture can hold layers too), then removing the group takes its subtree.
-    s.doc.apply(&Command::ReparentLayer { scene, layer: inner, parent: Some(back), index: None }).unwrap();
+    // Into Back (a picture can hold objects too), then removing the group takes its subtree.
+    s.doc.apply(&Command::ReparentObject { scene, object: inner, parent: Some(back), index: None }).unwrap();
     assert_eq!(s.names(), ["Group", "A", "Back", "Inner", "C", "Front"]);
-    s.doc.apply(&Command::RemoveLayer { scene, layer: group }).unwrap();
+    s.doc.apply(&Command::RemoveObject { scene, object: group }).unwrap();
     assert_eq!(s.names(), ["Back", "Inner", "C", "Front"]);
-    s.doc.apply(&Command::RemoveLayer { scene, layer: back }).unwrap();
+    s.doc.apply(&Command::RemoveObject { scene, object: back }).unwrap();
     assert_eq!(s.names(), ["Front"]);
 }
 
@@ -171,21 +171,21 @@ fn flattening_gives_the_pictures_in_world_terms() {
     let a = s.picture("A", (0.0, 0.0, 50.0, 50.0), Some(group));
     let b = s.picture("B", (10.0, 10.0, 50.0, 50.0), None);
     let flat = s.scene().flatten();
-    assert_eq!(flat.layers.iter().map(|l| l.id).collect::<Vec<_>>(), [a, b], "empties aren't drawn");
-    assert!(flat.layers.iter().all(|l| l.parent.is_none()));
-    let fa = flat.layers[0].layouts[&s.canvas];
+    assert_eq!(flat.objects.iter().map(|l| l.id).collect::<Vec<_>>(), [a, b], "empties aren't drawn");
+    assert!(flat.objects.iter().all(|l| l.parent.is_none()));
+    let fa = flat.objects[0].layouts[&s.canvas];
     assert!(close(fa.x, 100.0) && close(fa.y, 100.0), "{fa:?}");
 
     // A hidden or faded parent hides or fades its children; a lock passes down too.
     s.set(group, |l| l.opacity = 0.5);
     s.set(a, |l| l.opacity = 0.5);
-    let fa = s.scene().flatten().layers[0].layouts[&s.canvas];
+    let fa = s.scene().flatten().objects[0].layouts[&s.canvas];
     assert!(close(fa.opacity, 0.25) && fa.visible);
     s.set(group, |l| l.visible = false);
-    assert!(!s.scene().flatten().layers[0].layouts[&s.canvas].visible);
+    assert!(!s.scene().flatten().objects[0].layouts[&s.canvas].visible);
     let scene = s.scene;
-    s.doc.apply(&Command::SetLayerLocked { scene, layer: group, locked: true }).unwrap();
-    assert!(s.scene().flatten().layers[0].locked);
+    s.doc.apply(&Command::SetObjectLocked { scene, object: group, locked: true }).unwrap();
+    assert!(s.scene().flatten().objects[0].locked);
 
     // A scene without nesting flattens to itself.
     let mut flat_only = setup();
@@ -201,8 +201,8 @@ fn older_projects_still_load() {
         "layouts":{"0190a8f0-0000-7000-8000-000000000003":{"x":0,"y":0,"width":10,"height":10,
           "rotation":0,"crop":{"left":0,"top":0,"right":0,"bottom":0},"fit":"Fit","visible":true,
           "opacity":1}},"locked":false}"#;
-    let layer: Layer = serde_json::from_str(json).unwrap();
-    assert!(layer.source.is_some() && layer.parent.is_none());
-    let l = layer.layouts.values().next().unwrap();
+    let object: Object = serde_json::from_str(json).unwrap();
+    assert!(object.source.is_some() && object.parent.is_none());
+    let l = object.layouts.values().next().unwrap();
     assert!(close(l.scale_x, 1.0) && close(l.scale_y, 1.0));
 }

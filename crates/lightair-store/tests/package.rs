@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use lightair_core::{Command, Source, Layer, Layout, Workspace, Scene};
+use lightair_core::{Command, Source, Object, Layout, Workspace, Scene};
 use lightair_store::{Package, StoreError, load_snapshot, save};
 use serde_json::json;
 
@@ -9,8 +9,8 @@ fn sample() -> (Workspace, Vec<Command>) {
     let canvas = workspace.primary_canvas().id;
     let cam = Source::new("Camera", lightair_core::kinds::CAMERA, json!({"device": "abc"}));
     let scene = Scene::new("Main");
-    let layer = Layer::new("Camera", cam.id, [(canvas, Layout::boxed(0.0, 0.0, 1920.0, 1080.0))]);
-    let cmds = [Command::AddSource { source: cam }, Command::AddLayer { scene: scene.id, layer, index: None }];
+    let object = Object::new("Camera", cam.id, [(canvas, Layout::boxed(0.0, 0.0, 1920.0, 1080.0))]);
+    let cmds = [Command::AddSource { source: cam }, Command::AddObject { scene: scene.id, object, index: None }];
     let mut cmds_full = vec![Command::AddScene { scene, index: None }];
     cmds_full.splice(0..0, cmds[..1].to_vec());
     cmds_full.push(cmds[1].clone());

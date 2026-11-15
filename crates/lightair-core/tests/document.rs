@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use lightair_core::{
-    Command, CommandError, Document, Source, Layer, LayerPatch, Layout, Patch, Workspace, Scene, diff, diff_layers,
+    Command, CommandError, Document, Source, Object, ObjectPatch, Layout, Patch, Workspace, Scene, diff, diff_objects,
 };
 use proptest::prelude::*;
 
@@ -15,10 +15,10 @@ fn setup() -> (Document, lightair_core::Id, lightair_core::Id, lightair_core::Id
     let scene = Scene::new("Main");
     let scene_id = scene.id;
     doc.apply(&Command::AddScene { scene, index: None }).unwrap();
-    let layer = Layer::new("Camera", cam_id, [(canvas, Layout::boxed(0.0, 0.0, 1920.0, 1080.0))]);
-    let layer_id = layer.id;
-    doc.apply(&Command::AddLayer { scene: scene_id, layer, index: None }).unwrap();
-    (doc, scene_id, layer_id, canvas)
+    let object = Object::new("Camera", cam_id, [(canvas, Layout::boxed(0.0, 0.0, 1920.0, 1080.0))]);
+    let object_id = object.id;
+    doc.apply(&Command::AddObject { scene: scene_id, object, index: None }).unwrap();
+    (doc, scene_id, object_id, canvas)
 }
 
 #[test]
@@ -29,50 +29,50 @@ fn first_scene_goes_on_air() {
 
 #[test]
 fn undo_and_redo_restore_snapshots() {
-    let (mut doc, scene, layer, canvas) = setup();
+    let (mut doc, scene, object, canvas) = setup();
     let before = doc.workspace().clone();
-    doc.apply(&Command::SetLayout { scene, layer, canvas, layout: Layout::boxed(10.0, 20.0, 640.0, 360.0) }).unwrap();
+    doc.apply(&Command::SetLayout { scene, object, canvas, layout: Layout::boxed(10.0, 20.0, 640.0, 360.0) }).unwrap();
     assert_eq!(doc.undo_label(), Some("Move object"));
     doc.undo().unwrap();
     assert_eq!(**doc.workspace(), *before);
     doc.redo().unwrap();
-    assert_eq!(doc.workspace().scene(scene).unwrap().layer(layer).unwrap().layouts[&canvas].x, 10.0);
+    assert_eq!(doc.workspace().scene(scene).unwrap().object(object).unwrap().layouts[&canvas].x, 10.0);
 }
 
 #[test]
 fn a_drag_gesture_is_one_undo_step() {
-    let (mut doc, scene, layer, canvas) = setup();
+    let (mut doc, scene, object, canvas) = setup();
     let steps = doc_undo_depth(&doc);
     doc.begin_gesture();
     for x in 0..50 {
-        doc.apply(&Command::SetLayout { scene, layer, canvas, layout: Layout::boxed(x as f32, 0.0, 100.0, 100.0) })
+        doc.apply(&Command::SetLayout { scene, object, canvas, layout: Layout::boxed(x as f32, 0.0, 100.0, 100.0) })
             .unwrap();
     }
     doc.end_gesture();
     assert_eq!(doc_undo_depth(&doc), steps + 1);
     doc.undo().unwrap();
-    assert_eq!(doc.workspace().scene(scene).unwrap().layer(layer).unwrap().layouts[&canvas].x, 0.0);
+    assert_eq!(doc.workspace().scene(scene).unwrap().object(object).unwrap().layouts[&canvas].x, 0.0);
     // The next drag is a separate step.
     doc.begin_gesture();
-    doc.apply(&Command::SetLayout { scene, layer, canvas, layout: Layout::boxed(5.0, 0.0, 100.0, 100.0) }).unwrap();
+    doc.apply(&Command::SetLayout { scene, object, canvas, layout: Layout::boxed(5.0, 0.0, 100.0, 100.0) }).unwrap();
     doc.end_gesture();
     assert_eq!(doc_undo_depth(&doc), steps + 1);
 }
 
 #[test]
-fn dragging_several_layers_is_one_undo_step() {
+fn dragging_several_objects_is_one_undo_step() {
     let (mut doc, scene, first, canvas) = setup();
-    let cam = doc.workspace().scene(scene).unwrap().layer(first).unwrap().source.unwrap();
-    let second = Layer::new("Copy", cam, [(canvas, Layout::boxed(0.0, 0.0, 100.0, 100.0))]);
+    let cam = doc.workspace().scene(scene).unwrap().object(first).unwrap().source.unwrap();
+    let second = Object::new("Copy", cam, [(canvas, Layout::boxed(0.0, 0.0, 100.0, 100.0))]);
     let second_id = second.id;
-    doc.apply(&Command::AddLayer { scene, layer: second, index: None }).unwrap();
+    doc.apply(&Command::AddObject { scene, object: second, index: None }).unwrap();
     let steps = doc_undo_depth(&doc);
     doc.begin_gesture();
     for x in 1..20 {
         let commands = [first, second_id]
-            .map(|layer| Command::SetLayout {
+            .map(|object| Command::SetLayout {
                 scene,
-                layer,
+                object,
                 canvas,
                 layout: Layout::boxed(x as f32, 0.0, 100.0, 100.0),
             })
@@ -82,23 +82,23 @@ fn dragging_several_layers_is_one_undo_step() {
     doc.end_gesture();
     assert_eq!(doc_undo_depth(&doc), steps + 1);
     doc.undo().unwrap();
-    assert_eq!(doc.workspace().scene(scene).unwrap().layer(second_id).unwrap().layouts[&canvas].x, 0.0);
+    assert_eq!(doc.workspace().scene(scene).unwrap().object(second_id).unwrap().layouts[&canvas].x, 0.0);
 }
 
 #[test]
 fn removing_a_canvas_retargets_outputs() {
-    let (mut doc, scene, layer, _) = setup();
+    let (mut doc, scene, object, _) = setup();
     let square = lightair_core::Canvas::square();
     let sq = square.id;
     doc.apply(&Command::AddCanvas { canvas: square }).unwrap();
     let mut clips = doc.workspace().outputs.clips;
     clips.canvas = Some(sq);
     doc.apply(&Command::SetClipSettings { settings: clips }).unwrap();
-    doc.apply(&Command::SetLayout { scene, layer, canvas: sq, layout: Layout::boxed(0.0, 0.0, 1080.0, 1080.0) })
+    doc.apply(&Command::SetLayout { scene, object, canvas: sq, layout: Layout::boxed(0.0, 0.0, 1080.0, 1080.0) })
         .unwrap();
     doc.apply(&Command::RemoveCanvas { canvas: sq }).unwrap();
     assert_eq!(doc.workspace().outputs.clips.canvas, None, "clips fall back to the primary format");
-    assert!(!doc.workspace().scene(scene).unwrap().layer(layer).unwrap().layouts.contains_key(&sq));
+    assert!(!doc.workspace().scene(scene).unwrap().object(object).unwrap().layouts.contains_key(&sq));
     let odd = lightair_core::Canvas::custom("Odd", 1001, 99999);
     assert_eq!((odd.width, odd.height), (1000, 7680));
 }
@@ -151,7 +151,7 @@ fn failing_commands_change_nothing() {
     let (mut doc, scene, ..) = setup();
     let before = doc.workspace().clone();
     let ghost = lightair_core::Id::new();
-    assert_eq!(doc.apply(&Command::RemoveLayer { scene, layer: ghost }).unwrap_err(), CommandError::NoLayer(ghost));
+    assert_eq!(doc.apply(&Command::RemoveObject { scene, object: ghost }).unwrap_err(), CommandError::NoObject(ghost));
     let cam = *doc.workspace().sources.keys().next().unwrap();
     assert!(matches!(doc.apply(&Command::RemoveSource { source: cam }), Err(CommandError::SourceInUse(1))));
     // A batch that fails halfway leaves no trace.
@@ -177,7 +177,7 @@ fn unchanged_scenes_share_memory() {
 
 #[test]
 fn diff_orders_and_detects_changes() {
-    let (doc, scene, layer, canvas) = setup();
+    let (doc, scene, object, canvas) = setup();
     let empty = doc.workspace().empty_like();
     let patches = diff(&empty, doc.workspace());
     let kinds: Vec<&str> = patches
@@ -192,24 +192,24 @@ fn diff_orders_and_detects_changes() {
     assert_eq!(kinds, ["input+", "scene+", "program"]);
 
     let mut doc2 = doc.clone();
-    doc2.apply(&Command::SetLayout { scene, layer, canvas, layout: Layout::boxed(1.0, 2.0, 3.0, 4.0) }).unwrap();
+    doc2.apply(&Command::SetLayout { scene, object, canvas, layout: Layout::boxed(1.0, 2.0, 3.0, 4.0) }).unwrap();
     let patches = diff(doc.workspace(), doc2.workspace());
     let Patch::SceneChanged { before, after } = &patches[0] else { panic!("{patches:?}") };
-    assert!(matches!(diff_layers(before, after)[..], [LayerPatch::Changed { .. }]));
+    assert!(matches!(diff_objects(before, after)[..], [ObjectPatch::Changed { .. }]));
     assert_eq!(patches.len(), 1);
 }
 
 #[test]
-fn layer_reorder_is_one_order_patch() {
-    let (mut doc, scene, _layer, canvas) = setup();
+fn object_reorder_is_one_order_patch() {
+    let (mut doc, scene, _object, canvas) = setup();
     let cam = *doc.workspace().sources.keys().next().unwrap();
-    let top = Layer::new("Top", cam, [(canvas, Layout::boxed(0.0, 0.0, 10.0, 10.0))]);
+    let top = Object::new("Top", cam, [(canvas, Layout::boxed(0.0, 0.0, 10.0, 10.0))]);
     let top_id = top.id;
-    doc.apply(&Command::AddLayer { scene, layer: top, index: None }).unwrap();
+    doc.apply(&Command::AddObject { scene, object: top, index: None }).unwrap();
     let before = doc.workspace().scene(scene).unwrap().clone();
-    doc.apply(&Command::MoveLayer { scene, layer: top_id, to: 0 }).unwrap();
+    doc.apply(&Command::MoveObject { scene, object: top_id, to: 0 }).unwrap();
     let after = doc.workspace().scene(scene).unwrap().clone();
-    assert!(matches!(diff_layers(&before, &after)[..], [LayerPatch::Order(_)]));
+    assert!(matches!(diff_objects(&before, &after)[..], [ObjectPatch::Order(_)]));
 }
 
 #[test]
@@ -226,20 +226,20 @@ fn workspace_round_trips_through_json() {
 enum Op {
     AddScene,
     RenameFirst(u8),
-    AddLayerToFirst,
-    MoveFirstLayer(f32),
+    AddObjectToFirst,
+    MoveFirstObject(f32),
     RemoveLastScene,
-    ReorderLayers,
+    ReorderObjects,
 }
 
 fn op() -> impl Strategy<Value = Op> {
     prop_oneof![
         Just(Op::AddScene),
         any::<u8>().prop_map(Op::RenameFirst),
-        Just(Op::AddLayerToFirst),
-        (0f32..1000.0).prop_map(Op::MoveFirstLayer),
+        Just(Op::AddObjectToFirst),
+        (0f32..1000.0).prop_map(Op::MoveFirstObject),
         Just(Op::RemoveLastScene),
-        Just(Op::ReorderLayers),
+        Just(Op::ReorderObjects),
     ]
 }
 
@@ -257,13 +257,13 @@ proptest! {
             let cmd = match op {
                 Op::AddScene => Some(Command::AddScene { scene: Scene::new("S"), index: None }),
                 Op::RenameFirst(n) => p.scenes.first().map(|s| Command::RenameScene { scene: s.id, name: format!("S{n}") }),
-                Op::AddLayerToFirst => p.scenes.first().map(|s| Command::AddLayer {
-                    scene: s.id, layer: Layer::new("L", cam, [(canvas, Layout::boxed(0.0, 0.0, 1.0, 1.0))]), index: None }),
-                Op::MoveFirstLayer(x) => p.scenes.first().and_then(|s| s.layers.first().map(|l| Command::SetLayout {
-                    scene: s.id, layer: l.id, canvas, layout: Layout::boxed(x, 0.0, 1.0, 1.0) })),
+                Op::AddObjectToFirst => p.scenes.first().map(|s| Command::AddObject {
+                    scene: s.id, object: Object::new("L", cam, [(canvas, Layout::boxed(0.0, 0.0, 1.0, 1.0))]), index: None }),
+                Op::MoveFirstObject(x) => p.scenes.first().and_then(|s| s.objects.first().map(|l| Command::SetLayout {
+                    scene: s.id, object: l.id, canvas, layout: Layout::boxed(x, 0.0, 1.0, 1.0) })),
                 Op::RemoveLastScene => p.scenes.last().map(|s| Command::RemoveScene { scene: s.id }),
-                Op::ReorderLayers => p.scenes.first().and_then(|s| s.layers.last().map(|l| Command::MoveLayer {
-                    scene: s.id, layer: l.id, to: 0 })),
+                Op::ReorderObjects => p.scenes.first().and_then(|s| s.objects.last().map(|l| Command::MoveObject {
+                    scene: s.id, object: l.id, to: 0 })),
             };
             if let Some(cmd) = cmd { let _ = doc.apply(&cmd); }
         }

@@ -8,7 +8,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use crate::model::{Canvas, Id, Source, Layer, Workspace, Scene, Track};
+use crate::model::{Canvas, Id, Source, Object, Workspace, Scene, Track};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Patch {
@@ -22,7 +22,7 @@ pub enum Patch {
     },
     SourceRemoved(Id),
     SceneAdded(Arc<Scene>),
-    /// Layers changed in an existing scene (added, removed, reordered or re-laid-out).
+    /// Objects changed in an existing scene (added, removed, reordered or re-laid-out).
     SceneChanged {
         before: Arc<Scene>,
         after: Arc<Scene>,
@@ -119,41 +119,41 @@ pub fn diff(before: &Workspace, after: &Workspace) -> Vec<Patch> {
     out
 }
 
-/// Layer-level changes inside one scene, for the reconciler.
+/// Object-level changes inside one scene, for the reconciler.
 #[derive(Debug, Clone, PartialEq)]
-pub enum LayerPatch<'a> {
+pub enum ObjectPatch<'a> {
     Added {
-        layer: &'a Layer,
+        object: &'a Object,
         index: usize,
     },
     Removed {
-        layer: Id,
+        object: Id,
     },
     Changed {
-        layer: &'a Layer,
+        object: &'a Object,
     },
-    /// Final bottom-to-top order, sent once if any layer moved.
+    /// Final bottom-to-top order, sent once if any object moved.
     Order(Vec<Id>),
 }
 
-pub fn diff_layers<'a>(before: &'a Scene, after: &'a Scene) -> Vec<LayerPatch<'a>> {
+pub fn diff_objects<'a>(before: &'a Scene, after: &'a Scene) -> Vec<ObjectPatch<'a>> {
     let mut out = Vec::new();
-    for l in &before.layers {
-        if after.layer(l.id).is_none() {
-            out.push(LayerPatch::Removed { layer: l.id });
+    for l in &before.objects {
+        if after.object(l.id).is_none() {
+            out.push(ObjectPatch::Removed { object: l.id });
         }
     }
-    for (index, l) in after.layers.iter().enumerate() {
-        match before.layer(l.id) {
-            None => out.push(LayerPatch::Added { layer: l, index }),
-            Some(old) if old != l => out.push(LayerPatch::Changed { layer: l }),
+    for (index, l) in after.objects.iter().enumerate() {
+        match before.object(l.id) {
+            None => out.push(ObjectPatch::Added { object: l, index }),
+            Some(old) if old != l => out.push(ObjectPatch::Changed { object: l }),
             _ => {}
         }
     }
-    let kept_before: Vec<Id> = before.layers.iter().map(|l| l.id).filter(|id| after.layer(*id).is_some()).collect();
-    let kept_after: Vec<Id> = after.layers.iter().map(|l| l.id).filter(|id| before.layer(*id).is_some()).collect();
+    let kept_before: Vec<Id> = before.objects.iter().map(|l| l.id).filter(|id| after.object(*id).is_some()).collect();
+    let kept_after: Vec<Id> = after.objects.iter().map(|l| l.id).filter(|id| before.object(*id).is_some()).collect();
     if kept_before != kept_after {
-        out.push(LayerPatch::Order(after.layers.iter().map(|l| l.id).collect()));
+        out.push(ObjectPatch::Order(after.objects.iter().map(|l| l.id).collect()));
     }
     out
 }

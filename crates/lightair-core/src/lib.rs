@@ -13,12 +13,12 @@ pub mod templates;
 
 pub use clipboard::{Clip, SceneAsset};
 pub use command::{Command, CommandError};
-pub use diff::{LayerPatch, Patch, diff, diff_layers};
+pub use diff::{ObjectPatch, Patch, diff, diff_objects};
 pub use document::{Change, Document};
 pub use hierarchy::Frame;
 pub use model::{
     AudioMix, AudioSetup, Bus, ClipSettings, Crop, Destination, Direction, Effect, Encoding, Fit, Canvas, Id, Source,
-    Layer, Layout, MASTER_ID, Master, MixerStrip, Route, Send, StemFormat, StemPoint, TrackChannels,
+    Object, Layout, MASTER_ID, Master, MixerStrip, Route, Send, StemFormat, StemPoint, TrackChannels,
     OutputSettings, Workspace, Reconnect, RecordingSettings, Scene, ScreenLook, Shape, ShapeKind, Stinger, Track, TransitionKind,
     TransitionSettings, VideoEncoder,
 };

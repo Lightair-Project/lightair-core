@@ -1,21 +1,21 @@
-//! The scene hierarchy: layers inside layers (docs/07-scenes-layers-canvas.md, "Hierarchy").
+//! The scene hierarchy: objects inside objects (docs/07-scenes-objects-canvas.md, "Hierarchy").
 //!
-//! A scene's layers are one list, bottom to top, in which every layer may name a `parent`. The
-//! list keeps each layer's subtree together right after it (a parent, then its children and
+//! A scene's objects are one list, bottom to top, in which every object may name a `parent`. The
+//! list keeps each object's subtree together right after it (a parent, then its children and
 //! theirs), and siblings run back to front, so drawing the list in order draws a parent behind
 //! its children and later siblings in front.
 //!
 //! A child's layout is in its parent's space: its position is relative to the parent's pivot,
-//! its rotation adds to the parent's, and the parent's scale scales it. An *empty* is a layer
-//! without a source: just a pivot (its x, y), rotation and scale, holding other layers.
+//! its rotation adds to the parent's, and the parent's scale scales it. An *empty* is a object
+//! without a source: just a pivot (its x, y), rotation and scale, holding other objects.
 //! [`Scene::flatten`] turns a hierarchy into what is drawn: the pictures alone, each with its
 //! world layout per canvas.
 
 use std::ops::Range;
 
-use crate::model::{Id, Layer, Layout, Scene};
+use crate::model::{Id, Object, Layout, Scene};
 
-/// A layer's own space as seen from its parent's: where its pivot sits, how it is turned and
+/// A object's own space as seen from its parent's: where its pivot sits, how it is turned and
 /// scaled. Children are placed in it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Frame {
@@ -101,37 +101,37 @@ impl Layout {
     }
 }
 
-impl Layer {
-    /// An empty: no picture, a pivot holding other layers.
+impl Object {
+    /// An empty: no picture, a pivot holding other objects.
     pub fn is_empty(&self) -> bool {
         self.source.is_none()
     }
 }
 
 impl Scene {
-    /// The layers directly under `parent` (`None`: the top level), back to front.
-    pub fn children(&self, parent: Option<Id>) -> impl Iterator<Item = &Layer> {
-        self.layers.iter().filter(move |l| l.parent == parent)
+    /// The objects directly under `parent` (`None`: the top level), back to front.
+    pub fn children(&self, parent: Option<Id>) -> impl Iterator<Item = &Object> {
+        self.objects.iter().filter(move |l| l.parent == parent)
     }
 
     /// Where `id` and everything under it sit in the list (always one run).
     pub fn subtree(&self, id: Id) -> Option<Range<usize>> {
-        let start = self.layer_index(id)?;
-        let end = self.layers[start + 1..]
+        let start = self.object_index(id)?;
+        let end = self.objects[start + 1..]
             .iter()
             .position(|l| !self.is_under(l.id, id))
-            .map_or(self.layers.len(), |n| start + 1 + n);
+            .map_or(self.objects.len(), |n| start + 1 + n);
         Some(start..end)
     }
 
     /// Whether `id` is somewhere under `ancestor` (not itself).
     pub fn is_under(&self, id: Id, ancestor: Id) -> bool {
-        let mut at = self.layer(id).and_then(|l| l.parent);
+        let mut at = self.object(id).and_then(|l| l.parent);
         while let Some(p) = at {
             if p == ancestor {
                 return true;
             }
-            at = self.layer(p).and_then(|l| l.parent);
+            at = self.object(p).and_then(|l| l.parent);
         }
         false
     }
@@ -139,13 +139,13 @@ impl Scene {
     /// `id`'s parents, nearest first.
     pub fn ancestors(&self, id: Id) -> Vec<Id> {
         let mut out = Vec::new();
-        let mut at = self.layer(id).and_then(|l| l.parent);
+        let mut at = self.object(id).and_then(|l| l.parent);
         while let Some(p) = at {
             if out.contains(&p) {
                 break;
             }
             out.push(p);
-            at = self.layer(p).and_then(|l| l.parent);
+            at = self.object(p).and_then(|l| l.parent);
         }
         out
     }
@@ -162,22 +162,22 @@ impl Scene {
         chain.extend(self.ancestors(id));
         let mut frame = Frame::IDENTITY;
         for l in chain.iter().rev() {
-            frame = frame.then(&self.layer(*l)?.layouts.get(&canvas)?.frame());
+            frame = frame.then(&self.object(*l)?.layouts.get(&canvas)?.frame());
         }
         Some(frame)
     }
 
     /// `id`'s layout in canvas terms for `canvas`: its own layout through its parents' frames.
     pub fn world(&self, id: Id, canvas: Id) -> Option<Layout> {
-        let layer = self.layer(id)?;
-        let local = layer.layouts.get(&canvas)?;
-        Some(local.to_world(&self.frame_of(layer.parent, canvas)?))
+        let object = self.object(id)?;
+        let local = object.layouts.get(&canvas)?;
+        Some(local.to_world(&self.frame_of(object.parent, canvas)?))
     }
 
     /// `world` (a layout in canvas terms) in the space of `id`'s parent: what to store so `id`
     /// lands there.
     pub fn local(&self, id: Id, canvas: Id, world: &Layout) -> Option<Layout> {
-        let parent = self.layer(id)?.parent;
+        let parent = self.object(id)?.parent;
         Some(world.to_local(&self.frame_of(parent, canvas)?))
     }
 
@@ -185,78 +185,78 @@ impl Scene {
     pub fn shown(&self, id: Id, canvas: Id) -> bool {
         std::iter::once(id)
             .chain(self.ancestors(id))
-            .all(|l| self.layer(l).and_then(|l| l.layouts.get(&canvas)).is_some_and(|lo| lo.visible))
+            .all(|l| self.object(l).and_then(|l| l.layouts.get(&canvas)).is_some_and(|lo| lo.visible))
     }
 
     /// Whether `id` or a parent is locked.
     pub fn locked(&self, id: Id) -> bool {
-        std::iter::once(id).chain(self.ancestors(id)).any(|l| self.layer(l).is_some_and(|l| l.locked))
+        std::iter::once(id).chain(self.ancestors(id)).any(|l| self.object(l).is_some_and(|l| l.locked))
     }
 
-    /// What is drawn: the layers with pictures, in drawing order, each with its world layout
+    /// What is drawn: the objects with pictures, in drawing order, each with its world layout
     /// per canvas. A parent's visibility, opacity and lock pass down; empties are left out.
     /// A scene without nesting comes back unchanged.
     pub fn flatten(&self) -> Scene {
-        if self.layers.iter().all(|l| l.parent.is_none() && l.source.is_some()) {
+        if self.objects.iter().all(|l| l.parent.is_none() && l.source.is_some()) {
             return self.clone();
         }
-        let layers = self
-            .layers
+        let objects = self
+            .objects
             .iter()
             .filter(|l| l.source.is_some())
             .map(|l| {
-                let mut out = Layer { parent: None, locked: self.locked(l.id), ..l.clone() };
+                let mut out = Object { parent: None, locked: self.locked(l.id), ..l.clone() };
                 for (canvas, layout) in out.layouts.iter_mut() {
                     let Some(mut world) = self.world(l.id, *canvas) else { continue };
                     world.visible = self.shown(l.id, *canvas);
                     world.opacity = std::iter::once(l.id)
                         .chain(self.ancestors(l.id))
-                        .filter_map(|a| self.layer(a)?.layouts.get(canvas).map(|lo| lo.opacity))
+                        .filter_map(|a| self.object(a)?.layouts.get(canvas).map(|lo| lo.opacity))
                         .product();
                     *layout = world;
                 }
-                // A canvas a parent isn't in hides the layer there.
+                // A canvas a parent isn't in hides the object there.
                 out.layouts.retain(|canvas, _| self.frame_of(l.parent, *canvas).is_some());
                 out
             })
             .collect();
-        Scene { id: self.id, name: self.name.clone(), layers, screen: self.screen }
+        Scene { id: self.id, name: self.name.clone(), objects, screen: self.screen }
     }
 
     /// Whether the list keeps every subtree in one run after its parent (for tests and checks).
     pub fn is_well_formed(&self) -> bool {
-        self.layers.iter().enumerate().all(|(i, l)| match l.parent {
+        self.objects.iter().enumerate().all(|(i, l)| match l.parent {
             None => true,
             Some(p) => {
-                let Some(pi) = self.layer_index(p) else { return false };
+                let Some(pi) = self.object_index(p) else { return false };
                 // The parent comes first and everything between belongs under it.
-                pi < i && self.layers[pi + 1..i].iter().all(|m| self.is_under(m.id, p))
+                pi < i && self.objects[pi + 1..i].iter().all(|m| self.is_under(m.id, p))
             }
         })
     }
 
     /// Takes `id` and its subtree out of the list (in order).
-    pub(crate) fn take_subtree(&mut self, id: Id) -> Option<Vec<Layer>> {
+    pub(crate) fn take_subtree(&mut self, id: Id) -> Option<Vec<Object>> {
         let range = self.subtree(id)?;
-        Some(self.layers.drain(range).collect())
+        Some(self.objects.drain(range).collect())
     }
 
     /// Puts a subtree (its root first) under `parent` at `index` among that parent's children,
     /// back to front (`None`: in front of them all).
-    pub(crate) fn put_subtree(&mut self, mut block: Vec<Layer>, parent: Option<Id>, index: Option<usize>) {
+    pub(crate) fn put_subtree(&mut self, mut block: Vec<Object>, parent: Option<Id>, index: Option<usize>) {
         let Some(root) = block.first_mut() else { return };
         root.parent = parent;
         let siblings: Vec<Id> = self.children(parent).map(|l| l.id).collect();
         let at = match index.and_then(|i| siblings.get(i)) {
             // Before that sibling's subtree.
-            Some(s) => self.layer_index(*s).unwrap_or(self.layers.len()),
+            Some(s) => self.object_index(*s).unwrap_or(self.objects.len()),
             // In front of the last sibling (after its subtree), or right after the parent.
             None => match (siblings.last(), parent) {
-                (Some(last), _) => self.subtree(*last).map_or(self.layers.len(), |r| r.end),
-                (None, Some(p)) => self.layer_index(p).map_or(self.layers.len(), |i| i + 1),
-                (None, None) => self.layers.len(),
+                (Some(last), _) => self.subtree(*last).map_or(self.objects.len(), |r| r.end),
+                (None, Some(p)) => self.object_index(p).map_or(self.objects.len(), |i| i + 1),
+                (None, None) => self.objects.len(),
             },
         };
-        self.layers.splice(at..at, block);
+        self.objects.splice(at..at, block);
     }
 }

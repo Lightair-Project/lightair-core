@@ -1,4 +1,4 @@
-//! The workspace document (docs/07-scenes-layers-canvas.md, docs/14-data-persistence-settings.md).
+//! The workspace document (docs/07-scenes-objects-canvas.md, docs/14-data-persistence-settings.md).
 //!
 //! Snapshots are immutable and share structure: scenes and sources sit behind `Arc`, so cloning
 //! a `Workspace` to apply a command copies pointers, and unchanged parts compare by pointer.
@@ -61,7 +61,7 @@ pub struct Workspace {
     /// are not here: they live in the OS credential store, keyed by destination id.
     #[serde(default)]
     pub outputs: OutputSettings,
-    /// How scene switches look (docs/07-scenes-layers-canvas.md, "Transitions").
+    /// How scene switches look (docs/07-scenes-objects-canvas.md, "Transitions").
     #[serde(default)]
     pub transition: TransitionSettings,
     /// The stinger video used by the Stinger transition.
@@ -136,11 +136,11 @@ impl Workspace {
         self.tracks.iter().position(|t| t.id == id)
     }
 
-    /// Layers anywhere in the workspace that use `source`.
-    pub fn layers_using(&self, source: Id) -> impl Iterator<Item = (&Scene, &Layer)> {
+    /// Objects anywhere in the workspace that use `source`.
+    pub fn objects_using(&self, source: Id) -> impl Iterator<Item = (&Scene, &Object)> {
         self.scenes
             .iter()
-            .flat_map(move |s| s.layers.iter().filter(move |l| l.source == Some(source)).map(move |l| (&**s, l)))
+            .flat_map(move |s| s.objects.iter().filter(move |l| l.source == Some(source)).map(move |l| (&**s, l)))
     }
 }
 
@@ -176,7 +176,7 @@ impl Canvas {
     }
 }
 
-/// A media source, opened once and used by any number of layers.
+/// A media source, opened once and used by any number of objects.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Source {
     pub id: Id,
@@ -190,12 +190,13 @@ pub struct Source {
     pub effects: Vec<Effect>,
 }
 
-/// An ordered stack of layers. Index 0 is the bottom.
+/// An ordered stack of objects. Index 0 is the bottom.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Scene {
     pub id: Id,
     pub name: String,
-    pub layers: Vec<Layer>,
+    #[serde(alias = "layers")]
+    pub objects: Vec<Object>,
     /// Screen Studio's look, live: how the scene's screen captures zoom, and how the pointer
     /// and clicks are drawn on them (`None`: as captured).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -264,46 +265,46 @@ impl Default for ScreenLook {
 
 impl Scene {
     pub fn new(name: impl Into<String>) -> Self {
-        Self { id: Id::new(), name: name.into(), layers: Vec::new(), screen: None }
+        Self { id: Id::new(), name: name.into(), objects: Vec::new(), screen: None }
     }
-    pub fn layer(&self, id: Id) -> Option<&Layer> {
-        self.layers.iter().find(|l| l.id == id)
+    pub fn object(&self, id: Id) -> Option<&Object> {
+        self.objects.iter().find(|l| l.id == id)
     }
-    pub fn layer_index(&self, id: Id) -> Option<usize> {
-        self.layers.iter().position(|l| l.id == id)
+    pub fn object_index(&self, id: Id) -> Option<usize> {
+        self.objects.iter().position(|l| l.id == id)
     }
 }
 
 /// A source placed in a scene, arranged per canvas; or, without a source, an *empty* holding
-/// other layers (see `hierarchy`).
+/// other objects (see `hierarchy`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Layer {
+pub struct Object {
     pub id: Id,
     pub name: String,
     /// The picture; `None` for an empty.
     #[serde(alias = "input")]
     pub source: Option<Id>,
-    /// The layer this one sits in (its layout is in that layer's space).
+    /// The object this one sits in (its layout is in that object's space).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<Id>,
-    /// The prefab this layer (and what's under it) was placed from: the asset's file name in
+    /// The prefab this object (and what's under it) was placed from: the asset's file name in
     /// the workspace's `assets` folder. Only an instance's root carries it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prefab: Option<String>,
-    /// Layout per canvas id. A canvas without an entry hides the layer in that canvas.
+    /// Layout per canvas id. A canvas without an entry hides the object in that canvas.
     pub layouts: BTreeMap<Id, Layout>,
     pub locked: bool,
-    /// The same thing as the layers with this link in other scenes, though it shows another
+    /// The same thing as the objects with this link in other scenes, though it shows another
     /// source (each screen recording scene's own backdrop): the Move transition glides between
-    /// them. Layers showing the same source glide anyway.
+    /// them. Objects showing the same source glide anyway.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link: Option<Id>,
 }
 
-/// Where and how a layer appears in one canvas.
+/// Where and how a object appears in one canvas.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Layout {
-    /// Top-left of the layer's box, in canvas pixels.
+    /// Top-left of the object's box, in canvas pixels.
     pub x: f32,
     pub y: f32,
     /// Box size in canvas pixels; the source is fitted into it (`fit`).
@@ -329,7 +330,7 @@ pub struct Layout {
     pub tilt_x: f32,
     #[serde(default)]
     pub tilt_y: f32,
-    /// Scale of this layer's space: its children grow with it (an empty's size, in effect).
+    /// Scale of this object's space: its children grow with it (an empty's size, in effect).
     #[serde(default = "one")]
     pub scale_x: f32,
     #[serde(default = "one")]
@@ -362,7 +363,7 @@ impl Layout {
         }
     }
 
-    /// Whether libobs draws this layer through a group with Lightair's filters (shape, flip, 3D).
+    /// Whether libobs draws this object through a group with Lightair's filters (shape, flip, 3D).
     pub fn needs_filters(&self) -> bool {
         self.shape.is_some() || self.has_transform()
     }
@@ -374,7 +375,7 @@ impl Layout {
 }
 
 impl Layout {
-    /// Where the whole, uncropped source would sit at this layer's scale: what crop mode shows
+    /// Where the whole, uncropped source would sit at this object's scale: what crop mode shows
     /// (dimmed outside the crop). `source` is the source's pixel size. The result is stretched
     /// to its box, uncropped and unshaped.
     pub fn uncropped(&self, source: (f32, f32)) -> Layout {
@@ -386,7 +387,7 @@ impl Layout {
         let (l, r) = (c.left as f32 * sx, c.right as f32 * sx);
         let (t, b) = (c.top as f32 * sy, c.bottom as f32 * sy);
         let (w, h) = (self.width + l + r, self.height + t + b);
-        // The centre moves by half the difference, in the layer's own (rotated) frame.
+        // The centre moves by half the difference, in the object's own (rotated) frame.
         let (ox, oy) = ((r - l) / 2.0, (b - t) / 2.0);
         let (sin, cos) = self.rotation.to_radians().sin_cos();
         let (wx, wy) = (ox * cos - oy * sin, ox * sin + oy * cos);
@@ -414,7 +415,7 @@ pub enum ShapeKind {
     Pill,
 }
 
-/// How a layer is cut out (docs/07-scenes-layers-canvas.md, "Masks").
+/// How a object is cut out (docs/07-scenes-objects-canvas.md, "Masks").
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Shape {
     pub kind: ShapeKind,
@@ -520,7 +521,7 @@ impl Track {
             invert: false,
             mono: false,
             sync_ms: 0,
-            route: Route::Program,
+            route: Route::Master,
             sends: Vec::new(),
             record: false,
             color: None,
@@ -546,7 +547,8 @@ pub enum TrackChannels {
 pub enum Route {
     /// The master: what the stream and the recording's main track carry.
     #[default]
-    Program,
+    #[serde(alias = "program")]
+    Master,
     /// A bus (a group, or an FX return).
     Bus(Id),
     /// Only its sends (heard in a mix, never on air).
@@ -601,7 +603,7 @@ impl Bus {
             muted: false,
             pan: 0.0,
             effects: Vec::new(),
-            route: Route::Program,
+            route: Route::Master,
             sends: Vec::new(),
             record: false,
             trim_db: 0.0,
@@ -1005,7 +1007,7 @@ pub struct Destination {
 pub enum TransitionKind {
     Cut,
     Fade,
-    /// Matching layers glide from their old to their new layout; the rest fade.
+    /// Matching objects glide from their old to their new layout; the rest fade.
     Move,
     /// The new scene pushes the old one out in `direction`.
     Slide,

@@ -249,7 +249,7 @@ pub fn apply(workspace: &Workspace, template: Template, m: &Mics) -> Command {
     for t in &workspace.tracks {
         commands.push(Command::RemoveTrack { track: t.id });
     }
-    let shown = |id: Id| workspace.scenes.iter().any(|s| s.layers.iter().any(|l| l.source == Some(id)));
+    let shown = |id: Id| workspace.scenes.iter().any(|s| s.objects.iter().any(|l| l.source == Some(id)));
     let mut seen = std::collections::HashSet::new();
     for t in &workspace.tracks {
         if seen.insert(t.source)

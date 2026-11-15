@@ -2,13 +2,13 @@
 //!
 //! Lightair runs on libobs, so OBS sources become inputs of the same libobs type with the same
 //! settings, and OBS filters become input effects. What needs translating is geometry (OBS
-//! items are an alignment point plus scale or bounds; Lightair layers are boxes), global audio
+//! items are an alignment point plus scale or bounds; Lightair objects are boxes), global audio
 //! devices (they become mixer tracks), and plugins Lightair replaces with built-in features.
 
 use std::collections::{HashMap, HashSet};
 
 use lightair_core::{
-    Command, Crop, Direction, Effect, Fit, Canvas, Id, Source, Layer, Layout, Workspace, Scene, Track, TransitionKind,
+    Command, Crop, Direction, Effect, Fit, Canvas, Id, Source, Object, Layout, Workspace, Scene, Track, TransitionKind,
     TransitionSettings,
 };
 use serde_json::Value;
@@ -24,26 +24,26 @@ pub struct ImportReport {
     pub kept_plugin: Vec<String>,
     /// Imported with an approximation, or not imported; the user should look.
     pub attention: Vec<String>,
-    /// Layers whose box was computed from a guessed source size; `refit` corrects them once
+    /// Objects whose box was computed from a guessed source size; `refit` corrects them once
     /// the real size is known.
-    pub estimated: Vec<EstimatedLayer>,
+    pub estimated: Vec<EstimatedObject>,
 }
 
-/// A layer imported from an OBS item whose source size had to be guessed.
+/// A object imported from an OBS item whose source size had to be guessed.
 #[derive(Debug, Clone, PartialEq)]
-pub struct EstimatedLayer {
+pub struct EstimatedObject {
     pub scene: Id,
-    pub layer: Id,
+    pub object: Id,
     pub source: Id,
     pub canvas: Id,
-    /// The layout as imported (a layer the user has since changed is left alone).
+    /// The layout as imported (a object the user has since changed is left alone).
     pub layout: Layout,
     /// The OBS scene item, for recomputing the box.
     item: Value,
 }
 
-impl EstimatedLayer {
-    /// The layer's layout for the source's real pixel size.
+impl EstimatedObject {
+    /// The object's layout for the source's real pixel size.
     pub fn refit(&self, size: (u32, u32)) -> Layout {
         layout_of(&self.item, (size.0 as f32, size.1 as f32))
     }
@@ -134,7 +134,7 @@ const REPLACED_FILTERS: &[(&str, Option<&str>, &str)] = &[
     ("vision_background_removal_filter", None, "Background removal → Camera Studio background (coming)"),
 ];
 
-/// Sources with no picture: in a scene they become mixer tracks, not layers.
+/// Sources with no picture: in a scene they become mixer tracks, not objects.
 fn is_audio_only(kind: &str) -> bool {
     [
         "coreaudio_input_capture",
@@ -378,19 +378,19 @@ pub fn import_obs_collection(json: &str, workspace: &Workspace) -> Result<(Comma
             if guessed || layout.rotation != 0.0 {
                 estimated.push(name_of(item));
             }
-            let mut layer = Layer::new(name_of(item), *input_id, [(primary.id, layout)]);
+            let mut object = Object::new(name_of(item), *input_id, [(primary.id, layout)]);
             if guessed {
-                report.estimated.push(EstimatedLayer {
+                report.estimated.push(EstimatedObject {
                     scene: scene.id,
-                    layer: layer.id,
+                    object: object.id,
                     source: *input_id,
                     canvas: primary.id,
                     layout,
                     item: item.clone(),
                 });
             }
-            layer.locked = item["locked"].as_bool().unwrap_or(false);
-            scene.layers.push(layer);
+            object.locked = item["locked"].as_bool().unwrap_or(false);
+            scene.objects.push(object);
         }
         if !estimated.is_empty() {
             report.attention.push(format!(

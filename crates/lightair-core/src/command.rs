@@ -7,7 +7,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    ClipSettings, Destination, Effect, Canvas, Id, Source, Layer, Layout, Workspace, Reconnect, RecordingSettings, Scene,
+    ClipSettings, Destination, Effect, Canvas, Id, Source, Object, Layout, Workspace, Reconnect, RecordingSettings, Scene,
     Stinger, Track, TransitionSettings, AudioMix, Bus, Master, Route, MixerStrip,
 };
 
@@ -78,59 +78,76 @@ pub enum Command {
         scene: Option<Id>,
     },
 
-    /// `index` counts from the back among the layer's siblings (its `parent`'s children);
+    /// `index` counts from the back among the object's siblings (its `parent`'s children);
     /// `None` puts it in front of them.
-    AddLayer {
+    #[serde(alias = "AddLayer")]
+    AddObject {
         scene: Id,
-        layer: Layer,
+        #[serde(alias = "layer")]
+        object: Object,
         index: Option<usize>,
     },
-    RemoveLayer {
+    #[serde(alias = "RemoveLayer")]
+    RemoveObject {
         scene: Id,
-        layer: Id,
+        #[serde(alias = "layer")]
+        object: Id,
     },
-    RenameLayer {
+    #[serde(alias = "RenameLayer")]
+    RenameObject {
         scene: Id,
-        layer: Id,
+        #[serde(alias = "layer")]
+        object: Id,
         name: String,
     },
-    MoveLayer {
+    #[serde(alias = "MoveLayer")]
+    MoveObject {
         scene: Id,
-        layer: Id,
+        #[serde(alias = "layer")]
+        object: Id,
         to: usize,
     },
-    /// Moves a layer (with everything under it) into `parent` (`None`: the top level) at
+    /// Moves a object (with everything under it) into `parent` (`None`: the top level) at
     /// `index` among its children, back to front (`None`: in front). It stays where it is on
     /// the canvas.
-    ReparentLayer {
+    #[serde(alias = "ReparentLayer")]
+    ReparentObject {
         scene: Id,
-        layer: Id,
+        #[serde(alias = "layer")]
+        object: Id,
         parent: Option<Id>,
         index: Option<usize>,
     },
-    /// Links a layer to a prefab asset, or unlinks it (`None`: it becomes ordinary layers).
-    SetLayerPrefab {
+    /// Links a object to a prefab asset, or unlinks it (`None`: it becomes ordinary objects).
+    #[serde(alias = "SetLayerPrefab")]
+    SetObjectPrefab {
         scene: Id,
-        layer: Id,
+        #[serde(alias = "layer")]
+        object: Id,
         prefab: Option<String>,
     },
     SetLayout {
         scene: Id,
-        layer: Id,
+        #[serde(alias = "layer")]
+        object: Id,
         #[serde(alias = "format")]
         canvas: Id,
         layout: Layout,
     },
-    SetLayerVisible {
+    #[serde(alias = "SetLayerVisible")]
+    SetObjectVisible {
         scene: Id,
-        layer: Id,
+        #[serde(alias = "layer")]
+        object: Id,
         #[serde(alias = "format")]
         canvas: Id,
         visible: bool,
     },
-    SetLayerLocked {
+    #[serde(alias = "SetLayerLocked")]
+    SetObjectLocked {
         scene: Id,
-        layer: Id,
+        #[serde(alias = "layer")]
+        object: Id,
         locked: bool,
     },
 
@@ -320,7 +337,7 @@ pub enum CommandError {
     #[error("no scene {0}")]
     NoScene(Id),
     #[error("no object {0}")]
-    NoLayer(Id),
+    NoObject(Id),
     #[error("no input {0}")]
     NoSource(Id),
     #[error("no canvas {0}")]
@@ -350,7 +367,7 @@ pub enum CommandError {
 }
 
 impl Command {
-    /// Human-readable undo label ("Move layer", "Add scene").
+    /// Human-readable undo label ("Move object", "Add scene").
     pub fn label(&self) -> String {
         match self {
             Command::AddCanvas { .. } => "Add canvas".into(),
@@ -366,18 +383,18 @@ impl Command {
             Command::SetSceneScreen { .. } => "Change screen zoom and pointer".into(),
             Command::MoveScene { .. } => "Reorder scenes".into(),
             Command::SetProgram { .. } => "Switch scene".into(),
-            Command::AddLayer { .. } => "Add object".into(),
-            Command::RemoveLayer { .. } => "Remove object".into(),
-            Command::RenameLayer { .. } => "Rename object".into(),
-            Command::MoveLayer { .. } => "Reorder objects".into(),
-            Command::ReparentLayer { parent: Some(_), .. } => "Move into".into(),
-            Command::ReparentLayer { parent: None, .. } => "Move out".into(),
-            Command::SetLayerPrefab { prefab: Some(_), .. } => "Link to prefab".into(),
-            Command::SetLayerPrefab { prefab: None, .. } => "Unpack prefab".into(),
+            Command::AddObject { .. } => "Add object".into(),
+            Command::RemoveObject { .. } => "Remove object".into(),
+            Command::RenameObject { .. } => "Rename object".into(),
+            Command::MoveObject { .. } => "Reorder objects".into(),
+            Command::ReparentObject { parent: Some(_), .. } => "Move into".into(),
+            Command::ReparentObject { parent: None, .. } => "Move out".into(),
+            Command::SetObjectPrefab { prefab: Some(_), .. } => "Link to prefab".into(),
+            Command::SetObjectPrefab { prefab: None, .. } => "Unpack prefab".into(),
             Command::SetLayout { .. } => "Move object".into(),
-            Command::SetLayerVisible { visible: true, .. } => "Show object".into(),
-            Command::SetLayerVisible { visible: false, .. } => "Hide object".into(),
-            Command::SetLayerLocked { .. } => "Lock object".into(),
+            Command::SetObjectVisible { visible: true, .. } => "Show object".into(),
+            Command::SetObjectVisible { visible: false, .. } => "Hide object".into(),
+            Command::SetObjectLocked { .. } => "Lock object".into(),
             Command::AddTrack { .. } => "Add track".into(),
             Command::RemoveTrack { .. } => "Remove track".into(),
             Command::RenameTrack { .. } => "Rename track".into(),
@@ -427,10 +444,10 @@ impl Command {
     }
 
     /// Commands with the same key during one gesture merge into a single undo step
-    /// (e.g. every pointer move while dragging a layer).
+    /// (e.g. every pointer move while dragging a object).
     pub fn coalesce_key(&self) -> Option<(&'static str, Id, Id)> {
         match self {
-            Command::SetLayout { layer, canvas, .. } => Some(("layout", *layer, *canvas)),
+            Command::SetLayout { object, canvas, .. } => Some(("layout", *object, *canvas)),
             Command::SetSourceSettings { source, .. } => Some(("settings", *source, *source)),
             Command::SetTrackVolume { track, .. } => Some(("volume", *track, *track)),
             Command::UpdateTrack { track } => Some(("track", track.id, track.id)),
@@ -440,12 +457,12 @@ impl Command {
             Command::SetStripEffectSettings { strip, effect, .. } => Some(("strip-effect", strip.id(), *effect)),
             Command::SetEffectSettings { track, effect, .. } => Some(("effect", *track, *effect)),
             Command::SetSourceEffectSettings { source, effect, .. } => Some(("input-effect", *source, *effect)),
-            // Moving several layers together: one step per gesture, like a single layer.
+            // Moving several objects together: one step per gesture, like a single object.
             Command::Batch { commands, .. }
                 if !commands.is_empty() && commands.iter().all(|c| matches!(c, Command::SetLayout { .. })) =>
             {
                 match &commands[0] {
-                    Command::SetLayout { layer, canvas, .. } => Some(("layouts", *layer, *canvas)),
+                    Command::SetLayout { object, canvas, .. } => Some(("layouts", *object, *canvas)),
                     _ => None,
                 }
             }
@@ -487,8 +504,8 @@ impl Command {
                     workspace.outputs.clips.canvas = None;
                 }
                 for scene in &mut workspace.scenes {
-                    for layer in &mut Arc::make_mut(scene).layers {
-                        layer.layouts.remove(canvas);
+                    for object in &mut Arc::make_mut(scene).objects {
+                        object.layouts.remove(canvas);
                     }
                 }
             }
@@ -520,7 +537,7 @@ impl Command {
                     return Err(CommandError::NoSource(*source));
                 }
                 let users =
-                    workspace.layers_using(*source).count() + workspace.tracks.iter().filter(|t| t.source == *source).count();
+                    workspace.objects_using(*source).count() + workspace.tracks.iter().filter(|t| t.source == *source).count();
                 if users > 0 {
                     return Err(CommandError::SourceInUse(users));
                 }
@@ -537,8 +554,8 @@ impl Command {
                 if workspace.scene(scene.id).is_some() {
                     return Err(CommandError::Duplicate(scene.id));
                 }
-                for layer in &scene.layers {
-                    check_layer(workspace, layer)?;
+                for object in &scene.objects {
+                    check_object(workspace, object)?;
                 }
                 if !scene.is_well_formed() {
                     return Err(CommandError::BadHierarchy);
@@ -571,63 +588,63 @@ impl Command {
                 }
                 workspace.program = *scene;
             }
-            Command::AddLayer { scene, layer, index } => {
-                check_layer(workspace, layer)?;
+            Command::AddObject { scene, object, index } => {
+                check_object(workspace, object)?;
                 let s = scene_mut(workspace, *scene)?;
-                if s.layer(layer.id).is_some() {
-                    return Err(CommandError::Duplicate(layer.id));
+                if s.object(object.id).is_some() {
+                    return Err(CommandError::Duplicate(object.id));
                 }
-                if let Some(p) = layer.parent {
-                    s.layer(p).ok_or(CommandError::NoLayer(p))?;
+                if let Some(p) = object.parent {
+                    s.object(p).ok_or(CommandError::NoObject(p))?;
                 }
-                s.put_subtree(vec![layer.clone()], layer.parent, *index);
+                s.put_subtree(vec![object.clone()], object.parent, *index);
             }
-            Command::RemoveLayer { scene, layer } => {
+            Command::RemoveObject { scene, object } => {
                 // With everything under it.
-                scene_mut(workspace, *scene)?.take_subtree(*layer).ok_or(CommandError::NoLayer(*layer))?;
+                scene_mut(workspace, *scene)?.take_subtree(*object).ok_or(CommandError::NoObject(*object))?;
             }
-            Command::RenameLayer { scene, layer, name } => layer_mut(workspace, *scene, *layer)?.name = name.clone(),
-            Command::MoveLayer { scene, layer, to } => {
+            Command::RenameObject { scene, object, name } => object_mut(workspace, *scene, *object)?.name = name.clone(),
+            Command::MoveObject { scene, object, to } => {
                 // Among its siblings, with everything under it.
                 let s = scene_mut(workspace, *scene)?;
-                let parent = s.layer(*layer).ok_or(CommandError::NoLayer(*layer))?.parent;
-                let block = s.take_subtree(*layer).ok_or(CommandError::NoLayer(*layer))?;
+                let parent = s.object(*object).ok_or(CommandError::NoObject(*object))?.parent;
+                let block = s.take_subtree(*object).ok_or(CommandError::NoObject(*object))?;
                 s.put_subtree(block, parent, Some(*to));
             }
-            Command::ReparentLayer { scene, layer, parent, index } => {
+            Command::ReparentObject { scene, object, parent, index } => {
                 let s = scene_mut(workspace, *scene)?;
-                let l = s.layer(*layer).ok_or(CommandError::NoLayer(*layer))?.clone();
+                let l = s.object(*object).ok_or(CommandError::NoObject(*object))?.clone();
                 if let Some(p) = parent {
-                    s.layer(*p).ok_or(CommandError::NoLayer(*p))?;
-                    if *p == *layer || s.is_under(*p, *layer) {
+                    s.object(*p).ok_or(CommandError::NoObject(*p))?;
+                    if *p == *object || s.is_under(*p, *object) {
                         return Err(CommandError::BadHierarchy);
                     }
                 }
                 // Same place on the canvas: world layouts re-expressed in the new parent's space.
                 let mut layouts = l.layouts.clone();
                 for (canvas, local) in layouts.iter_mut() {
-                    if let (Some(world), Some(frame)) = (s.world(*layer, *canvas), s.frame_of(*parent, *canvas)) {
+                    if let (Some(world), Some(frame)) = (s.world(*object, *canvas), s.frame_of(*parent, *canvas)) {
                         *local = world.to_local(&frame);
                     }
                 }
-                let mut block = s.take_subtree(*layer).ok_or(CommandError::NoLayer(*layer))?;
+                let mut block = s.take_subtree(*object).ok_or(CommandError::NoObject(*object))?;
                 block[0].layouts = layouts;
                 s.put_subtree(block, *parent, *index);
             }
-            Command::SetLayout { scene, layer, canvas, layout } => {
+            Command::SetLayout { scene, object, canvas, layout } => {
                 workspace.canvas(*canvas).ok_or(CommandError::NoCanvas(*canvas))?;
-                layer_mut(workspace, *scene, *layer)?.layouts.insert(*canvas, *layout);
+                object_mut(workspace, *scene, *object)?.layouts.insert(*canvas, *layout);
             }
-            Command::SetLayerVisible { scene, layer, canvas, visible } => {
+            Command::SetObjectVisible { scene, object, canvas, visible } => {
                 workspace.canvas(*canvas).ok_or(CommandError::NoCanvas(*canvas))?;
-                let l = layer_mut(workspace, *scene, *layer)?;
+                let l = object_mut(workspace, *scene, *object)?;
                 if let Some(layout) = l.layouts.get_mut(canvas) {
                     layout.visible = *visible;
                 }
             }
-            Command::SetLayerLocked { scene, layer, locked } => layer_mut(workspace, *scene, *layer)?.locked = *locked,
-            Command::SetLayerPrefab { scene, layer, prefab } => {
-                layer_mut(workspace, *scene, *layer)?.prefab = prefab.clone()
+            Command::SetObjectLocked { scene, object, locked } => object_mut(workspace, *scene, *object)?.locked = *locked,
+            Command::SetObjectPrefab { scene, object, prefab } => {
+                object_mut(workspace, *scene, *object)?.prefab = prefab.clone()
             }
             Command::AddTrack { track, index } => {
                 if workspace.track(track.id).is_some() {
@@ -703,12 +720,12 @@ impl Command {
                 workspace.audio.buses.remove(idx);
                 for t in &mut workspace.tracks {
                     if t.route == Route::Bus(*bus) {
-                        Arc::make_mut(t).route = Route::Program;
+                        Arc::make_mut(t).route = Route::Master;
                     }
                 }
                 for b in &mut workspace.audio.buses {
                     if b.route == Route::Bus(*bus) {
-                        b.route = Route::Program;
+                        b.route = Route::Master;
                     }
                 }
             }
@@ -941,13 +958,13 @@ fn effect_mut(workspace: &mut Workspace, track: Id, effect: Id) -> Result<&mut E
     track_mut(workspace, track)?.effects.iter_mut().find(|e| e.id == effect).ok_or(CommandError::NoEffect(effect))
 }
 
-fn check_layer(workspace: &Workspace, layer: &Layer) -> Result<(), CommandError> {
-    if let Some(source) = layer.source
+fn check_object(workspace: &Workspace, object: &Object) -> Result<(), CommandError> {
+    if let Some(source) = object.source
         && !workspace.sources.contains_key(&source)
     {
         return Err(CommandError::NoSource(source));
     }
-    for canvas in layer.layouts.keys() {
+    for canvas in object.layouts.keys() {
         workspace.canvas(*canvas).ok_or(CommandError::NoCanvas(*canvas))?;
     }
     Ok(())
@@ -958,8 +975,8 @@ fn scene_mut(workspace: &mut Workspace, id: Id) -> Result<&mut Scene, CommandErr
     Ok(Arc::make_mut(&mut workspace.scenes[idx]))
 }
 
-fn layer_mut(workspace: &mut Workspace, scene: Id, layer: Id) -> Result<&mut Layer, CommandError> {
-    scene_mut(workspace, scene)?.layers.iter_mut().find(|l| l.id == layer).ok_or(CommandError::NoLayer(layer))
+fn object_mut(workspace: &mut Workspace, scene: Id, object: Id) -> Result<&mut Object, CommandError> {
+    scene_mut(workspace, scene)?.objects.iter_mut().find(|l| l.id == object).ok_or(CommandError::NoObject(object))
 }
 
 impl Source {
@@ -968,8 +985,8 @@ impl Source {
     }
 }
 
-impl Layer {
-    /// A layer for `source`, laid out the same way in every given canvas.
+impl Object {
+    /// A object for `source`, laid out the same way in every given canvas.
     pub fn new(name: impl Into<String>, source: Id, canvases: impl IntoIterator<Item = (Id, Layout)>) -> Self {
         Self {
             id: Id::new(),
@@ -997,7 +1014,7 @@ impl Layer {
         }
     }
 
-    /// This layer under `parent`.
+    /// This object under `parent`.
     pub fn under(self, parent: Id) -> Self {
         Self { parent: Some(parent), ..self }
     }

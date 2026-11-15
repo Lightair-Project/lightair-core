@@ -97,13 +97,13 @@ impl Media {
             && let Some(main) = parts.first()
         {
             // named as its layer was in the scene
-            let named = scene.layers.iter().find_map(|l| match &l.what {
+            let named = scene.objects.iter().find_map(|l| match &l.what {
                 lightair_store::take_scene::What::Recorded { source: input } if screen["input"].as_str() == Some(&input.to_string()) => Some(l.name.clone()),
                 _ => None,
             });
             out.push(TakePart { name: named.unwrap_or_else(|| "Screen".into()), ..TakePart::of(main.clone()) });
         }
-        for layer in &scene.layers {
+        for layer in &scene.objects {
             use lightair_store::take_scene::What;
             let place = Some(Placement { x: layer.x, y: layer.y, w: layer.w, h: layer.h, rotation: layer.rotation, opacity: layer.opacity, canvas: scene.canvas });
             let part = match &layer.what {
