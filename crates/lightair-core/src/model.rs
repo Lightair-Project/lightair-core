@@ -220,6 +220,9 @@ pub struct ScreenZoomPointer {
     pub zoom_motion: f32,
     /// On clicks: typing zooms in too, looking where the last click was (the text field).
     pub zoom_typing: bool,
+    /// Shows a badge by the real pointer (on your screen, never in the picture) while the scene
+    /// is live and zoomed in, so you know viewers see the zoomed screen.
+    pub zoom_badge: bool,
     /// Lightair draws the pointer (bigger, smoothed, styled); else the capture's own.
     #[serde(alias = "cursor")]
     pub pointer_drawn: bool,
@@ -261,6 +264,7 @@ impl Default for ScreenZoomPointer {
             zoom_hold_s: 2.0,
             zoom_motion: 0.5,
             zoom_typing: true,
+            zoom_badge: true,
             pointer_drawn: true,
             pointer_hidden: false,
             pointer_style: 0,
