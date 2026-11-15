@@ -1,16 +1,16 @@
 use std::io::Write;
 
-use lightair_core::{Command, Input, Layer, Layout, Workspace, Scene};
+use lightair_core::{Command, Source, Layer, Layout, Workspace, Scene};
 use lightair_store::{Package, StoreError, load_snapshot, save};
 use serde_json::json;
 
 fn sample() -> (Workspace, Vec<Command>) {
     let workspace = Workspace::new("Show");
     let canvas = workspace.primary_canvas().id;
-    let cam = Input::new("Camera", lightair_core::kinds::CAMERA, json!({"device": "abc"}));
+    let cam = Source::new("Camera", lightair_core::kinds::CAMERA, json!({"device": "abc"}));
     let scene = Scene::new("Main");
     let layer = Layer::new("Camera", cam.id, [(canvas, Layout::boxed(0.0, 0.0, 1920.0, 1080.0))]);
-    let cmds = [Command::AddInput { input: cam }, Command::AddLayer { scene: scene.id, layer, index: None }];
+    let cmds = [Command::AddSource { source: cam }, Command::AddLayer { scene: scene.id, layer, index: None }];
     let mut cmds_full = vec![Command::AddScene { scene, index: None }];
     cmds_full.splice(0..0, cmds[..1].to_vec());
     cmds_full.push(cmds[1].clone());
@@ -87,10 +87,10 @@ fn newer_formats_are_refused() {
 fn a_format_1_workspace_opens_with_portable_kinds_and_is_saved_upgraded() {
     let dir = tempfile::tempdir().unwrap();
     let mut workspace = Workspace::new("Old");
-    let screen = Input::new("Display", "screen_capture", json!({"type": 0, "display_uuid": "U", "show_cursor": false}));
-    let mic = Input::new("Mic", "coreaudio_input_capture", json!({"device_id": "default"}));
-    for input in [screen, mic] {
-        Command::AddInput { input }.apply(&mut workspace).unwrap();
+    let screen = Source::new("Display", "screen_capture", json!({"type": 0, "display_uuid": "U", "show_cursor": false}));
+    let mic = Source::new("Mic", "coreaudio_input_capture", json!({"device_id": "default"}));
+    for source in [screen, mic] {
+        Command::AddSource { source }.apply(&mut workspace).unwrap();
     }
     save(dir.path(), &workspace).unwrap();
     // as a canvas-1 Lightair wrote it
@@ -100,7 +100,7 @@ fn a_format_1_workspace_opens_with_portable_kinds_and_is_saved_upgraded() {
     std::fs::write(&manifest, serde_json::to_vec(&m).unwrap()).unwrap();
 
     let opened = Package::open(dir.path(), || Workspace::new("unused")).unwrap();
-    let by_name = |p: &Workspace, n: &str| p.inputs.values().find(|i| i.name == n).unwrap().as_ref().clone();
+    let by_name = |p: &Workspace, n: &str| p.sources.values().find(|i| i.name == n).unwrap().as_ref().clone();
     let d = by_name(&opened.workspace, "Display");
     assert_eq!(d.kind, lightair_core::kinds::SCREEN);
     assert_eq!(d.settings, json!({"mode": 0, "display": "U", "cursor": false}));

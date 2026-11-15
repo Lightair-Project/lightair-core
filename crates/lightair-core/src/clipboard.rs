@@ -1,8 +1,8 @@
 //! Copy, paste and duplicate (docs/07-scenes-layers-canvas.md, "Editing"): layers travel with
-//! everything under them and the inputs they show, as plain data, so a copy can be pasted into
+//! everything under them and the sources they show, as plain data, so a copy can be pasted into
 //! another scene or workspace.
 //!
-//! Pasting gives every layer a new id. A content input (text, image, colour, media, timer…) is
+//! Pasting gives every layer a new id. A content source (text, image, colour, media, timer…) is
 //! copied too, so editing the copy leaves the original alone; a device (camera, display,
 //! window, microphone) is shared when the workspace already has it, since opening it twice gains
 //! nothing. Copies land where the originals were on the canvas.
@@ -12,20 +12,20 @@ use std::collections::{BTreeMap, HashMap};
 use serde::{Deserialize, Serialize};
 
 use crate::command::Command;
-use crate::model::{Id, Input, Layer, Workspace, Scene};
+use crate::model::{Id, Source, Layer, Workspace, Scene};
 
 /// What the clipboard holds: whole subtrees (each root first, roots in their list order) and
-/// the inputs they show. Roots' layouts are in canvas terms; the rest stay in their parent's.
+/// the sources they show. Roots' layouts are in canvas terms; the rest stay in their parent's.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Clip {
     pub layers: Vec<Layer>,
-    pub inputs: Vec<Input>,
+    pub sources: Vec<Source>,
 }
 
 /// Marks Lightair's data on the system clipboard.
 const TAG: &str = "lightair/layers@1\n";
 
-/// Inputs that capture something on this machine: shared between copies, not opened twice.
+/// Sources that capture something on this machine: shared between copies, not opened twice.
 pub fn is_device(kind: &str) -> bool {
     crate::kinds::ALL.contains(&kind) || crate::kinds::from_libobs(kind, &serde_json::Value::Null).is_some()
 }
@@ -55,15 +55,15 @@ impl Clip {
             block[0].parent = None;
             layers.extend(block);
         }
-        let mut inputs: Vec<Input> = Vec::new();
+        let mut sources: Vec<Source> = Vec::new();
         for l in &layers {
-            if let Some(input) = l.input.and_then(|i| workspace.inputs.get(&i))
-                && !inputs.iter().any(|i| i.id == input.id)
+            if let Some(source) = l.source.and_then(|i| workspace.sources.get(&i))
+                && !sources.iter().any(|i| i.id == source.id)
             {
-                inputs.push((**input).clone());
+                sources.push((**source).clone());
             }
         }
-        Some(Clip { layers, inputs })
+        Some(Clip { layers, sources })
     }
 
     /// The commands that paste this into `scene` under `parent` (`None`: the top level), at
@@ -77,23 +77,23 @@ impl Clip {
     ) -> (Vec<Command>, Vec<Id>) {
         let Some(sc) = workspace.scene(scene) else { return (vec![], vec![]) };
         let mut commands = Vec::new();
-        // Inputs: devices the workspace has are shared; everything else is a fresh copy.
-        let mut input_ids: HashMap<Id, Id> = HashMap::new();
-        for input in &self.inputs {
+        // Sources: devices the workspace has are shared; everything else is a fresh copy.
+        let mut source_ids: HashMap<Id, Id> = HashMap::new();
+        for source in &self.sources {
             // copied by a Lightair from before portable kinds
-            let mut input = input.clone();
-            if let Some((kind, settings)) = crate::kinds::from_libobs(&input.kind, &input.settings) {
-                input.kind = kind.into();
-                input.settings = settings;
+            let mut source = source.clone();
+            if let Some((kind, settings)) = crate::kinds::from_libobs(&source.kind, &source.settings) {
+                source.kind = kind.into();
+                source.settings = settings;
             }
-            let input = &input;
-            let shared = is_device(&input.kind) && workspace.inputs.get(&input.id).is_some_and(|i| i.kind == input.kind);
+            let source = &source;
+            let shared = is_device(&source.kind) && workspace.sources.get(&source.id).is_some_and(|i| i.kind == source.kind);
             if shared {
-                input_ids.insert(input.id, input.id);
+                source_ids.insert(source.id, source.id);
             } else {
-                let copy = Input { id: Id::new(), ..input.clone() };
-                input_ids.insert(input.id, copy.id);
-                commands.push(Command::AddInput { input: copy });
+                let copy = Source { id: Id::new(), ..source.clone() };
+                source_ids.insert(source.id, copy.id);
+                commands.push(Command::AddSource { source: copy });
             }
         }
         let mut layer_ids: HashMap<Id, Id> = HashMap::new();
@@ -106,7 +106,7 @@ impl Clip {
             let is_root = l.parent.is_none_or(|p| !layer_ids.contains_key(&p));
             let mut layer = Layer {
                 id,
-                input: l.input.map(|i| input_ids.get(&i).copied().unwrap_or(i)),
+                source: l.source.map(|i| source_ids.get(&i).copied().unwrap_or(i)),
                 parent: if is_root { parent } else { l.parent.and_then(|p| layer_ids.get(&p).copied()) },
                 ..l.clone()
             };
@@ -196,7 +196,7 @@ impl SceneAsset {
     pub fn of(workspace: &Workspace, scene: Id) -> Option<SceneAsset> {
         let sc = workspace.scene(scene)?;
         let roots: Vec<Id> = sc.layers.iter().filter(|l| l.parent.is_none()).map(|l| l.id).collect();
-        let clip = Clip::copy(workspace, scene, &roots).unwrap_or(Clip { layers: vec![], inputs: vec![] });
+        let clip = Clip::copy(workspace, scene, &roots).unwrap_or(Clip { layers: vec![], sources: vec![] });
         Some(SceneAsset { name: sc.name.clone(), clip })
     }
 

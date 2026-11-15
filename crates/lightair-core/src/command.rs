@@ -7,7 +7,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    ClipSettings, Destination, Effect, Canvas, Id, Input, Layer, Layout, Workspace, Reconnect, RecordingSettings, Scene,
+    ClipSettings, Destination, Effect, Canvas, Id, Source, Layer, Layout, Workspace, Reconnect, RecordingSettings, Scene,
     Stinger, Track, TransitionSettings, AudioMix, Bus, Master, Route, MixerStrip,
 };
 
@@ -30,18 +30,27 @@ pub enum Command {
         canvas: Id,
     },
 
-    AddInput {
-        input: Input,
+    #[serde(alias = "AddInput")]
+
+    AddSource {
+        #[serde(alias = "input")]
+        source: Source,
     },
-    RemoveInput {
-        input: Id,
+    #[serde(alias = "RemoveInput")]
+    RemoveSource {
+        #[serde(alias = "input")]
+        source: Id,
     },
-    RenameInput {
-        input: Id,
+    #[serde(alias = "RenameInput")]
+    RenameSource {
+        #[serde(alias = "input")]
+        source: Id,
         name: String,
     },
-    SetInputSettings {
-        input: Id,
+    #[serde(alias = "SetInputSettings")]
+    SetSourceSettings {
+        #[serde(alias = "input")]
+        source: Id,
         settings: serde_json::Value,
     },
 
@@ -270,22 +279,31 @@ pub enum Command {
         reconnect: Reconnect,
     },
 
-    AddInputEffect {
-        input: Id,
+    #[serde(alias = "AddInputEffect")]
+
+    AddSourceEffect {
+        #[serde(alias = "input")]
+        source: Id,
         effect: Effect,
         index: Option<usize>,
     },
-    RemoveInputEffect {
-        input: Id,
+    #[serde(alias = "RemoveInputEffect")]
+    RemoveSourceEffect {
+        #[serde(alias = "input")]
+        source: Id,
         effect: Id,
     },
-    SetInputEffectEnabled {
-        input: Id,
+    #[serde(alias = "SetInputEffectEnabled")]
+    SetSourceEffectEnabled {
+        #[serde(alias = "input")]
+        source: Id,
         effect: Id,
         enabled: bool,
     },
-    SetInputEffectSettings {
-        input: Id,
+    #[serde(alias = "SetInputEffectSettings")]
+    SetSourceEffectSettings {
+        #[serde(alias = "input")]
+        source: Id,
         effect: Id,
         settings: serde_json::Value,
     },
@@ -304,13 +322,13 @@ pub enum CommandError {
     #[error("no object {0}")]
     NoLayer(Id),
     #[error("no input {0}")]
-    NoInput(Id),
+    NoSource(Id),
     #[error("no canvas {0}")]
     NoCanvas(Id),
     #[error("{0} already exists")]
     Duplicate(Id),
     #[error("the input is used by {0} object(s)")]
-    InputInUse(usize),
+    SourceInUse(usize),
     #[error("a workspace needs at least one canvas")]
     LastCanvas,
     #[error("a canvas is 16 to 7680 pixels each way, at 1 to 240 fps")]
@@ -338,10 +356,10 @@ impl Command {
             Command::AddCanvas { .. } => "Add canvas".into(),
             Command::RemoveCanvas { .. } => "Remove canvas".into(),
             Command::UpdateCanvas { .. } => "Change canvas".into(),
-            Command::AddInput { .. } => "Add input".into(),
-            Command::RemoveInput { .. } => "Remove input".into(),
-            Command::RenameInput { .. } => "Rename input".into(),
-            Command::SetInputSettings { .. } => "Change input settings".into(),
+            Command::AddSource { .. } => "Add input".into(),
+            Command::RemoveSource { .. } => "Remove input".into(),
+            Command::RenameSource { .. } => "Rename input".into(),
+            Command::SetSourceSettings { .. } => "Change input settings".into(),
             Command::AddScene { .. } => "Add scene".into(),
             Command::RemoveScene { .. } => "Remove scene".into(),
             Command::RenameScene { .. } => "Rename scene".into(),
@@ -399,11 +417,11 @@ impl Command {
             Command::SetClipSettings { .. } => "Change clip settings".into(),
             Command::UpdateDestination { .. } => "Change destination".into(),
             Command::SetReconnect { .. } => "Change reconnecting".into(),
-            Command::AddInputEffect { .. } => "Add effect".into(),
-            Command::RemoveInputEffect { .. } => "Remove effect".into(),
-            Command::SetInputEffectEnabled { enabled: true, .. } => "Turn effect on".into(),
-            Command::SetInputEffectEnabled { enabled: false, .. } => "Turn effect off".into(),
-            Command::SetInputEffectSettings { .. } => "Change effect".into(),
+            Command::AddSourceEffect { .. } => "Add effect".into(),
+            Command::RemoveSourceEffect { .. } => "Remove effect".into(),
+            Command::SetSourceEffectEnabled { enabled: true, .. } => "Turn effect on".into(),
+            Command::SetSourceEffectEnabled { enabled: false, .. } => "Turn effect off".into(),
+            Command::SetSourceEffectSettings { .. } => "Change effect".into(),
             Command::Batch { label, .. } => label.clone(),
         }
     }
@@ -413,7 +431,7 @@ impl Command {
     pub fn coalesce_key(&self) -> Option<(&'static str, Id, Id)> {
         match self {
             Command::SetLayout { layer, canvas, .. } => Some(("layout", *layer, *canvas)),
-            Command::SetInputSettings { input, .. } => Some(("settings", *input, *input)),
+            Command::SetSourceSettings { source, .. } => Some(("settings", *source, *source)),
             Command::SetTrackVolume { track, .. } => Some(("volume", *track, *track)),
             Command::UpdateTrack { track } => Some(("track", track.id, track.id)),
             Command::UpdateBus { bus } => Some(("bus", bus.id, bus.id)),
@@ -421,7 +439,7 @@ impl Command {
             Command::UpdateMaster { .. } => Some(("master", Id(uuid::Uuid::nil()), Id(uuid::Uuid::nil()))),
             Command::SetStripEffectSettings { strip, effect, .. } => Some(("strip-effect", strip.id(), *effect)),
             Command::SetEffectSettings { track, effect, .. } => Some(("effect", *track, *effect)),
-            Command::SetInputEffectSettings { input, effect, .. } => Some(("input-effect", *input, *effect)),
+            Command::SetSourceEffectSettings { source, effect, .. } => Some(("input-effect", *source, *effect)),
             // Moving several layers together: one step per gesture, like a single layer.
             Command::Batch { commands, .. }
                 if !commands.is_empty() && commands.iter().all(|c| matches!(c, Command::SetLayout { .. })) =>
@@ -491,28 +509,28 @@ impl Command {
                     ..canvas.clone()
                 };
             }
-            Command::AddInput { input } => {
-                if workspace.inputs.contains_key(&input.id) {
-                    return Err(CommandError::Duplicate(input.id));
+            Command::AddSource { source } => {
+                if workspace.sources.contains_key(&source.id) {
+                    return Err(CommandError::Duplicate(source.id));
                 }
-                workspace.inputs.insert(input.id, Arc::new(input.clone()));
+                workspace.sources.insert(source.id, Arc::new(source.clone()));
             }
-            Command::RemoveInput { input } => {
-                if !workspace.inputs.contains_key(input) {
-                    return Err(CommandError::NoInput(*input));
+            Command::RemoveSource { source } => {
+                if !workspace.sources.contains_key(source) {
+                    return Err(CommandError::NoSource(*source));
                 }
                 let users =
-                    workspace.layers_using(*input).count() + workspace.tracks.iter().filter(|t| t.input == *input).count();
+                    workspace.layers_using(*source).count() + workspace.tracks.iter().filter(|t| t.source == *source).count();
                 if users > 0 {
-                    return Err(CommandError::InputInUse(users));
+                    return Err(CommandError::SourceInUse(users));
                 }
-                workspace.inputs.remove(input);
+                workspace.sources.remove(source);
             }
-            Command::RenameInput { input, name } => {
-                Arc::make_mut(workspace.inputs.get_mut(input).ok_or(CommandError::NoInput(*input))?).name = name.clone();
+            Command::RenameSource { source, name } => {
+                Arc::make_mut(workspace.sources.get_mut(source).ok_or(CommandError::NoSource(*source))?).name = name.clone();
             }
-            Command::SetInputSettings { input, settings } => {
-                Arc::make_mut(workspace.inputs.get_mut(input).ok_or(CommandError::NoInput(*input))?).settings =
+            Command::SetSourceSettings { source, settings } => {
+                Arc::make_mut(workspace.sources.get_mut(source).ok_or(CommandError::NoSource(*source))?).settings =
                     settings.clone();
             }
             Command::AddScene { scene, index } => {
@@ -615,8 +633,8 @@ impl Command {
                 if workspace.track(track.id).is_some() {
                     return Err(CommandError::Duplicate(track.id));
                 }
-                if !workspace.inputs.contains_key(&track.input) {
-                    return Err(CommandError::NoInput(track.input));
+                if !workspace.sources.contains_key(&track.source) {
+                    return Err(CommandError::NoSource(track.source));
                 }
                 let at = index.unwrap_or(workspace.tracks.len()).min(workspace.tracks.len());
                 workspace.tracks.insert(at, Arc::new(track.clone()));
@@ -666,8 +684,8 @@ impl Command {
             Command::SetTrackMuted { track, muted } => track_mut(workspace, *track)?.muted = *muted,
             Command::SetTrackCue { track, cue } => track_mut(workspace, *track)?.cue = *cue,
             Command::UpdateTrack { track } => {
-                if !workspace.inputs.contains_key(&track.input) {
-                    return Err(CommandError::NoInput(track.input));
+                if !workspace.sources.contains_key(&track.source) {
+                    return Err(CommandError::NoSource(track.source));
                 }
                 *track_mut(workspace, track.id)? = track.clone();
                 check_audio(workspace)?;
@@ -826,24 +844,24 @@ impl Command {
                     TransitionSettings { duration_ms: settings.duration_ms.clamp(50, 5000), ..*settings }
             }
             Command::SetStinger { stinger } => workspace.stinger = stinger.clone(),
-            Command::AddInputEffect { input, effect, index } => {
-                let i = Arc::make_mut(workspace.inputs.get_mut(input).ok_or(CommandError::NoInput(*input))?);
+            Command::AddSourceEffect { source, effect, index } => {
+                let i = Arc::make_mut(workspace.sources.get_mut(source).ok_or(CommandError::NoSource(*source))?);
                 if i.effects.iter().any(|e| e.id == effect.id) {
                     return Err(CommandError::Duplicate(effect.id));
                 }
                 let at = index.unwrap_or(i.effects.len()).min(i.effects.len());
                 i.effects.insert(at, effect.clone());
             }
-            Command::RemoveInputEffect { input, effect } => {
-                let i = Arc::make_mut(workspace.inputs.get_mut(input).ok_or(CommandError::NoInput(*input))?);
+            Command::RemoveSourceEffect { source, effect } => {
+                let i = Arc::make_mut(workspace.sources.get_mut(source).ok_or(CommandError::NoSource(*source))?);
                 let idx = i.effects.iter().position(|e| e.id == *effect).ok_or(CommandError::NoEffect(*effect))?;
                 i.effects.remove(idx);
             }
-            Command::SetInputEffectEnabled { input, effect, enabled } => {
-                input_effect_mut(workspace, *input, *effect)?.enabled = *enabled
+            Command::SetSourceEffectEnabled { source, effect, enabled } => {
+                source_effect_mut(workspace, *source, *effect)?.enabled = *enabled
             }
-            Command::SetInputEffectSettings { input, effect, settings } => {
-                input_effect_mut(workspace, *input, *effect)?.settings = settings.clone()
+            Command::SetSourceEffectSettings { source, effect, settings } => {
+                source_effect_mut(workspace, *source, *effect)?.settings = settings.clone()
             }
             Command::Batch { commands, .. } => {
                 // Apply to a scratch copy so a failing step leaves the workspace untouched.
@@ -911,8 +929,8 @@ fn track_mut(workspace: &mut Workspace, id: Id) -> Result<&mut Track, CommandErr
     Ok(Arc::make_mut(&mut workspace.tracks[idx]))
 }
 
-fn input_effect_mut(workspace: &mut Workspace, input: Id, effect: Id) -> Result<&mut Effect, CommandError> {
-    Arc::make_mut(workspace.inputs.get_mut(&input).ok_or(CommandError::NoInput(input))?)
+fn source_effect_mut(workspace: &mut Workspace, source: Id, effect: Id) -> Result<&mut Effect, CommandError> {
+    Arc::make_mut(workspace.sources.get_mut(&source).ok_or(CommandError::NoSource(source))?)
         .effects
         .iter_mut()
         .find(|e| e.id == effect)
@@ -924,10 +942,10 @@ fn effect_mut(workspace: &mut Workspace, track: Id, effect: Id) -> Result<&mut E
 }
 
 fn check_layer(workspace: &Workspace, layer: &Layer) -> Result<(), CommandError> {
-    if let Some(input) = layer.input
-        && !workspace.inputs.contains_key(&input)
+    if let Some(source) = layer.source
+        && !workspace.sources.contains_key(&source)
     {
-        return Err(CommandError::NoInput(input));
+        return Err(CommandError::NoSource(source));
     }
     for canvas in layer.layouts.keys() {
         workspace.canvas(*canvas).ok_or(CommandError::NoCanvas(*canvas))?;
@@ -944,19 +962,19 @@ fn layer_mut(workspace: &mut Workspace, scene: Id, layer: Id) -> Result<&mut Lay
     scene_mut(workspace, scene)?.layers.iter_mut().find(|l| l.id == layer).ok_or(CommandError::NoLayer(layer))
 }
 
-impl Input {
+impl Source {
     pub fn new(name: impl Into<String>, kind: impl Into<String>, settings: serde_json::Value) -> Self {
         Self { id: Id::new(), name: name.into(), kind: kind.into(), settings, effects: Vec::new() }
     }
 }
 
 impl Layer {
-    /// A layer for `input`, laid out the same way in every given canvas.
-    pub fn new(name: impl Into<String>, input: Id, canvases: impl IntoIterator<Item = (Id, Layout)>) -> Self {
+    /// A layer for `source`, laid out the same way in every given canvas.
+    pub fn new(name: impl Into<String>, source: Id, canvases: impl IntoIterator<Item = (Id, Layout)>) -> Self {
         Self {
             id: Id::new(),
             name: name.into(),
-            input: Some(input),
+            source: Some(source),
             parent: None,
             prefab: None,
             layouts: canvases.into_iter().collect(),
@@ -970,7 +988,7 @@ impl Layer {
         Self {
             id: Id::new(),
             name: name.into(),
-            input: None,
+            source: None,
             parent: None,
             prefab: None,
             layouts: canvases.into_iter().map(|(f, (x, y))| (f, Layout::boxed(x, y, 0.0, 0.0))).collect(),

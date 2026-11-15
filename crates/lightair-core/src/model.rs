@@ -1,6 +1,6 @@
 //! The workspace document (docs/07-scenes-layers-canvas.md, docs/14-data-persistence-settings.md).
 //!
-//! Snapshots are immutable and share structure: scenes and inputs sit behind `Arc`, so cloning
+//! Snapshots are immutable and share structure: scenes and sources sit behind `Arc`, so cloning
 //! a `Workspace` to apply a command copies pointers, and unchanged parts compare by pointer.
 
 use std::collections::BTreeMap;
@@ -45,7 +45,8 @@ pub struct Workspace {
     /// Output canvas shapes. The first is the primary canvas (libobs main canvas).
     #[serde(alias = "formats")]
     pub canvases: Vec<Canvas>,
-    pub inputs: BTreeMap<Id, Arc<Input>>,
+    #[serde(alias = "inputs")]
+    pub sources: BTreeMap<Id, Arc<Source>>,
     /// Scenes in display order.
     pub scenes: Vec<Arc<Scene>>,
     /// The scene on air.
@@ -82,7 +83,7 @@ impl Workspace {
             id: Id::new(),
             name: name.into(),
             canvases: vec![Canvas::landscape()],
-            inputs: BTreeMap::new(),
+            sources: BTreeMap::new(),
             scenes: Vec::new(),
             program: None,
             tracks: Vec::new(),
@@ -100,7 +101,7 @@ impl Workspace {
             id: self.id,
             name: self.name.clone(),
             canvases: self.canvases.clone(),
-            inputs: BTreeMap::new(),
+            sources: BTreeMap::new(),
             scenes: Vec::new(),
             program: None,
             tracks: Vec::new(),
@@ -135,11 +136,11 @@ impl Workspace {
         self.tracks.iter().position(|t| t.id == id)
     }
 
-    /// Layers anywhere in the workspace that use `input`.
-    pub fn layers_using(&self, input: Id) -> impl Iterator<Item = (&Scene, &Layer)> {
+    /// Layers anywhere in the workspace that use `source`.
+    pub fn layers_using(&self, source: Id) -> impl Iterator<Item = (&Scene, &Layer)> {
         self.scenes
             .iter()
-            .flat_map(move |s| s.layers.iter().filter(move |l| l.input == Some(input)).map(move |l| (&**s, l)))
+            .flat_map(move |s| s.layers.iter().filter(move |l| l.source == Some(source)).map(move |l| (&**s, l)))
     }
 }
 
@@ -177,14 +178,14 @@ impl Canvas {
 
 /// A media source, opened once and used by any number of layers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Input {
+pub struct Source {
     pub id: Id,
     pub name: String,
-    /// libobs source type id (e.g. `screen_capture`, `av_capture_input_v2`, `image_source`).
+    /// libobs source type id (e.g. `screen_capture`, `av_capture_source_v2`, `image_source`).
     pub kind: String,
     /// Source settings as libobs `obs_data` JSON (opaque for plugin sources).
     pub settings: serde_json::Value,
-    /// Input effects: applied wherever the input appears (docs/08-video-effects.md).
+    /// Source effects: applied wherever the source appears (docs/08-video-effects.md).
     #[serde(default)]
     pub effects: Vec<Effect>,
 }
@@ -273,14 +274,15 @@ impl Scene {
     }
 }
 
-/// An input placed in a scene, arranged per canvas; or, without an input, an *empty* holding
+/// A source placed in a scene, arranged per canvas; or, without a source, an *empty* holding
 /// other layers (see `hierarchy`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Layer {
     pub id: Id,
     pub name: String,
     /// The picture; `None` for an empty.
-    pub input: Option<Id>,
+    #[serde(alias = "input")]
+    pub source: Option<Id>,
     /// The layer this one sits in (its layout is in that layer's space).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<Id>,
@@ -292,8 +294,8 @@ pub struct Layer {
     pub layouts: BTreeMap<Id, Layout>,
     pub locked: bool,
     /// The same thing as the layers with this link in other scenes, though it shows another
-    /// input (each screen recording scene's own backdrop): the Move transition glides between
-    /// them. Layers showing the same input glide anyway.
+    /// source (each screen recording scene's own backdrop): the Move transition glides between
+    /// them. Layers showing the same source glide anyway.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link: Option<Id>,
 }
@@ -304,7 +306,7 @@ pub struct Layout {
     /// Top-left of the layer's box, in canvas pixels.
     pub x: f32,
     pub y: f32,
-    /// Box size in canvas pixels; the input is fitted into it (`fit`).
+    /// Box size in canvas pixels; the source is fitted into it (`fit`).
     pub width: f32,
     pub height: f32,
     /// Degrees clockwise around the box centre.
@@ -451,12 +453,13 @@ pub enum Fit {
     Original,
 }
 
-/// A channel strip in the mixer: one audio input, its effects, level and routing.
+/// A channel strip in the mixer: one audio source, its effects, level and routing.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Track {
     pub id: Id,
     pub name: String,
-    pub input: Id,
+    #[serde(alias = "input")]
+    pub source: Id,
     /// Fader level in dB (−∞ is represented by `f32::NEG_INFINITY`, serialized as null).
     #[serde(with = "db")]
     pub volume_db: f32,
@@ -465,13 +468,13 @@ pub struct Track {
     pub cue: bool,
     /// Insert effects, in order.
     pub effects: Vec<Effect>,
-    /// Which of the input's channels (a multi-channel interface: one mic per channel).
+    /// Which of the source's channels (a multi-channel interface: one mic per channel).
     #[serde(default)]
     pub channels: TrackChannels,
     /// −1 (left) .. 1 (right).
     #[serde(default)]
     pub pan: f32,
-    /// Input trim (dB), before the effects.
+    /// Source trim (dB), before the effects.
     #[serde(default)]
     pub trim_db: f32,
     /// Polarity.
@@ -502,11 +505,11 @@ pub struct Track {
 }
 
 impl Track {
-    pub fn new(name: impl Into<String>, input: Id) -> Self {
+    pub fn new(name: impl Into<String>, source: Id) -> Self {
         Self {
             id: Id::new(),
             name: name.into(),
-            input,
+            source,
             volume_db: 0.0,
             muted: false,
             cue: false,
@@ -526,11 +529,11 @@ impl Track {
     }
 }
 
-/// Which channels of its input a track takes (0-based).
+/// Which channels of its source a track takes (0-based).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TrackChannels {
-    /// The input as it comes (mono inputs on both sides).
+    /// The source as it comes (mono sources on both sides).
     #[default]
     All,
     Mono(u16),

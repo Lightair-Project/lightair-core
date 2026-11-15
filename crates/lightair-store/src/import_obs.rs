@@ -8,7 +8,7 @@
 use std::collections::{HashMap, HashSet};
 
 use lightair_core::{
-    Command, Crop, Direction, Effect, Fit, Canvas, Id, Input, Layer, Layout, Workspace, Scene, Track, TransitionKind,
+    Command, Crop, Direction, Effect, Fit, Canvas, Id, Source, Layer, Layout, Workspace, Scene, Track, TransitionKind,
     TransitionSettings,
 };
 use serde_json::Value;
@@ -34,7 +34,7 @@ pub struct ImportReport {
 pub struct EstimatedLayer {
     pub scene: Id,
     pub layer: Id,
-    pub input: Id,
+    pub source: Id,
     pub canvas: Id,
     /// The layout as imported (a layer the user has since changed is left alone).
     pub layout: Layout,
@@ -156,7 +156,7 @@ fn volume_db(volume: f64) -> f32 {
 }
 
 /// OBS's capture sources become Lightair's portable kinds (the workspace opens on either platform).
-fn portable(mut input: Input) -> Input {
+fn portable(mut input: Source) -> Source {
     if let Some((kind, settings)) = lightair_core::kinds::from_libobs(&input.kind, &input.settings) {
         input.kind = kind.into();
         input.settings = settings;
@@ -293,7 +293,7 @@ pub fn import_obs_collection(json: &str, workspace: &Workspace) -> Result<(Comma
     let mut report = ImportReport::default();
     let mut commands = Vec::new();
 
-    // Inputs (every non-scene source), keyed by OBS uuid and name.
+    // Sources (every non-scene source), keyed by OBS uuid and name.
     let mut inputs: HashMap<String, (Id, String, Value)> = HashMap::new();
     let mut source_by_uuid: HashMap<String, &Value> = HashMap::new();
     let mut tracked: HashSet<Id> = HashSet::new();
@@ -312,7 +312,7 @@ pub fn import_obs_collection(json: &str, workspace: &Workspace) -> Result<(Comma
                 .push(format!("group {}: groups arrive in a later version; its objects were skipped", name_of(s)));
             continue;
         }
-        let mut input = portable(Input::new(name_of(s), kind.clone(), s["settings"].clone()));
+        let mut input = portable(Source::new(name_of(s), kind.clone(), s["settings"].clone()));
         input.effects = effects_of(s, &mut report);
         let base = s["id"].as_str().unwrap_or(&kind);
         if CORE_INPUTS.contains(&base) {
@@ -321,7 +321,7 @@ pub fn import_obs_collection(json: &str, workspace: &Workspace) -> Result<(Comma
             report.kept_plugin.push(format!("input {} ({kind})", input.name));
         }
         inputs.insert(uuid, (input.id, kind, s["settings"].clone()));
-        commands.push(Command::AddInput { input });
+        commands.push(Command::AddSource { source: input });
     }
 
     // Scenes in OBS order.
@@ -383,7 +383,7 @@ pub fn import_obs_collection(json: &str, workspace: &Workspace) -> Result<(Comma
                 report.estimated.push(EstimatedLayer {
                     scene: scene.id,
                     layer: layer.id,
-                    input: *input_id,
+                    source: *input_id,
                     canvas: primary.id,
                     layout,
                     item: item.clone(),
@@ -418,7 +418,7 @@ pub fn import_obs_collection(json: &str, workspace: &Workspace) -> Result<(Comma
         if !s.is_object() {
             continue;
         }
-        let mut input = portable(Input::new(name_of(s), kind_of(s), s["settings"].clone()));
+        let mut input = portable(Source::new(name_of(s), kind_of(s), s["settings"].clone()));
         input.effects = effects_of(s, &mut report);
         let mut track = Track::new(name_of(s), input.id);
         let volume = s["volume"].as_f64().unwrap_or(1.0);
@@ -426,7 +426,7 @@ pub fn import_obs_collection(json: &str, workspace: &Workspace) -> Result<(Comma
         track.muted = s["muted"].as_bool().unwrap_or(false);
         track.cue = s["monitoring_type"].as_i64().unwrap_or(0) != 0;
         report.converted.push(format!("audio track {}", track.name));
-        commands.push(Command::AddInput { input });
+        commands.push(Command::AddSource { source: input });
         commands.push(Command::AddTrack { track: track.clone(), index: None });
     }
 

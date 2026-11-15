@@ -7,7 +7,7 @@
 
 use serde_json::json;
 
-use crate::{Command, Fit, Id, Input, Layer, Layout, Workspace, Scene, Shape, ShapeKind, TransitionKind, TransitionSettings};
+use crate::{Command, Fit, Id, Source, Layer, Layout, Workspace, Scene, Shape, ShapeKind, TransitionKind, TransitionSettings};
 
 /// Space around the screen, as a fraction of the canvas's height.
 const PADDING: f32 = 0.07;
@@ -38,13 +38,13 @@ pub fn scenes(workspace: &Workspace, s: &Sources) -> Vec<Command> {
     let (fid, w, h) = (f.id, f.width as f32, f.height as f32);
     let pad = h * PADDING;
     let mut commands = Vec::new();
-    // every scene's backdrop is the same thing (each its own input, its shadow where its screen
+    // every scene's backdrop is the same thing (each its own source, its shadow where its screen
     // is): the Move transition glides between them
     let backdrop_link = Id::new();
     let mut add = |name: &str, screen_box: Option<(f32, f32, f32, f32)>, camera: Option<(Layout, &str)>| {
         let mut scene = Scene::new(name);
         if let Some((x, y, bw, bh)) = screen_box {
-            let backdrop = Input::new(
+            let backdrop = Source::new(
                 format!("Backdrop · {name}"),
                 "lightair_backdrop",
                 json!({
@@ -54,7 +54,7 @@ pub fn scenes(workspace: &Workspace, s: &Sources) -> Vec<Command> {
                 }),
             );
             scene.layers.push(Layer { link: Some(backdrop_link), ..Layer::new("Backdrop", backdrop.id, [(fid, Layout::boxed(0.0, 0.0, w, h))]) });
-            commands.push(Command::AddInput { input: backdrop });
+            commands.push(Command::AddSource { source: backdrop });
             let mut l = Layout::boxed(x, y, bw, bh);
             l.fit = Fit::Stretch;
             // corners about 1.5% of the short side
@@ -109,11 +109,11 @@ mod tests {
     #[test]
     fn layouts_fit_the_screen_and_keep_the_shadow_under_it() {
         let mut p = Workspace::new("P");
-        let screen = Input::new("Display", crate::kinds::SCREEN, json!({}));
-        let cam = Input::new("Camera", crate::kinds::CAMERA, json!({}));
+        let screen = Source::new("Display", crate::kinds::SCREEN, json!({}));
+        let cam = Source::new("Camera", crate::kinds::CAMERA, json!({}));
         let (sid, cid) = (screen.id, cam.id);
-        for input in [screen, cam] {
-            Command::AddInput { input }.apply(&mut p).unwrap();
+        for source in [screen, cam] {
+            Command::AddSource { source }.apply(&mut p).unwrap();
         }
         let cmds = scenes(&p, &Sources { screen: sid, screen_aspect: 16.0 / 10.0, camera: Some(cid), preset: 0 });
         for c in &cmds {
@@ -123,9 +123,9 @@ mod tests {
         assert_eq!(names, ["Screen", "Screen + camera", "Split", "Camera"]);
         let f = p.primary_canvas().id;
         for scene in &p.scenes[..3] {
-            let screen = scene.layers.iter().find(|l| l.input == Some(sid)).unwrap().layouts[&f];
+            let screen = scene.layers.iter().find(|l| l.source == Some(sid)).unwrap().layouts[&f];
             assert!((screen.width / screen.height - 1.6).abs() < 0.01, "the box has the screen's shape");
-            let backdrop = p.inputs.get(&scene.layers[0].input.unwrap()).unwrap();
+            let backdrop = p.sources.get(&scene.layers[0].source.unwrap()).unwrap();
             assert_eq!(backdrop.kind, "lightair_backdrop");
             assert_eq!(backdrop.settings["shadow_x"].as_f64().unwrap() as f32, screen.x, "the shadow is under it");
             assert_eq!(backdrop.settings["shadow_w"].as_f64().unwrap() as f32, screen.width);

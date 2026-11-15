@@ -3,7 +3,7 @@
 //! ```text
 //! My Show.lightair/
 //! ├─ workspace.json     manifest: canvas version, id, name, canvases, program, scene order
-//! ├─ inputs.json      media inputs
+//! ├─ sources.json      media sources
 //! ├─ audio.json       mixer tracks and their effects
 //! ├─ mixer.json       buses, mixes and the master
 //! ├─ outputs.json     recording and streaming settings (no secrets)
@@ -28,11 +28,11 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use lightair_core::{Command, Canvas, Id, Input, OutputSettings, Workspace, Scene, Track};
+use lightair_core::{Command, Canvas, Id, Source, OutputSettings, Workspace, Scene, Track};
 use serde::{Deserialize, Serialize};
 
 /// Current on-disk canvas. Bump it and add a migration in [`migrate`] when the schema changes.
-/// 2: capture inputs use Lightair's portable kinds (lightair_core::kinds).
+/// 2: capture sources use Lightair's portable kinds (lightair_core::kinds).
 pub const FORMAT_VERSION: u32 = 2;
 
 #[derive(Debug, thiserror::Error)]
@@ -104,8 +104,10 @@ pub fn save(dir: &Path, workspace: &Workspace) -> Result<(), StoreError> {
             let _ = fs::remove_file(entry.path());
         }
     }
-    let inputs: Vec<&Input> = workspace.inputs.values().map(|i| &**i).collect();
-    write_json(&dir.join("inputs.json"), &inputs)?;
+    let sources: Vec<&Source> = workspace.sources.values().map(|i| &**i).collect();
+    write_json(&dir.join("sources.json"), &sources)?;
+    // (before the rename, the sources were saved as inputs.json)
+    let _ = fs::remove_file(dir.join("inputs.json"));
     let tracks: Vec<&Track> = workspace.tracks.iter().map(|t| &**t).collect();
     write_json(&dir.join("audio.json"), &tracks)?;
     write_json(&dir.join("mixer.json"), &workspace.audio)?;
@@ -155,7 +157,8 @@ pub fn load_snapshot(dir: &Path) -> Result<Workspace, StoreError> {
     }
     let manifest: Manifest = serde_json::from_value(migrate(raw, version))
         .map_err(|source| StoreError::Json { path: manifest(dir), source })?;
-    let inputs: Vec<Input> = read_json(&dir.join("inputs.json"))?;
+    let sources_file = if dir.join("sources.json").exists() { dir.join("sources.json") } else { dir.join("inputs.json") };
+    let sources: Vec<Source> = read_json(&sources_file)?;
     let audio = dir.join("audio.json");
     let tracks: Vec<Track> = if audio.exists() { read_json(&audio)? } else { Vec::new() };
     let mixer = dir.join("mixer.json");
@@ -175,7 +178,7 @@ pub fn load_snapshot(dir: &Path) -> Result<Workspace, StoreError> {
         id: manifest.id,
         name: manifest.name,
         canvases: manifest.canvases,
-        inputs: inputs.into_iter().map(|i| (i.id, Arc::new(i))).collect::<BTreeMap<_, _>>(),
+        sources: sources.into_iter().map(|i| (i.id, Arc::new(i))).collect::<BTreeMap<_, _>>(),
         scenes,
         program: manifest.program,
         tracks: tracks.into_iter().map(Arc::new).collect(),
@@ -200,7 +203,7 @@ fn migrate(manifest: serde_json::Value, from: u32) -> serde_json::Value {
                 v["formatVersion"] = 1.into();
                 v
             }
-            // 1 → 2: the inputs' kinds (load_snapshot); the manifest is the same
+            // 1 → 2: the sources' kinds (load_snapshot); the manifest is the same
             _ => value,
         };
     }

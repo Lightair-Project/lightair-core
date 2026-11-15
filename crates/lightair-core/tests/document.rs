@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use lightair_core::{
-    Command, CommandError, Document, Input, Layer, LayerPatch, Layout, Patch, Workspace, Scene, diff, diff_layers,
+    Command, CommandError, Document, Source, Layer, LayerPatch, Layout, Patch, Workspace, Scene, diff, diff_layers,
 };
 use proptest::prelude::*;
 
@@ -9,9 +9,9 @@ fn setup() -> (Document, lightair_core::Id, lightair_core::Id, lightair_core::Id
     let workspace = Workspace::new("Show");
     let canvas = workspace.primary_canvas().id;
     let mut doc = Document::new(workspace);
-    let cam = Input::new("Camera", lightair_core::kinds::CAMERA, serde_json::json!({}));
+    let cam = Source::new("Camera", lightair_core::kinds::CAMERA, serde_json::json!({}));
     let cam_id = cam.id;
-    doc.apply(&Command::AddInput { input: cam }).unwrap();
+    doc.apply(&Command::AddSource { source: cam }).unwrap();
     let scene = Scene::new("Main");
     let scene_id = scene.id;
     doc.apply(&Command::AddScene { scene, index: None }).unwrap();
@@ -62,7 +62,7 @@ fn a_drag_gesture_is_one_undo_step() {
 #[test]
 fn dragging_several_layers_is_one_undo_step() {
     let (mut doc, scene, first, canvas) = setup();
-    let cam = doc.workspace().scene(scene).unwrap().layer(first).unwrap().input.unwrap();
+    let cam = doc.workspace().scene(scene).unwrap().layer(first).unwrap().source.unwrap();
     let second = Layer::new("Copy", cam, [(canvas, Layout::boxed(0.0, 0.0, 100.0, 100.0))]);
     let second_id = second.id;
     doc.apply(&Command::AddLayer { scene, layer: second, index: None }).unwrap();
@@ -152,8 +152,8 @@ fn failing_commands_change_nothing() {
     let before = doc.workspace().clone();
     let ghost = lightair_core::Id::new();
     assert_eq!(doc.apply(&Command::RemoveLayer { scene, layer: ghost }).unwrap_err(), CommandError::NoLayer(ghost));
-    let cam = *doc.workspace().inputs.keys().next().unwrap();
-    assert!(matches!(doc.apply(&Command::RemoveInput { input: cam }), Err(CommandError::InputInUse(1))));
+    let cam = *doc.workspace().sources.keys().next().unwrap();
+    assert!(matches!(doc.apply(&Command::RemoveSource { source: cam }), Err(CommandError::SourceInUse(1))));
     // A batch that fails halfway leaves no trace.
     let batch = Command::Batch {
         label: "Rename and break".into(),
@@ -183,7 +183,7 @@ fn diff_orders_and_detects_changes() {
     let kinds: Vec<&str> = patches
         .iter()
         .map(|p| match p {
-            Patch::InputAdded(_) => "input+",
+            Patch::SourceAdded(_) => "input+",
             Patch::SceneAdded(_) => "scene+",
             Patch::ProgramChanged(_) => "program",
             _ => "other",
@@ -202,7 +202,7 @@ fn diff_orders_and_detects_changes() {
 #[test]
 fn layer_reorder_is_one_order_patch() {
     let (mut doc, scene, _layer, canvas) = setup();
-    let cam = *doc.workspace().inputs.keys().next().unwrap();
+    let cam = *doc.workspace().sources.keys().next().unwrap();
     let top = Layer::new("Top", cam, [(canvas, Layout::boxed(0.0, 0.0, 10.0, 10.0))]);
     let top_id = top.id;
     doc.apply(&Command::AddLayer { scene, layer: top, index: None }).unwrap();
@@ -251,7 +251,7 @@ proptest! {
         let mut doc = Document::new((**setup_doc.workspace()).clone());
         let start = doc.workspace().clone();
         let canvas = start.primary_canvas().id;
-        let cam = *start.inputs.keys().next().unwrap();
+        let cam = *start.sources.keys().next().unwrap();
         for op in ops {
             let p = doc.workspace().clone();
             let cmd = match op {
@@ -270,7 +270,7 @@ proptest! {
         let end = doc.workspace().clone();
         while doc.undo().is_some() {}
         prop_assert_eq!(&doc.workspace().scenes, &start.scenes);
-        prop_assert_eq!(&doc.workspace().inputs, &start.inputs);
+        prop_assert_eq!(&doc.workspace().sources, &start.sources);
         while doc.redo().is_some() {}
         prop_assert_eq!(&doc.workspace().scenes, &end.scenes);
         prop_assert_eq!(diff(&end, doc.workspace()).is_empty(), true);
@@ -285,4 +285,13 @@ fn journal_entries_from_before_the_renames_still_read() {
     let old = format!(r#"{{"RemoveFormat":{{"format":"{id}"}}}}"#);
     let cmd: Command = serde_json::from_str(&old).unwrap();
     assert!(matches!(cmd, Command::RemoveCanvas { canvas } if canvas == id));
+}
+
+#[test]
+fn journal_entries_from_before_sources_were_sources_still_read() {
+    use lightair_core::Command;
+    let id = lightair_core::Id::new();
+    let old = format!(r#"{{"RemoveInput":{{"input":"{id}"}}}}"#);
+    let cmd: Command = serde_json::from_str(&old).unwrap();
+    assert!(matches!(cmd, Command::RemoveSource { source } if source == id));
 }

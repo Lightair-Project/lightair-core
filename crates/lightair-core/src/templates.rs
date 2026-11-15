@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use crate::catalog;
 use crate::command::Command;
 use crate::model::{
-    AudioMix, Bus, Effect, Id, Input, Master, Workspace, Route, Send, StemFormat, StemPoint, Track, TrackChannels,
+    AudioMix, Bus, Effect, Id, Source, Master, Workspace, Route, Send, StemFormat, StemPoint, Track, TrackChannels,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,15 +60,15 @@ impl Template {
 /// Where microphones come from.
 #[derive(Debug, Clone)]
 pub struct Mics {
-    /// The input kind of an audio interface (the engine's device input).
+    /// The source kind of an audio interface (the engine's device source).
     pub kind: String,
-    /// The interface ("" for the system default input).
+    /// The interface ("" for the system default source).
     pub device: String,
     /// Its channels (an 8-channel interface gives 8 mics).
     pub channels: u16,
 }
 
-/// Input kinds that exist only for the mixer (no picture): replaced with the mixer.
+/// Source kinds that exist only for the mixer (no picture): replaced with the mixer.
 const AUDIO_KINDS: &[&str] =
     &["lightair_audio_device", crate::kinds::MIC, crate::kinds::DESKTOP_AUDIO, crate::kinds::APP_AUDIO];
 
@@ -90,7 +90,7 @@ fn limiter(ceiling: f64) -> Effect {
 
 /// What the template adds, gathered.
 struct Build {
-    inputs: Vec<Input>,
+    sources: Vec<Source>,
     tracks: Vec<Track>,
     buses: Vec<Bus>,
     mixes: Vec<AudioMix>,
@@ -99,24 +99,24 @@ struct Build {
 
 impl Build {
     fn new() -> Self {
-        Self { inputs: vec![], tracks: vec![], buses: vec![], mixes: vec![], master: vec![] }
+        Self { sources: vec![], tracks: vec![], buses: vec![], mixes: vec![], master: vec![] }
     }
 
-    fn input(&mut self, name: &str, kind: &str, settings: Value) -> Id {
-        let i = Input::new(name, kind, settings);
+    fn source(&mut self, name: &str, kind: &str, settings: Value) -> Id {
+        let i = Source::new(name, kind, settings);
         let id = i.id;
-        self.inputs.push(i);
+        self.sources.push(i);
         id
     }
 
     /// The computer's sound: the whole desktop, or one app (chosen in the mixer).
     fn app_audio(&mut self, name: &str, desktop: bool) -> Id {
         let kind = if desktop { crate::kinds::DESKTOP_AUDIO } else { crate::kinds::APP_AUDIO };
-        self.input(name, kind, json!({}))
+        self.source(name, kind, json!({}))
     }
 
-    fn track(&mut self, name: &str, input: Id, effects: Vec<Effect>) -> &mut Track {
-        let mut t = Track::new(name, input);
+    fn track(&mut self, name: &str, source: Id, effects: Vec<Effect>) -> &mut Track {
+        let mut t = Track::new(name, source);
         t.effects = effects;
         self.tracks.push(t);
         self.tracks.last_mut().unwrap()
@@ -124,14 +124,14 @@ impl Build {
 }
 
 /// The microphones: an interface's channels as mono tracks (up to `most`), or one track on the
-/// default input. Their ids.
+/// default source. Their ids.
 fn mics(b: &mut Build, m: &Mics, names: &[&str], effects: impl Fn() -> Vec<Effect>) -> Vec<Id> {
     let n = if m.channels >= 2 { names.len().min(m.channels as usize) } else { 1 };
     let name = if m.device.is_empty() { "Microphone".to_string() } else { m.device.clone() };
-    let input = b.input(&name, &m.kind, json!({ "device": m.device }));
+    let source = b.source(&name, &m.kind, json!({ "device": m.device }));
     (0..n)
         .map(|c| {
-            let t = b.track(names[c], input, effects());
+            let t = b.track(names[c], source, effects());
             if n > 1 {
                 t.channels = TrackChannels::Mono(c as u16);
             }
@@ -244,20 +244,20 @@ pub fn apply(workspace: &Workspace, template: Template, m: &Mics) -> Command {
         }
     }
 
-    // out with the old mixer: tracks, then their audio-only inputs nothing else shows
+    // out with the old mixer: tracks, then their audio-only sources nothing else shows
     let mut commands = Vec::new();
     for t in &workspace.tracks {
         commands.push(Command::RemoveTrack { track: t.id });
     }
-    let shown = |id: Id| workspace.scenes.iter().any(|s| s.layers.iter().any(|l| l.input == Some(id)));
+    let shown = |id: Id| workspace.scenes.iter().any(|s| s.layers.iter().any(|l| l.source == Some(id)));
     let mut seen = std::collections::HashSet::new();
     for t in &workspace.tracks {
-        if seen.insert(t.input)
-            && let Some(i) = workspace.inputs.get(&t.input)
+        if seen.insert(t.source)
+            && let Some(i) = workspace.sources.get(&t.source)
             && AUDIO_KINDS.contains(&i.kind.as_str())
             && !shown(i.id)
         {
-            commands.push(Command::RemoveInput { input: i.id });
+            commands.push(Command::RemoveSource { source: i.id });
         }
     }
     for m in &workspace.audio.mixes {
@@ -267,7 +267,7 @@ pub fn apply(workspace: &Workspace, template: Template, m: &Mics) -> Command {
         commands.push(Command::RemoveBus { bus: bus.id });
     }
     // in with the new
-    commands.extend(b.inputs.into_iter().map(|input| Command::AddInput { input }));
+    commands.extend(b.sources.into_iter().map(|source| Command::AddSource { source }));
     commands.extend(b.buses.into_iter().map(|bus| Command::AddBus { bus, index: None }));
     commands.extend(b.mixes.into_iter().map(|mix| Command::AddMix { mix }));
     commands.extend(b.tracks.into_iter().map(|track| Command::AddTrack { track, index: None }));

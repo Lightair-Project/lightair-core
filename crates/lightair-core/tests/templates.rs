@@ -1,7 +1,7 @@
 //! Mixer templates: each replaces the mixer in one undoable step, with valid routing.
 
 use lightair_core::templates::{Mics, Template, apply};
-use lightair_core::{AudioMix, Bus, Command, Document, Input, Workspace, Route, Track, TrackChannels};
+use lightair_core::{AudioMix, Bus, Command, Document, Source, Workspace, Route, Track, TrackChannels};
 use serde_json::json;
 
 fn interface(channels: u16) -> Mics {
@@ -15,9 +15,9 @@ fn names(doc: &Document) -> Vec<String> {
 #[test]
 fn every_template_replaces_the_mixer_and_undoes() {
     let mut doc = Document::new(Workspace::new("Show"));
-    let mic = Input::new("Old mic", "lightair_audio_device", json!({}));
+    let mic = Source::new("Old mic", "lightair_audio_device", json!({}));
     let mic_id = mic.id;
-    doc.apply(&Command::AddInput { input: mic }).unwrap();
+    doc.apply(&Command::AddSource { source: mic }).unwrap();
     doc.apply(&Command::AddTrack { track: Track::new("Old", mic_id), index: None }).unwrap();
     doc.apply(&Command::AddBus { bus: Bus::new("Old bus"), index: None }).unwrap();
     doc.apply(&Command::AddMix { mix: AudioMix::new("Old mix") }).unwrap();
@@ -31,11 +31,11 @@ fn every_template_replaces_the_mixer_and_undoes() {
         assert!(!p.tracks.iter().any(|t| t.name == "Old"), "replaced");
         assert!(!p.audio.buses.iter().any(|b| b.name == "Old bus"));
         assert!(!p.audio.mixes.iter().any(|m| m.name == "Old mix"));
-        assert!(!p.inputs.contains_key(&mic_id), "the old mic input went with its track");
+        assert!(!p.sources.contains_key(&mic_id), "the old mic input went with its track");
         assert!(p.audio.master.effects.iter().any(|e| e.kind == "audio.limiter"), "{}: a limiter on Program", t.name());
-        // only the template's own inputs remain for the mixer: no orphans pile up
-        let used: std::collections::HashSet<_> = p.tracks.iter().map(|t| t.input).collect();
-        assert!(p.inputs.keys().all(|i| used.contains(i)), "{}: orphan inputs", t.name());
+        // only the template's own sources remain for the mixer: no orphans pile up
+        let used: std::collections::HashSet<_> = p.tracks.iter().map(|t| t.source).collect();
+        assert!(p.sources.keys().all(|i| used.contains(i)), "{}: orphan inputs", t.name());
     }
 
     // the last one applied was Gaming; check each in turn on a fresh copy

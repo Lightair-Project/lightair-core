@@ -1689,19 +1689,19 @@ pub fn migrate_audio(workspace: &crate::model::Workspace) -> Vec<crate::command:
     out
 }
 
-/// Commands that bring an older workspace's effects up to date: each input's single Camera
+/// Commands that bring an older workspace's effects up to date: each source's single Camera
 /// Studio effect becomes the face effects it was doing, in its place.
 pub fn migrate(workspace: &crate::model::Workspace) -> Vec<crate::command::Command> {
     use crate::command::Command;
     let mut out = Vec::new();
-    let mut inputs: Vec<_> = workspace.inputs.values().collect();
-    inputs.sort_by_key(|i| i.id.0);
-    for input in inputs {
-        for (index, e) in input.effects.iter().enumerate().rev() {
+    let mut sources: Vec<_> = workspace.sources.values().collect();
+    sources.sort_by_key(|i| i.id.0);
+    for source in sources {
+        for (index, e) in source.effects.iter().enumerate().rev() {
             let Some(parts) = split_camera_studio(e) else { continue };
-            let mut commands = vec![Command::RemoveInputEffect { input: input.id, effect: e.id }];
+            let mut commands = vec![Command::RemoveSourceEffect { source: source.id, effect: e.id }];
             for (n, effect) in parts.into_iter().enumerate() {
-                commands.push(Command::AddInputEffect { input: input.id, effect, index: Some(index + n) });
+                commands.push(Command::AddSourceEffect { source: source.id, effect, index: Some(index + n) });
             }
             out.push(Command::Batch { label: "Update effects".into(), commands });
         }

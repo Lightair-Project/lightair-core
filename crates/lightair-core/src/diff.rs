@@ -8,19 +8,19 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use crate::model::{Canvas, Id, Input, Layer, Workspace, Scene, Track};
+use crate::model::{Canvas, Id, Source, Layer, Workspace, Scene, Track};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Patch {
     CanvasAdded(Canvas),
     CanvasChanged(Canvas),
     CanvasRemoved(Id),
-    InputAdded(Arc<Input>),
-    InputChanged {
-        before: Arc<Input>,
-        after: Arc<Input>,
+    SourceAdded(Arc<Source>),
+    SourceChanged {
+        before: Arc<Source>,
+        after: Arc<Source>,
     },
-    InputRemoved(Id),
+    SourceRemoved(Id),
     SceneAdded(Arc<Scene>),
     /// Layers changed in an existing scene (added, removed, reordered or re-laid-out).
     SceneChanged {
@@ -41,8 +41,8 @@ pub enum Patch {
     AudioSetup,
 }
 
-/// Patches in an order that is safe to apply: canvases and inputs before the scenes that use
-/// them, and scenes removed before the inputs they reference.
+/// Patches in an order that is safe to apply: canvases and sources before the scenes that use
+/// them, and scenes removed before the sources they reference.
 pub fn diff(before: &Workspace, after: &Workspace) -> Vec<Patch> {
     let mut out = Vec::new();
 
@@ -54,11 +54,11 @@ pub fn diff(before: &Workspace, after: &Workspace) -> Vec<Patch> {
         }
     }
 
-    for (id, input) in &after.inputs {
-        match before.inputs.get(id) {
-            None => out.push(Patch::InputAdded(input.clone())),
-            Some(old) if !Arc::ptr_eq(old, input) && old != input => {
-                out.push(Patch::InputChanged { before: old.clone(), after: input.clone() })
+    for (id, source) in &after.sources {
+        match before.sources.get(id) {
+            None => out.push(Patch::SourceAdded(source.clone())),
+            Some(old) if !Arc::ptr_eq(old, source) && old != source => {
+                out.push(Patch::SourceChanged { before: old.clone(), after: source.clone() })
             }
             _ => {}
         }
@@ -106,9 +106,9 @@ pub fn diff(before: &Workspace, after: &Workspace) -> Vec<Patch> {
         out.push(Patch::AudioSetup);
     }
 
-    for id in before.inputs.keys() {
-        if !after.inputs.contains_key(id) {
-            out.push(Patch::InputRemoved(*id));
+    for id in before.sources.keys() {
+        if !after.sources.contains_key(id) {
+            out.push(Patch::SourceRemoved(*id));
         }
     }
     for f in &before.canvases {

@@ -28,7 +28,7 @@ pub const APP_AUDIO: &str = "lightair_app_audio";
 /// mixer's "Audio input" adds). Settings: `device` (its name; "" for the system's default).
 pub const AUDIO_DEVICE: &str = "lightair_audio_device";
 
-/// libobs's own sound-only source types (inputs made outside Lightair's kinds).
+/// libobs's own sound-only source types (sources made outside Lightair's kinds).
 const LIBOBS_AUDIO: [&str; 7] = [
     "coreaudio_input_capture",
     "coreaudio_output_capture",
@@ -58,7 +58,7 @@ pub fn is_mic(kind: &str) -> bool {
     matches!(kind, MIC | AUDIO_DEVICE)
 }
 
-/// The setting that names which display, window, app or device an input takes, if its kind has
+/// The setting that names which display, window, app or device a source takes, if its kind has
 /// one to choose.
 pub fn device_key(kind: &str, settings: &Value) -> Option<&'static str> {
     match kind {
@@ -72,7 +72,7 @@ pub fn device_key(kind: &str, settings: &Value) -> Option<&'static str> {
     }
 }
 
-/// The portable kind and settings for a libobs input of either platform (workspaces from before
+/// The portable kind and settings for a libobs source of either platform (workspaces from before
 /// portable kinds, and OBS imports), or `None` for kinds that are already portable.
 pub fn from_libobs(kind: &str, settings: &Value) -> Option<(&'static str, Value)> {
     /// Moves `from` to `to` (when present).
@@ -141,12 +141,12 @@ pub fn from_libobs(kind: &str, settings: &Value) -> Option<(&'static str, Value)
     Some((out, Value::Object(rest)))
 }
 
-/// Converts a workspace's libobs capture inputs to portable kinds. Returns whether any changed.
+/// Converts a workspace's libobs capture sources to portable kinds. Returns whether any changed.
 pub fn migrate(workspace: &mut Workspace) -> bool {
     let mut changed = false;
-    for input in workspace.inputs.values_mut() {
-        if let Some((kind, settings)) = from_libobs(&input.kind, &input.settings) {
-            let i = std::sync::Arc::make_mut(input);
+    for source in workspace.sources.values_mut() {
+        if let Some((kind, settings)) = from_libobs(&source.kind, &source.settings) {
+            let i = std::sync::Arc::make_mut(source);
             i.kind = kind.into();
             i.settings = settings;
             changed = true;

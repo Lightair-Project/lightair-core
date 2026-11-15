@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 pub enum Kind {
     /// The program, one file per canvas.
     Recording,
-    /// A studio take: raw tracks and input data (docs/plans/screen-studio.md, 4.2).
+    /// A studio take: raw tracks and source data (docs/plans/screen-studio.md, 4.2).
     Take,
     /// A replay clip.
     Clip,

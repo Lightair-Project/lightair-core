@@ -414,7 +414,7 @@ fn a_takes_scene_comes_back_as_layers_where_they_were() {
         canvas: (1920, 1080),
         layers: vec![
             layer("Background", 0.0, 0.0, 1.0, 1.0, What::Colour { color: 0x00FF00, alpha: 1.0 }),
-            layer("Camera", 0.05, 0.1, 0.5, 0.5, What::Recorded { input: camera }),
+            layer("Camera", 0.05, 0.1, 0.5, 0.5, What::Recorded { source: camera }),
             layer("Logo", 0.8, 0.05, 0.1, 0.1 * 16.0 / 9.0, What::Image { file: "layers/0-logo.png".into() }),
             layer("Title", 0.6, 0.7, 0.35, 0.2, What::Text { text: "Hello".into(), size: 96.0, color: 0xFFFFFF, bold: true }),
             layer("Web", 0.0, 0.0, 0.1, 0.1, What::Other { kind: "browser_source".into() }),

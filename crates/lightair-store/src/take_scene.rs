@@ -42,8 +42,11 @@ fn one() -> f32 {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum What {
-    /// A recorded screen or camera (its input: take.json's video entry of that input).
-    Recorded { input: Id },
+    /// A recorded screen or camera (its source: take.json's video entry of that source).
+    Recorded {
+        #[serde(alias = "input")]
+        source: Id,
+    },
     /// A picture copied into the take (relative to its folder).
     Image { file: String },
     /// A video file, where it is.
@@ -71,10 +74,10 @@ impl TakeScene {
         let mut layers = Vec::new();
         for (n, layer) in scene.layers.iter().enumerate() {
             let Some(layout) = layer.layouts.get(&canvas.id).filter(|l| l.visible) else { continue };
-            let Some(input) = layer.input.and_then(|i| workspace.inputs.get(&i)) else { continue };
-            let s = &input.settings;
-            let what = match input.kind.as_str() {
-                kinds::SCREEN | kinds::CAMERA => What::Recorded { input: input.id },
+            let Some(source) = layer.source.and_then(|i| workspace.sources.get(&i)) else { continue };
+            let s = &source.settings;
+            let what = match source.kind.as_str() {
+                kinds::SCREEN | kinds::CAMERA => What::Recorded { source: source.id },
                 kinds::MIC | kinds::DESKTOP_AUDIO | kinds::APP_AUDIO => continue,
                 "image_source" => {
                     let Some(src) = s["file"].as_str().map(PathBuf::from).filter(|p| p.is_file()) else { continue };
@@ -88,7 +91,7 @@ impl TakeScene {
                 }
                 "ffmpeg_source" => match s["local_file"].as_str() {
                     Some(p) => What::Video { path: PathBuf::from(p) },
-                    None => What::Other { kind: input.kind.clone() },
+                    None => What::Other { kind: source.kind.clone() },
                 },
                 k if k.starts_with("text_") => {
                     let (color, _) = obs_colour(s["color1"].as_u64().unwrap_or(0xFFFF_FFFF));

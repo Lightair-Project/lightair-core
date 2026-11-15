@@ -1,15 +1,15 @@
 //! The mixer's model: buses, mixes, routing rules, removal, older workspaces.
 
 use lightair_core::{
-    AudioMix, Bus, Command, CommandError, Document, Effect, Input, Workspace, Route, Send, Track, TrackChannels,
+    AudioMix, Bus, Command, CommandError, Document, Effect, Source, Workspace, Route, Send, Track, TrackChannels,
 };
 use serde_json::json;
 
 fn workspace() -> (Document, lightair_core::Id) {
     let mut doc = Document::new(Workspace::new("Pod"));
-    let mic = Input::new("Interface", lightair_core::kinds::MIC, json!({}));
+    let mic = Source::new("Interface", lightair_core::kinds::MIC, json!({}));
     let id = mic.id;
-    doc.apply(&Command::AddInput { input: mic }).unwrap();
+    doc.apply(&Command::AddSource { source: mic }).unwrap();
     let t = Track::new("Host", id);
     let tid = t.id;
     doc.apply(&Command::AddTrack { track: t, index: None }).unwrap();

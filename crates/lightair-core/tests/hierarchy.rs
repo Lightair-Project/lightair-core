@@ -1,26 +1,26 @@
 //! Layers inside layers: empties, children placed in their parent's space, and the flat list
 //! the engine draws.
 
-use lightair_core::{Command, CommandError, Document, Id, Input, Layer, Layout, Workspace, Scene};
+use lightair_core::{Command, CommandError, Document, Id, Source, Layer, Layout, Workspace, Scene};
 
 struct Setup {
     doc: Document,
     scene: Id,
     canvas: Id,
-    input: Id,
+    source: Id,
 }
 
 fn setup() -> Setup {
     let workspace = Workspace::new("Show");
     let canvas = workspace.primary_canvas().id;
     let mut doc = Document::new(workspace);
-    let input = Input::new("Logo", "image_source", serde_json::json!({}));
-    let input_id = input.id;
-    doc.apply(&Command::AddInput { input }).unwrap();
+    let source = Source::new("Logo", "image_source", serde_json::json!({}));
+    let source_id = source.id;
+    doc.apply(&Command::AddSource { source }).unwrap();
     let scene = Scene::new("Main");
     let scene_id = scene.id;
     doc.apply(&Command::AddScene { scene, index: None }).unwrap();
-    Setup { doc, scene: scene_id, canvas, input: input_id }
+    Setup { doc, scene: scene_id, canvas, source: source_id }
 }
 
 impl Setup {
@@ -30,7 +30,7 @@ impl Setup {
         id
     }
     fn picture(&mut self, name: &str, at: (f32, f32, f32, f32), parent: Option<Id>) -> Id {
-        let mut l = Layer::new(name, self.input, [(self.canvas, Layout::boxed(at.0, at.1, at.2, at.3))]);
+        let mut l = Layer::new(name, self.source, [(self.canvas, Layout::boxed(at.0, at.1, at.2, at.3))]);
         l.parent = parent;
         self.add(l, None)
     }
@@ -195,14 +195,14 @@ fn flattening_gives_the_pictures_in_world_terms() {
 
 #[test]
 fn older_projects_still_load() {
-    // Before the hierarchy: the input was always there, no parents, no scale.
+    // Before the hierarchy: the source was always there, no parents, no scale.
     let json = r#"{"id":"0190a8f0-0000-7000-8000-000000000001","name":"Cam",
         "input":"0190a8f0-0000-7000-8000-000000000002",
         "layouts":{"0190a8f0-0000-7000-8000-000000000003":{"x":0,"y":0,"width":10,"height":10,
           "rotation":0,"crop":{"left":0,"top":0,"right":0,"bottom":0},"fit":"Fit","visible":true,
           "opacity":1}},"locked":false}"#;
     let layer: Layer = serde_json::from_str(json).unwrap();
-    assert!(layer.input.is_some() && layer.parent.is_none());
+    assert!(layer.source.is_some() && layer.parent.is_none());
     let l = layer.layouts.values().next().unwrap();
     assert!(close(l.scale_x, 1.0) && close(l.scale_y, 1.0));
 }

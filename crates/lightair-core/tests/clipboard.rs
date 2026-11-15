@@ -1,7 +1,7 @@
 //! Copy, paste and duplicate: whole subtrees, new ids, content copied and devices shared, and
 //! the copy lands where the original is.
 
-use lightair_core::{Clip, Command, Document, Id, Input, Layer, Layout, Workspace, Scene};
+use lightair_core::{Clip, Command, Document, Id, Source, Layer, Layout, Workspace, Scene};
 
 fn close(a: f32, b: f32) -> bool {
     (a - b).abs() < 0.01
@@ -19,11 +19,11 @@ fn setup() -> Setup {
     let workspace = Workspace::new("Show");
     let canvas = workspace.primary_canvas().id;
     let mut doc = Document::new(workspace);
-    let camera = Input::new("Camera", lightair_core::kinds::CAMERA, serde_json::json!({}));
-    let text = Input::new("Title", "text_ft2_source_v2", serde_json::json!({"text": "Hello"}));
+    let camera = Source::new("Camera", lightair_core::kinds::CAMERA, serde_json::json!({}));
+    let text = Source::new("Title", "text_ft2_source_v2", serde_json::json!({"text": "Hello"}));
     let (camera_id, text_id) = (camera.id, text.id);
-    doc.apply(&Command::AddInput { input: camera }).unwrap();
-    doc.apply(&Command::AddInput { input: text }).unwrap();
+    doc.apply(&Command::AddSource { source: camera }).unwrap();
+    doc.apply(&Command::AddSource { source: text }).unwrap();
     let scene = Scene::new("Main");
     let scene_id = scene.id;
     doc.apply(&Command::AddScene { scene, index: None }).unwrap();
@@ -79,9 +79,9 @@ fn a_copied_group_pastes_whole_with_new_ids() {
     let (a, b) = (sc.world(orig_name, f).unwrap(), sc.world(kids[1].id, f).unwrap());
     assert!(close(a.x, b.x) && close(a.y, b.y), "{a:?} vs {b:?}");
     // The camera is shared; the text is its own copy.
-    assert_eq!(kids[0].input, Some(s.camera));
-    assert_ne!(kids[1].input, Some(s.text));
-    assert_eq!(s.doc.workspace().inputs.len(), 3);
+    assert_eq!(kids[0].source, Some(s.camera));
+    assert_ne!(kids[1].source, Some(s.text));
+    assert_eq!(s.doc.workspace().sources.len(), 3);
 }
 
 #[test]
@@ -102,19 +102,19 @@ fn pasting_into_a_parent_keeps_the_picture_in_place() {
 }
 
 #[test]
-fn pasting_into_another_workspace_brings_the_inputs() {
+fn pasting_into_another_workspace_brings_the_sources() {
     let mut s = setup();
     let f = s.canvas;
     let cam = s.add(Layer::new("Cam", s.camera, [(f, Layout::boxed(0.0, 0.0, 640.0, 360.0))]));
     let clip = Clip::copy(s.doc.workspace(), s.scene, &[cam]).unwrap();
 
     let mut other = setup();
-    // A different workspace: its camera is another input, so this one comes along.
+    // A different workspace: its camera is another source, so this one comes along.
     let roots = other.paste(&clip, None, None);
     let p = other.doc.workspace();
     let layer = p.scene(other.scene).unwrap().layer(roots[0]).unwrap();
-    let input = layer.input.and_then(|i| p.inputs.get(&i)).expect("input brought along");
-    assert_eq!(input.kind, lightair_core::kinds::CAMERA);
+    let source = layer.source.and_then(|i| p.sources.get(&i)).expect("input brought along");
+    assert_eq!(source.kind, lightair_core::kinds::CAMERA);
     // Its canvas ids differ: the layout lands in the primary canvas.
     assert!(layer.layouts.contains_key(&p.primary_canvas().id));
 }
@@ -190,6 +190,6 @@ fn a_scene_saved_as_an_asset_comes_back_as_a_new_scene() {
     let new_group = added.layers.iter().find(|l| l.name == "Lower third").unwrap().id;
     assert_eq!(added.layers.iter().find(|l| l.name == "Title").unwrap().parent, Some(new_group), "nesting kept");
     // the camera is shared, the text is its own copy
-    assert_eq!(added.layers.iter().find(|l| l.name == "Camera").unwrap().input, Some(s.camera));
-    assert_ne!(added.layers.iter().find(|l| l.name == "Title").unwrap().input, Some(s.text));
+    assert_eq!(added.layers.iter().find(|l| l.name == "Camera").unwrap().source, Some(s.camera));
+    assert_ne!(added.layers.iter().find(|l| l.name == "Title").unwrap().source, Some(s.text));
 }

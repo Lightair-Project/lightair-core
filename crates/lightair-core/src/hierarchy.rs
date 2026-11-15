@@ -7,7 +7,7 @@
 //!
 //! A child's layout is in its parent's space: its position is relative to the parent's pivot,
 //! its rotation adds to the parent's, and the parent's scale scales it. An *empty* is a layer
-//! without an input: just a pivot (its x, y), rotation and scale, holding other layers.
+//! without a source: just a pivot (its x, y), rotation and scale, holding other layers.
 //! [`Scene::flatten`] turns a hierarchy into what is drawn: the pictures alone, each with its
 //! world layout per canvas.
 
@@ -104,7 +104,7 @@ impl Layout {
 impl Layer {
     /// An empty: no picture, a pivot holding other layers.
     pub fn is_empty(&self) -> bool {
-        self.input.is_none()
+        self.source.is_none()
     }
 }
 
@@ -197,13 +197,13 @@ impl Scene {
     /// per canvas. A parent's visibility, opacity and lock pass down; empties are left out.
     /// A scene without nesting comes back unchanged.
     pub fn flatten(&self) -> Scene {
-        if self.layers.iter().all(|l| l.parent.is_none() && l.input.is_some()) {
+        if self.layers.iter().all(|l| l.parent.is_none() && l.source.is_some()) {
             return self.clone();
         }
         let layers = self
             .layers
             .iter()
-            .filter(|l| l.input.is_some())
+            .filter(|l| l.source.is_some())
             .map(|l| {
                 let mut out = Layer { parent: None, locked: self.locked(l.id), ..l.clone() };
                 for (canvas, layout) in out.layouts.iter_mut() {

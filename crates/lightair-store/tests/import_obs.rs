@@ -21,10 +21,10 @@ fn scenes_inputs_and_order() {
     let live = p.scenes.iter().find(|s| s.name == "Live").unwrap();
     assert_eq!(p.program, Some(live.id), "program is OBS's program scene");
     assert_eq!(live.layers.len(), 3);
-    let cam = p.inputs.values().find(|i| i.name == "Camera").unwrap();
+    let cam = p.sources.values().find(|i| i.name == "Camera").unwrap();
     assert_eq!(cam.kind, lightair_core::kinds::CAMERA, "a portable kind");
     assert_eq!(cam.settings["device"], "cam-1");
-    let bg = p.inputs.values().find(|i| i.name == "Backdrop").unwrap();
+    let bg = p.sources.values().find(|i| i.name == "Backdrop").unwrap();
     assert_eq!(bg.kind, "color_source_v3", "versioned id wins");
     // The nested scene item in Break is skipped.
     assert_eq!(p.scenes.iter().find(|s| s.name == "Break").unwrap().layers.len(), 1);
@@ -50,7 +50,7 @@ fn geometry() {
 #[test]
 fn effects_audio_and_transition() {
     let (p, report) = imported();
-    let cam = p.inputs.values().find(|i| i.name == "Camera").unwrap();
+    let cam = p.sources.values().find(|i| i.name == "Camera").unwrap();
     let kinds: Vec<_> = cam.effects.iter().map(|e| e.kind.as_str()).collect();
     assert_eq!(kinds, ["lightair_camera_studio", "chroma_key_filter_v2", "shaderfilter"]);
     assert_eq!(cam.effects[0].name, "Camera Studio");
@@ -62,8 +62,8 @@ fn effects_audio_and_transition() {
     assert!(desk.muted);
     let mic = p.tracks.iter().find(|t| t.name == "Mic/Aux").unwrap();
     assert!(mic.cue);
-    let mic_input = p.inputs.values().find(|i| i.id == mic.input).unwrap();
-    assert_eq!(mic_input.effects[0].kind, "noise_suppress_filter_v2");
+    let mic_source = p.sources.values().find(|i| i.id == mic.source).unwrap();
+    assert_eq!(mic_source.effects[0].kind, "noise_suppress_filter_v2");
 
     assert_eq!(p.transition.kind, TransitionKind::Fade);
     assert_eq!(p.transition.duration_ms, 450);
