@@ -1,7 +1,7 @@
 //! Copy, paste and duplicate: whole subtrees, new ids, content copied and devices shared, and
 //! the copy lands where the original is.
 
-use lightair_core::{Clip, Command, Document, Id, Input, Layer, Layout, Project, Scene};
+use lightair_core::{Clip, Command, Document, Id, Input, Layer, Layout, Workspace, Scene};
 
 fn close(a: f32, b: f32) -> bool {
     (a - b).abs() < 0.01
@@ -10,15 +10,15 @@ fn close(a: f32, b: f32) -> bool {
 struct Setup {
     doc: Document,
     scene: Id,
-    format: Id,
+    canvas: Id,
     camera: Id,
     text: Id,
 }
 
 fn setup() -> Setup {
-    let project = Project::new("Show");
-    let format = project.primary_format().id;
-    let mut doc = Document::new(project);
+    let workspace = Workspace::new("Show");
+    let canvas = workspace.primary_canvas().id;
+    let mut doc = Document::new(workspace);
     let camera = Input::new("Camera", lightair_core::kinds::CAMERA, serde_json::json!({}));
     let text = Input::new("Title", "text_ft2_source_v2", serde_json::json!({"text": "Hello"}));
     let (camera_id, text_id) = (camera.id, text.id);
@@ -27,7 +27,7 @@ fn setup() -> Setup {
     let scene = Scene::new("Main");
     let scene_id = scene.id;
     doc.apply(&Command::AddScene { scene, index: None }).unwrap();
-    Setup { doc, scene: scene_id, format, camera: camera_id, text: text_id }
+    Setup { doc, scene: scene_id, canvas, camera: camera_id, text: text_id }
 }
 
 impl Setup {
@@ -37,10 +37,10 @@ impl Setup {
         id
     }
     fn names(&self) -> Vec<String> {
-        self.doc.project().scene(self.scene).unwrap().layers.iter().map(|l| l.name.clone()).collect()
+        self.doc.workspace().scene(self.scene).unwrap().layers.iter().map(|l| l.name.clone()).collect()
     }
     fn paste(&mut self, clip: &Clip, parent: Option<Id>, index: Option<usize>) -> Vec<Id> {
-        let (commands, roots) = clip.paste(self.doc.project(), self.scene, parent, index);
+        let (commands, roots) = clip.paste(self.doc.workspace(), self.scene, parent, index);
         self.doc.apply(&Command::Batch { label: "Paste".into(), commands }).unwrap();
         roots
     }
@@ -49,7 +49,7 @@ impl Setup {
 #[test]
 fn a_copied_group_pastes_whole_with_new_ids() {
     let mut s = setup();
-    let f = s.format;
+    let f = s.canvas;
     let mut group = Layer::empty("Lower third", [(f, (300.0, 900.0))]);
     group.layouts.get_mut(&f).unwrap().rotation = 10.0;
     let gid = s.add(group);
@@ -57,7 +57,7 @@ fn a_copied_group_pastes_whole_with_new_ids() {
     s.add(Layer::new("Name", s.text, [(f, Layout::boxed(120.0, -20.0, 300.0, 40.0))]).under(gid));
     s.add(Layer::new("Front", s.text, [(f, Layout::boxed(0.0, 0.0, 10.0, 10.0))]));
 
-    let clip = Clip::copy(s.doc.project(), s.scene, &[gid]).unwrap();
+    let clip = Clip::copy(s.doc.workspace(), s.scene, &[gid]).unwrap();
     assert_eq!(clip.layers.len(), 3, "the group with what it holds");
     // Round trip through clipboard text.
     let clip = Clip::from_text(&clip.to_text()).unwrap();
@@ -66,7 +66,7 @@ fn a_copied_group_pastes_whole_with_new_ids() {
     // Duplicate: in front of the original, among its siblings.
     let roots = s.paste(&clip, None, Some(1));
     assert_eq!(s.names(), ["Lower third", "Cam", "Name", "Lower third", "Cam", "Name", "Front"]);
-    let sc = s.doc.project().scene(s.scene).unwrap();
+    let sc = s.doc.workspace().scene(s.scene).unwrap();
     assert!(sc.is_well_formed());
     let copy = roots[0];
     assert_ne!(copy, gid);
@@ -81,76 +81,76 @@ fn a_copied_group_pastes_whole_with_new_ids() {
     // The camera is shared; the text is its own copy.
     assert_eq!(kids[0].input, Some(s.camera));
     assert_ne!(kids[1].input, Some(s.text));
-    assert_eq!(s.doc.project().inputs.len(), 3);
+    assert_eq!(s.doc.workspace().inputs.len(), 3);
 }
 
 #[test]
 fn pasting_into_a_parent_keeps_the_picture_in_place() {
     let mut s = setup();
-    let f = s.format;
+    let f = s.canvas;
     let logo = s.add(Layer::new("Logo", s.text, [(f, Layout::boxed(100.0, 100.0, 50.0, 50.0))]));
     let mut box_ = Layer::empty("Box", [(f, (500.0, 500.0))]);
     box_.layouts.get_mut(&f).unwrap().scale_x = 2.0;
     box_.layouts.get_mut(&f).unwrap().scale_y = 2.0;
     let bid = s.add(box_);
-    let clip = Clip::copy(s.doc.project(), s.scene, &[logo]).unwrap();
+    let clip = Clip::copy(s.doc.workspace(), s.scene, &[logo]).unwrap();
     let roots = s.paste(&clip, Some(bid), None);
-    let sc = s.doc.project().scene(s.scene).unwrap();
+    let sc = s.doc.workspace().scene(s.scene).unwrap();
     let w = sc.world(roots[0], f).unwrap();
     assert!(close(w.x, 100.0) && close(w.y, 100.0) && close(w.width, 50.0), "{w:?}");
     assert_eq!(sc.layer(roots[0]).unwrap().parent, Some(bid));
 }
 
 #[test]
-fn pasting_into_another_project_brings_the_inputs() {
+fn pasting_into_another_workspace_brings_the_inputs() {
     let mut s = setup();
-    let f = s.format;
+    let f = s.canvas;
     let cam = s.add(Layer::new("Cam", s.camera, [(f, Layout::boxed(0.0, 0.0, 640.0, 360.0))]));
-    let clip = Clip::copy(s.doc.project(), s.scene, &[cam]).unwrap();
+    let clip = Clip::copy(s.doc.workspace(), s.scene, &[cam]).unwrap();
 
     let mut other = setup();
-    // A different project: its camera is another input, so this one comes along.
+    // A different workspace: its camera is another input, so this one comes along.
     let roots = other.paste(&clip, None, None);
-    let p = other.doc.project();
+    let p = other.doc.workspace();
     let layer = p.scene(other.scene).unwrap().layer(roots[0]).unwrap();
     let input = layer.input.and_then(|i| p.inputs.get(&i)).expect("input brought along");
     assert_eq!(input.kind, lightair_core::kinds::CAMERA);
-    // Its format ids differ: the layout lands in the primary format.
-    assert!(layer.layouts.contains_key(&p.primary_format().id));
+    // Its canvas ids differ: the layout lands in the primary canvas.
+    assert!(layer.layouts.contains_key(&p.primary_canvas().id));
 }
 
 #[test]
 fn prefab_instances_link_and_rebuild_in_place() {
     let mut s = setup();
-    let f = s.format;
+    let f = s.canvas;
     let gid = s.add(Layer::empty("Badge", [(f, (100.0, 100.0))]));
     s.add(Layer::new("Label", s.text, [(f, Layout::boxed(0.0, 0.0, 200.0, 40.0))]).under(gid));
     // The prefab's contents, as saved.
-    let mut prefab = Clip::copy(s.doc.project(), s.scene, &[gid]).unwrap();
+    let mut prefab = Clip::copy(s.doc.workspace(), s.scene, &[gid]).unwrap();
     prefab.layers[0].prefab = None;
 
     // Place an instance elsewhere: its root is linked.
-    let (commands, root) = prefab.instantiate(s.doc.project(), s.scene, "Badge.prefab", None, None);
+    let (commands, root) = prefab.instantiate(s.doc.workspace(), s.scene, "Badge.prefab", None, None);
     s.doc.apply(&Command::Batch { label: "Place".into(), commands }).unwrap();
     let root = root.unwrap();
-    let sc = s.doc.project().scene(s.scene).unwrap();
+    let sc = s.doc.workspace().scene(s.scene).unwrap();
     assert_eq!(sc.layer(root).unwrap().prefab.as_deref(), Some("Badge.prefab"));
 
     // Move and rename the instance, then change the prefab (a second label) and rebuild it.
     let mut layout = sc.layer(root).unwrap().layouts[&f];
     layout.x = 700.0;
     let scene = s.scene;
-    s.doc.apply(&Command::SetLayout { scene, layer: root, format: f, layout }).unwrap();
+    s.doc.apply(&Command::SetLayout { scene, layer: root, canvas: f, layout }).unwrap();
     s.doc.apply(&Command::RenameLayer { scene, layer: root, name: "Guest badge".into() }).unwrap();
     let mut changed = prefab.clone();
     let mut second = changed.layers[1].clone();
     second.id = Id::new();
     second.name = "Subtitle".into();
     changed.layers.push(second);
-    let (commands, rebuilt) = changed.replace_instance(s.doc.project(), scene, root);
+    let (commands, rebuilt) = changed.replace_instance(s.doc.workspace(), scene, root);
     s.doc.apply(&Command::Batch { label: "Revert".into(), commands }).unwrap();
     let rebuilt = rebuilt.unwrap();
-    let sc = s.doc.project().scene(scene).unwrap();
+    let sc = s.doc.workspace().scene(scene).unwrap();
     assert!(sc.layer(root).is_none(), "the old instance is gone");
     let r = sc.layer(rebuilt).unwrap();
     assert_eq!(r.name, "Guest badge", "keeps its name");
@@ -167,21 +167,21 @@ fn prefab_instances_link_and_rebuild_in_place() {
 fn a_scene_saved_as_an_asset_comes_back_as_a_new_scene() {
     use lightair_core::SceneAsset;
     let mut s = setup();
-    let f = s.format;
+    let f = s.canvas;
     let cam = s.add(Layer::new("Camera", s.camera, [(f, Layout::boxed(0.0, 0.0, 640.0, 360.0))]));
     let group = s.add(Layer::empty("Lower third", [(f, (300.0, 900.0))]));
     s.add(Layer::new("Title", s.text, [(f, Layout::boxed(10.0, 10.0, 300.0, 40.0))]).under(group));
     let before = s.names();
 
     // saved to a file and read back
-    let asset = SceneAsset::of(s.doc.project(), s.scene).unwrap();
+    let asset = SceneAsset::of(s.doc.workspace(), s.scene).unwrap();
     let text = serde_json::to_string(&asset).unwrap();
     let asset: SceneAsset = serde_json::from_str(&text).unwrap();
     assert_eq!(asset.name, "Main");
 
-    let (commands, id) = asset.add(s.doc.project(), None);
+    let (commands, id) = asset.add(s.doc.workspace(), None);
     s.doc.apply(&Command::Batch { label: "Add scene".into(), commands }).unwrap();
-    let p = s.doc.project();
+    let p = s.doc.workspace();
     let added = p.scene(id).expect("a new scene");
     assert_eq!(added.name, "Main");
     let names: Vec<String> = added.layers.iter().map(|l| l.name.clone()).collect();

@@ -9,7 +9,7 @@
 //! its rotation adds to the parent's, and the parent's scale scales it. An *empty* is a layer
 //! without an input: just a pivot (its x, y), rotation and scale, holding other layers.
 //! [`Scene::flatten`] turns a hierarchy into what is drawn: the pictures alone, each with its
-//! world layout per format.
+//! world layout per canvas.
 
 use std::ops::Range;
 
@@ -154,38 +154,38 @@ impl Scene {
         self.ancestors(id).len()
     }
 
-    /// The space `id`'s children live in, in canvas terms, for `format` (`None` if `id` or a
+    /// The space `id`'s children live in, in canvas terms, for `canvas` (`None` if `id` or a
     /// parent has no layout there). `None` as `id`: the canvas itself.
-    pub fn frame_of(&self, id: Option<Id>, format: Id) -> Option<Frame> {
+    pub fn frame_of(&self, id: Option<Id>, canvas: Id) -> Option<Frame> {
         let Some(id) = id else { return Some(Frame::IDENTITY) };
         let mut chain = vec![id];
         chain.extend(self.ancestors(id));
         let mut frame = Frame::IDENTITY;
         for l in chain.iter().rev() {
-            frame = frame.then(&self.layer(*l)?.layouts.get(&format)?.frame());
+            frame = frame.then(&self.layer(*l)?.layouts.get(&canvas)?.frame());
         }
         Some(frame)
     }
 
-    /// `id`'s layout in canvas terms for `format`: its own layout through its parents' frames.
-    pub fn world(&self, id: Id, format: Id) -> Option<Layout> {
+    /// `id`'s layout in canvas terms for `canvas`: its own layout through its parents' frames.
+    pub fn world(&self, id: Id, canvas: Id) -> Option<Layout> {
         let layer = self.layer(id)?;
-        let local = layer.layouts.get(&format)?;
-        Some(local.to_world(&self.frame_of(layer.parent, format)?))
+        let local = layer.layouts.get(&canvas)?;
+        Some(local.to_world(&self.frame_of(layer.parent, canvas)?))
     }
 
     /// `world` (a layout in canvas terms) in the space of `id`'s parent: what to store so `id`
     /// lands there.
-    pub fn local(&self, id: Id, format: Id, world: &Layout) -> Option<Layout> {
+    pub fn local(&self, id: Id, canvas: Id, world: &Layout) -> Option<Layout> {
         let parent = self.layer(id)?.parent;
-        Some(world.to_local(&self.frame_of(parent, format)?))
+        Some(world.to_local(&self.frame_of(parent, canvas)?))
     }
 
-    /// Whether `id` is shown in `format`: it and all its parents have a visible layout there.
-    pub fn shown(&self, id: Id, format: Id) -> bool {
+    /// Whether `id` is shown in `canvas`: it and all its parents have a visible layout there.
+    pub fn shown(&self, id: Id, canvas: Id) -> bool {
         std::iter::once(id)
             .chain(self.ancestors(id))
-            .all(|l| self.layer(l).and_then(|l| l.layouts.get(&format)).is_some_and(|lo| lo.visible))
+            .all(|l| self.layer(l).and_then(|l| l.layouts.get(&canvas)).is_some_and(|lo| lo.visible))
     }
 
     /// Whether `id` or a parent is locked.
@@ -194,7 +194,7 @@ impl Scene {
     }
 
     /// What is drawn: the layers with pictures, in drawing order, each with its world layout
-    /// per format. A parent's visibility, opacity and lock pass down; empties are left out.
+    /// per canvas. A parent's visibility, opacity and lock pass down; empties are left out.
     /// A scene without nesting comes back unchanged.
     pub fn flatten(&self) -> Scene {
         if self.layers.iter().all(|l| l.parent.is_none() && l.input.is_some()) {
@@ -206,17 +206,17 @@ impl Scene {
             .filter(|l| l.input.is_some())
             .map(|l| {
                 let mut out = Layer { parent: None, locked: self.locked(l.id), ..l.clone() };
-                for (format, layout) in out.layouts.iter_mut() {
-                    let Some(mut world) = self.world(l.id, *format) else { continue };
-                    world.visible = self.shown(l.id, *format);
+                for (canvas, layout) in out.layouts.iter_mut() {
+                    let Some(mut world) = self.world(l.id, *canvas) else { continue };
+                    world.visible = self.shown(l.id, *canvas);
                     world.opacity = std::iter::once(l.id)
                         .chain(self.ancestors(l.id))
-                        .filter_map(|a| self.layer(a)?.layouts.get(format).map(|lo| lo.opacity))
+                        .filter_map(|a| self.layer(a)?.layouts.get(canvas).map(|lo| lo.opacity))
                         .product();
                     *layout = world;
                 }
-                // A format a parent isn't in hides the layer there.
-                out.layouts.retain(|format, _| self.frame_of(l.parent, *format).is_some());
+                // A canvas a parent isn't in hides the layer there.
+                out.layouts.retain(|canvas, _| self.frame_of(l.parent, *canvas).is_some());
                 out
             })
             .collect();

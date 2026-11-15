@@ -1,28 +1,28 @@
 //! Which canvases Record records.
 
-use lightair_core::{Format, Project, RecordingSettings};
+use lightair_core::{Canvas, Workspace, RecordingSettings};
 
 #[test]
 fn every_canvas_until_chosen_and_never_none() {
-    let mut project = Project::new("Show");
-    let landscape = project.primary_format().id;
-    let vertical = Format::vertical();
+    let mut workspace = Workspace::new("Show");
+    let landscape = workspace.primary_canvas().id;
+    let vertical = Canvas::vertical();
     let vid = vertical.id;
-    project.formats.push(vertical);
+    workspace.canvases.push(vertical);
     let fresh = RecordingSettings::default();
-    assert_eq!(fresh.targets(&project), [landscape, vid], "every canvas by default");
+    assert_eq!(fresh.targets(&workspace), [landscape, vid], "every canvas by default");
 
-    // An older project recorded one format: it still does.
-    let older = RecordingSettings { format: Some(vid), ..RecordingSettings::default() };
-    assert_eq!(older.targets(&project), [vid]);
+    // An older workspace recorded one canvas: it still does.
+    let older = RecordingSettings { canvas: Some(vid), ..RecordingSettings::default() };
+    assert_eq!(older.targets(&workspace), [vid]);
 
     // Leaving canvases out, but never the last one.
-    let only_vertical = fresh.with_format(&project, landscape, false);
-    assert_eq!(only_vertical.targets(&project), [vid]);
-    assert_eq!(only_vertical.with_format(&project, vid, false).targets(&project), [vid], "one stays");
-    assert_eq!(only_vertical.with_format(&project, landscape, true).targets(&project), [landscape, vid]);
+    let only_vertical = fresh.with_canvas(&workspace, landscape, false);
+    assert_eq!(only_vertical.targets(&workspace), [vid]);
+    assert_eq!(only_vertical.with_canvas(&workspace, vid, false).targets(&workspace), [vid], "one stays");
+    assert_eq!(only_vertical.with_canvas(&workspace, landscape, true).targets(&workspace), [landscape, vid]);
 
-    // A removed format drops out.
-    project.formats.retain(|f| f.id != vid);
-    assert_eq!(only_vertical.targets(&project), [landscape], "falls back to the primary");
+    // A removed canvas drops out.
+    workspace.canvases.retain(|f| f.id != vid);
+    assert_eq!(only_vertical.targets(&workspace), [landscape], "falls back to the primary");
 }

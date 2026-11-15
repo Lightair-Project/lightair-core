@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use lightair_core::{Id, Project, kinds};
+use lightair_core::{Id, Workspace, kinds};
 use serde::{Deserialize, Serialize};
 
 pub const FILE: &str = "scene.json";
@@ -63,15 +63,15 @@ fn obs_colour(c: u64) -> (u32, f32) {
 }
 
 impl TakeScene {
-    /// The program scene of `project` as it is, its pictures copied into `folder` (the take's).
-    pub fn of(project: &Project, folder: &Path) -> Option<TakeScene> {
-        let scene = project.program.and_then(|p| project.scene(p))?.flatten();
-        let format = project.primary_format();
-        let (cw, ch) = (format.width.max(1) as f32, format.height.max(1) as f32);
+    /// The program scene of `workspace` as it is, its pictures copied into `folder` (the take's).
+    pub fn of(workspace: &Workspace, folder: &Path) -> Option<TakeScene> {
+        let scene = workspace.program.and_then(|p| workspace.scene(p))?.flatten();
+        let canvas = workspace.primary_canvas();
+        let (cw, ch) = (canvas.width.max(1) as f32, canvas.height.max(1) as f32);
         let mut layers = Vec::new();
         for (n, layer) in scene.layers.iter().enumerate() {
-            let Some(layout) = layer.layouts.get(&format.id).filter(|l| l.visible) else { continue };
-            let Some(input) = layer.input.and_then(|i| project.inputs.get(&i)) else { continue };
+            let Some(layout) = layer.layouts.get(&canvas.id).filter(|l| l.visible) else { continue };
+            let Some(input) = layer.input.and_then(|i| workspace.inputs.get(&i)) else { continue };
             let s = &input.settings;
             let what = match input.kind.as_str() {
                 kinds::SCREEN | kinds::CAMERA => What::Recorded { input: input.id },
@@ -116,7 +116,7 @@ impl TakeScene {
                 what,
             });
         }
-        Some(TakeScene { canvas: (format.width, format.height), layers })
+        Some(TakeScene { canvas: (canvas.width, canvas.height), layers })
     }
 
     pub fn read(folder: &Path) -> Option<TakeScene> {

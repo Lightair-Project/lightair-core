@@ -17,13 +17,13 @@ pub use diff::{LayerPatch, Patch, diff, diff_layers};
 pub use document::{Change, Document};
 pub use hierarchy::Frame;
 pub use model::{
-    AudioMix, AudioSetup, Bus, ClipSettings, Crop, Destination, Direction, Effect, Encoding, Fit, Format, Id, Input,
+    AudioMix, AudioSetup, Bus, ClipSettings, Crop, Destination, Direction, Effect, Encoding, Fit, Canvas, Id, Input,
     Layer, Layout, MASTER_ID, Master, MixerStrip, Route, Send, StemFormat, StemPoint, TrackChannels,
-    OutputSettings, Project, Reconnect, RecordingSettings, Scene, ScreenLook, Shape, ShapeKind, Stinger, Track, TransitionKind,
+    OutputSettings, Workspace, Reconnect, RecordingSettings, Scene, ScreenLook, Shape, ShapeKind, Stinger, Track, TransitionKind,
     TransitionSettings, VideoEncoder,
 };
 
-/// `name` made safe for a file name (a canvas, track or project name in a file's name): the
+/// `name` made safe for a file name (a canvas, track or workspace name in a file's name): the
 /// characters macOS and Windows don't allow become "-".
 pub fn file_safe(name: &str) -> String {
     name.chars().map(|c| if "/\\:*?\"<>|".contains(c) || c.is_control() { '-' } else { c }).collect()

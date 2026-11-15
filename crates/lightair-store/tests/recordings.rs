@@ -11,16 +11,16 @@ fn item(path: &Path) -> Item {
 
 #[test]
 fn entries_are_added_and_read_back() {
-    let project = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
     let media = tempfile::tempdir().unwrap();
     let a = media.path().join("a.mp4");
     fs::write(&a, b"x").unwrap();
     let mut first = item(&a);
     first.markers.push(lightair_store::recordings::Marker { at_ms: 1500, label: "Intro".into() });
-    Index::add_to(project.path(), first.clone()).unwrap();
+    Index::add_to(workspace.path(), first.clone()).unwrap();
     let clip = Item::new(Kind::Clip, "Clip", vec![File::new(media.path().join("c.mp4"))], 1_800_000_000_000);
-    Index::add_to(project.path(), clip.clone()).unwrap();
-    let index = Index::load(project.path());
+    Index::add_to(workspace.path(), clip.clone()).unwrap();
+    let index = Index::load(workspace.path());
     assert_eq!(index.items.len(), 2);
     assert_eq!(index.newest_first()[0].id, clip.id);
     assert_eq!(index.get(first.id), Some(&first));
@@ -30,17 +30,17 @@ fn entries_are_added_and_read_back() {
 
 #[test]
 fn a_moved_file_is_found_by_locate() {
-    let project = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
     let media = tempfile::tempdir().unwrap();
     let a = media.path().join("Lightair 2026-11-14 10-00-00.mp4");
     fs::write(&a, b"x").unwrap();
     let it = item(&a);
-    Index::add_to(project.path(), it.clone()).unwrap();
+    Index::add_to(workspace.path(), it.clone()).unwrap();
     // the user moves it into a subfolder
     let moved = media.path().join("Archive").join("November");
     fs::create_dir_all(&moved).unwrap();
     fs::rename(&a, moved.join(a.file_name().unwrap())).unwrap();
-    let mut index = Index::load(project.path());
+    let mut index = Index::load(workspace.path());
     assert_eq!(index.get(it.id).unwrap().missing().len(), 1);
     assert_eq!(index.locate_in(media.path()), 1);
     assert!(index.get(it.id).unwrap().missing().is_empty());
@@ -84,7 +84,7 @@ fn duplicates_copy_their_files() {
 }
 
 #[test]
-fn items_move_between_projects() {
+fn items_move_between_workspaces() {
     let (one, two) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let it = item(Path::new("/nowhere/a.mp4"));
     Index::add_to(one.path(), it.clone()).unwrap();

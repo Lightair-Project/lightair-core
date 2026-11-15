@@ -1,5 +1,5 @@
-//! A project's recordings index (docs/plans/screen-studio.md, "Library"): every recording, clip,
-//! multitrack set, take and export the project made, at `<project>/recordings/index.json`.
+//! A workspace's recordings index (docs/plans/screen-studio.md, "Library"): every recording, clip,
+//! multitrack set, take and export the workspace made, at `<workspace>/recordings/index.json`.
 //!
 //! The media stays where it was recorded; the index points at it. A file that has moved shows
 //! as missing until it's located again ([`Index::relink`], [`Index::locate_in`]). Nothing here
@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Kind {
-    /// The program, one file per format.
+    /// The program, one file per canvas.
     Recording,
     /// A studio take: raw tracks and input data (docs/plans/screen-studio.md, 4.2).
     Take,
@@ -48,7 +48,8 @@ pub struct File {
     pub path: PathBuf,
     /// The canvas it holds ("Landscape", "Vertical"), for a recording of several.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub format: Option<String>,
+    #[serde(alias = "format")]
+    pub canvas: Option<String>,
     /// What a take recorded into it: "Screen", "Camera"…
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub track: Option<String>,
@@ -56,7 +57,7 @@ pub struct File {
 
 impl File {
     pub fn new(path: PathBuf) -> File {
-        File { path, format: None, track: None }
+        File { path, canvas: None, track: None }
     }
 }
 
@@ -80,7 +81,7 @@ pub struct Item {
     pub duration_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub markers: Vec<Marker>,
-    /// A still, in the project's `recordings/thumbnails`.
+    /// A still, in the workspace's `recordings/thumbnails`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thumbnail: Option<PathBuf>,
     /// For an export: the item it was made from.
@@ -123,21 +124,21 @@ impl Item {
     }
 }
 
-/// A project's index.
+/// A workspace's index.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Index {
     #[serde(default)]
     pub items: Vec<Item>,
 }
 
-/// The index file of the project package at `project`.
-pub fn index_path(project: &Path) -> PathBuf {
-    project.join("recordings").join("index.json")
+/// The index file of the workspace package at `workspace`.
+pub fn index_path(workspace: &Path) -> PathBuf {
+    workspace.join("recordings").join("index.json")
 }
 
-/// Where a project's thumbnails go.
-pub fn thumbnails_dir(project: &Path) -> PathBuf {
-    project.join("recordings").join("thumbnails")
+/// Where a workspace's thumbnails go.
+pub fn thumbnails_dir(workspace: &Path) -> PathBuf {
+    workspace.join("recordings").join("thumbnails")
 }
 
 /// Video and audio files Lightair can list (Add existing recordings).
@@ -148,14 +149,14 @@ fn is_media(path: &Path) -> bool {
 }
 
 impl Index {
-    /// The project's index (empty when it has none yet).
-    pub fn load(project: &Path) -> Index {
-        fs::read(index_path(project)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+    /// The workspace's index (empty when it has none yet).
+    pub fn load(workspace: &Path) -> Index {
+        fs::read(index_path(workspace)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
     }
 
     /// Writes it (whole, through a temporary file, so a crash never leaves half an index).
-    pub fn save(&self, project: &Path) -> io::Result<()> {
-        let path = index_path(project);
+    pub fn save(&self, workspace: &Path) -> io::Result<()> {
+        let path = index_path(workspace);
         if let Some(dir) = path.parent() {
             fs::create_dir_all(dir)?;
         }
@@ -164,13 +165,13 @@ impl Index {
         fs::rename(tmp, path)
     }
 
-    /// Adds an item to the project's index on disk (read, add, write: other windows may have
+    /// Adds an item to the workspace's index on disk (read, add, write: other windows may have
     /// added items since this one loaded).
-    pub fn add_to(project: &Path, item: Item) -> io::Result<()> {
-        let mut index = Index::load(project);
+    pub fn add_to(workspace: &Path, item: Item) -> io::Result<()> {
+        let mut index = Index::load(workspace);
         index.items.retain(|i| i.id != item.id);
         index.items.push(item);
-        index.save(project)
+        index.save(workspace)
     }
 
     pub fn get(&self, id: Id) -> Option<&Item> {
@@ -345,7 +346,7 @@ pub fn export_package(item: &Item, edit: Option<&Path>, to: &Path) -> io::Result
     Ok(package)
 }
 
-/// Moves an item from one project's index to another's (its thumbnail too). Returns whether
+/// Moves an item from one workspace's index to another's (its thumbnail too). Returns whether
 /// `from` had it.
 pub fn move_item(from: &Path, to: &Path, id: Id) -> io::Result<bool> {
     let mut source = Index::load(from);

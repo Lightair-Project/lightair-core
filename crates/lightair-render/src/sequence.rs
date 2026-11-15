@@ -1452,7 +1452,7 @@ impl Sequence {
 /// An Editor project (docs/plans/video-editor.md): a named sequence, one file in the workspace's
 /// `edits` folder.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct EditProject {
+pub struct Project {
     pub id: Id,
     pub name: String,
     pub created_ms: i64,
@@ -1473,10 +1473,10 @@ fn now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
-impl EditProject {
-    pub fn new(name: &str, size: (u32, u32), fps: u32) -> EditProject {
+impl Project {
+    pub fn new(name: &str, size: (u32, u32), fps: u32) -> Project {
         let now = now_ms();
-        EditProject { id: Id::new(), name: name.into(), created_ms: now, modified_ms: now, sequence: Sequence::new(size, fps) }
+        Project { id: Id::new(), name: name.into(), created_ms: now, modified_ms: now, sequence: Sequence::new(size, fps) }
     }
 
     pub fn dir(workspace: &Path) -> PathBuf {
@@ -1494,15 +1494,15 @@ impl EditProject {
             .flatten()
             .flatten()
             .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
-            .filter_map(|e| serde_json::from_slice::<EditProject>(&std::fs::read(e.path()).ok()?).ok())
+            .filter_map(|e| serde_json::from_slice::<Project>(&std::fs::read(e.path()).ok()?).ok())
             .map(|p| ProjectInfo { id: p.id, name: p.name.clone(), modified_ms: p.modified_ms, duration_ms: p.sequence.duration_ms() })
             .collect();
         out.sort_by_key(|p| std::cmp::Reverse(p.modified_ms));
         out
     }
 
-    pub fn load(workspace: &Path, id: Id) -> std::io::Result<EditProject> {
-        let mut p: EditProject = serde_json::from_slice(&std::fs::read(Self::path(workspace, id))?).map_err(std::io::Error::other)?;
+    pub fn load(workspace: &Path, id: Id) -> std::io::Result<Project> {
+        let mut p: Project = serde_json::from_slice(&std::fs::read(Self::path(workspace, id))?).map_err(std::io::Error::other)?;
         p.sequence.name_effect_keys();
         Ok(p)
     }
@@ -1530,16 +1530,16 @@ mod tests {
     #[test]
     fn projects_are_files_in_the_workspace() {
         let ws = tempfile::tempdir().unwrap();
-        let mut a = EditProject::new("Intro", (1920, 1080), 30);
+        let mut a = Project::new("Intro", (1920, 1080), 30);
         a.save(ws.path()).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(5));
-        let mut b = EditProject::new("Tutorial", (1080, 1920), 60);
+        let mut b = Project::new("Tutorial", (1080, 1920), 60);
         b.save(ws.path()).unwrap();
-        let list = EditProject::list(ws.path());
+        let list = Project::list(ws.path());
         assert_eq!(list.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["Tutorial", "Intro"], "latest first");
-        assert_eq!(EditProject::load(ws.path(), a.id).unwrap().name, "Intro");
-        EditProject::delete(ws.path(), a.id).unwrap();
-        assert_eq!(EditProject::list(ws.path()).len(), 1);
+        assert_eq!(Project::load(ws.path(), a.id).unwrap().name, "Intro");
+        Project::delete(ws.path(), a.id).unwrap();
+        assert_eq!(Project::list(ws.path()).len(), 1);
     }
 
     fn video(seq: &mut Sequence, name: &str, ms: u64) -> Id {

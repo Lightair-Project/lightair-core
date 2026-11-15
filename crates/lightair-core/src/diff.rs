@@ -1,4 +1,4 @@
-//! Snapshot diffing: the minimal set of patches that turns one project into another.
+//! Snapshot diffing: the minimal set of patches that turns one workspace into another.
 //!
 //! The engine's reconciler applies patches to libobs. Because patches are computed from
 //! snapshots rather than recorded per command, applying `diff(empty, p)` to an empty engine
@@ -8,13 +8,13 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use crate::model::{Format, Id, Input, Layer, Project, Scene, Track};
+use crate::model::{Canvas, Id, Input, Layer, Workspace, Scene, Track};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Patch {
-    FormatAdded(Format),
-    FormatChanged(Format),
-    FormatRemoved(Id),
+    CanvasAdded(Canvas),
+    CanvasChanged(Canvas),
+    CanvasRemoved(Id),
     InputAdded(Arc<Input>),
     InputChanged {
         before: Arc<Input>,
@@ -37,19 +37,19 @@ pub enum Patch {
     TrackRemoved(Id),
     /// Final mixer order, sent when tracks were added, removed or moved.
     TrackOrder(Vec<Id>),
-    /// Buses, mixes or the master changed (the mixer is rebuilt from the project).
+    /// Buses, mixes or the master changed (the mixer is rebuilt from the workspace).
     AudioSetup,
 }
 
-/// Patches in an order that is safe to apply: formats and inputs before the scenes that use
+/// Patches in an order that is safe to apply: canvases and inputs before the scenes that use
 /// them, and scenes removed before the inputs they reference.
-pub fn diff(before: &Project, after: &Project) -> Vec<Patch> {
+pub fn diff(before: &Workspace, after: &Workspace) -> Vec<Patch> {
     let mut out = Vec::new();
 
-    for f in &after.formats {
-        match before.format(f.id) {
-            None => out.push(Patch::FormatAdded(f.clone())),
-            Some(old) if old != f => out.push(Patch::FormatChanged(f.clone())),
+    for f in &after.canvases {
+        match before.canvas(f.id) {
+            None => out.push(Patch::CanvasAdded(f.clone())),
+            Some(old) if old != f => out.push(Patch::CanvasChanged(f.clone())),
             _ => {}
         }
     }
@@ -98,7 +98,7 @@ pub fn diff(before: &Project, after: &Project) -> Vec<Patch> {
             _ => {}
         }
     }
-    let order = |p: &Project| p.tracks.iter().map(|t| t.id).collect::<Vec<_>>();
+    let order = |p: &Workspace| p.tracks.iter().map(|t| t.id).collect::<Vec<_>>();
     if order(before) != order(after) {
         out.push(Patch::TrackOrder(order(after)));
     }
@@ -111,9 +111,9 @@ pub fn diff(before: &Project, after: &Project) -> Vec<Patch> {
             out.push(Patch::InputRemoved(*id));
         }
     }
-    for f in &before.formats {
-        if after.format(f.id).is_none() {
-            out.push(Patch::FormatRemoved(f.id));
+    for f in &before.canvases {
+        if after.canvas(f.id).is_none() {
+            out.push(Patch::CanvasRemoved(f.id));
         }
     }
     out

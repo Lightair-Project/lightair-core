@@ -1,5 +1,5 @@
 //! Lightair's own kinds for what's captured from the machine (docs/plans/windows.md, "Portable
-//! project kinds"). A project stores these, not libobs's ids, so it opens on macOS and Windows
+//! workspace kinds"). A workspace stores these, not libobs's ids, so it opens on macOS and Windows
 //! alike; the engine maps each to the platform's libobs source when it plays
 //! (`lightair_engine::kinds`). Kinds libobs has on both platforms (colour, image, media, text,
 //! browser) keep libobs's ids.
@@ -9,7 +9,7 @@
 
 use serde_json::{Map, Value, json};
 
-use crate::Project;
+use crate::Workspace;
 
 /// A display, one window, one app's windows or a game. Settings: `mode` (0 display, 1 window,
 /// 2 app, 3 game: Windows's game capture; elsewhere a window),
@@ -72,7 +72,7 @@ pub fn device_key(kind: &str, settings: &Value) -> Option<&'static str> {
     }
 }
 
-/// The portable kind and settings for a libobs input of either platform (projects from before
+/// The portable kind and settings for a libobs input of either platform (workspaces from before
 /// portable kinds, and OBS imports), or `None` for kinds that are already portable.
 pub fn from_libobs(kind: &str, settings: &Value) -> Option<(&'static str, Value)> {
     /// Moves `from` to `to` (when present).
@@ -141,10 +141,10 @@ pub fn from_libobs(kind: &str, settings: &Value) -> Option<(&'static str, Value)
     Some((out, Value::Object(rest)))
 }
 
-/// Converts a project's libobs capture inputs to portable kinds. Returns whether any changed.
-pub fn migrate(project: &mut Project) -> bool {
+/// Converts a workspace's libobs capture inputs to portable kinds. Returns whether any changed.
+pub fn migrate(workspace: &mut Workspace) -> bool {
     let mut changed = false;
-    for input in project.inputs.values_mut() {
+    for input in workspace.inputs.values_mut() {
         if let Some((kind, settings)) = from_libobs(&input.kind, &input.settings) {
             let i = std::sync::Arc::make_mut(input);
             i.kind = kind.into();

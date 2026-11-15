@@ -3,23 +3,23 @@
 use std::sync::Arc;
 
 use crate::command::{Command, CommandError};
-use crate::model::{Id, Project};
+use crate::model::{Id, Workspace};
 
 #[derive(Debug, Clone)]
 pub struct UndoEntry {
     pub label: String,
-    before: Arc<Project>,
-    after: Arc<Project>,
+    before: Arc<Workspace>,
+    after: Arc<Workspace>,
     coalesce: Option<(&'static str, Id, Id)>,
     /// True while a gesture is still adding to this entry.
     open: bool,
 }
 
-/// Owns the current project snapshot and its history. Snapshots are `Arc`s, so the UI and the
+/// Owns the current workspace snapshot and its history. Snapshots are `Arc`s, so the UI and the
 /// engine can hold a snapshot while new ones are produced.
 #[derive(Debug, Clone)]
 pub struct Document {
-    current: Arc<Project>,
+    current: Arc<Workspace>,
     undo: Vec<UndoEntry>,
     redo: Vec<UndoEntry>,
     in_gesture: bool,
@@ -29,17 +29,17 @@ pub struct Document {
 /// Result of a successful change: the snapshot before and after (for diffing).
 #[derive(Debug, Clone)]
 pub struct Change {
-    pub before: Arc<Project>,
-    pub after: Arc<Project>,
+    pub before: Arc<Workspace>,
+    pub after: Arc<Workspace>,
     pub label: String,
 }
 
 impl Document {
-    pub fn new(project: Project) -> Self {
-        Self { current: Arc::new(project), undo: Vec::new(), redo: Vec::new(), in_gesture: false, limit: 1000 }
+    pub fn new(workspace: Workspace) -> Self {
+        Self { current: Arc::new(workspace), undo: Vec::new(), redo: Vec::new(), in_gesture: false, limit: 1000 }
     }
 
-    pub fn project(&self) -> &Arc<Project> {
+    pub fn workspace(&self) -> &Arc<Workspace> {
         &self.current
     }
 
@@ -137,7 +137,7 @@ impl Document {
 /// `target`, it stays on air. Otherwise (it was added by the step being undone, or nothing is
 /// on air) the snapshot's own program applies, so structural edits that moved the program
 /// (removing the on-air scene, adding the first scene) undo and redo exactly.
-fn keep_runtime(target: &Arc<Project>, live: &Arc<Project>) -> Arc<Project> {
+fn keep_runtime(target: &Arc<Workspace>, live: &Arc<Workspace>) -> Arc<Workspace> {
     let keep_live = live.program.is_some_and(|p| target.scene(p).is_some());
     if !keep_live || target.program == live.program {
         return target.clone();

@@ -1,10 +1,10 @@
 //! Copy, paste and duplicate (docs/07-scenes-layers-canvas.md, "Editing"): layers travel with
 //! everything under them and the inputs they show, as plain data, so a copy can be pasted into
-//! another scene or project.
+//! another scene or workspace.
 //!
 //! Pasting gives every layer a new id. A content input (text, image, colour, media, timer…) is
 //! copied too, so editing the copy leaves the original alone; a device (camera, display,
-//! window, microphone) is shared when the project already has it, since opening it twice gains
+//! window, microphone) is shared when the workspace already has it, since opening it twice gains
 //! nothing. Copies land where the originals were on the canvas.
 
 use std::collections::{BTreeMap, HashMap};
@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, HashMap};
 use serde::{Deserialize, Serialize};
 
 use crate::command::Command;
-use crate::model::{Id, Input, Layer, Project, Scene};
+use crate::model::{Id, Input, Layer, Workspace, Scene};
 
 /// What the clipboard holds: whole subtrees (each root first, roots in their list order) and
 /// the inputs they show. Roots' layouts are in canvas terms; the rest stay in their parent's.
@@ -33,8 +33,8 @@ pub fn is_device(kind: &str) -> bool {
 impl Clip {
     /// `ids` (and what's under them) from `scene`. A layer inside another copied layer comes
     /// with it rather than on its own.
-    pub fn copy(project: &Project, scene: Id, ids: &[Id]) -> Option<Clip> {
-        let sc = project.scene(scene)?;
+    pub fn copy(workspace: &Workspace, scene: Id, ids: &[Id]) -> Option<Clip> {
+        let sc = workspace.scene(scene)?;
         let roots: Vec<Id> = sc
             .layers
             .iter()
@@ -57,7 +57,7 @@ impl Clip {
         }
         let mut inputs: Vec<Input> = Vec::new();
         for l in &layers {
-            if let Some(input) = l.input.and_then(|i| project.inputs.get(&i))
+            if let Some(input) = l.input.and_then(|i| workspace.inputs.get(&i))
                 && !inputs.iter().any(|i| i.id == input.id)
             {
                 inputs.push((**input).clone());
@@ -70,14 +70,14 @@ impl Clip {
     /// `index` among its children (`None`: in front), and the new roots' ids.
     pub fn paste(
         &self,
-        project: &Project,
+        workspace: &Workspace,
         scene: Id,
         parent: Option<Id>,
         index: Option<usize>,
     ) -> (Vec<Command>, Vec<Id>) {
-        let Some(sc) = project.scene(scene) else { return (vec![], vec![]) };
+        let Some(sc) = workspace.scene(scene) else { return (vec![], vec![]) };
         let mut commands = Vec::new();
-        // Inputs: devices the project has are shared; everything else is a fresh copy.
+        // Inputs: devices the workspace has are shared; everything else is a fresh copy.
         let mut input_ids: HashMap<Id, Id> = HashMap::new();
         for input in &self.inputs {
             // copied by a Lightair from before portable kinds
@@ -87,7 +87,7 @@ impl Clip {
                 input.settings = settings;
             }
             let input = &input;
-            let shared = is_device(&input.kind) && project.inputs.get(&input.id).is_some_and(|i| i.kind == input.kind);
+            let shared = is_device(&input.kind) && workspace.inputs.get(&input.id).is_some_and(|i| i.kind == input.kind);
             if shared {
                 input_ids.insert(input.id, input.id);
             } else {
@@ -98,7 +98,7 @@ impl Clip {
         }
         let mut layer_ids: HashMap<Id, Id> = HashMap::new();
         let mut roots = Vec::new();
-        let primary = project.primary_format().id;
+        let primary = workspace.primary_canvas().id;
         let mut next = index;
         for l in &self.layers {
             let id = Id::new();
@@ -110,9 +110,9 @@ impl Clip {
                 parent: if is_root { parent } else { l.parent.and_then(|p| layer_ids.get(&p).copied()) },
                 ..l.clone()
             };
-            // Formats this project doesn't have: keep the first layout, in the primary format.
+            // Canvases this workspace doesn't have: keep the first layout, in the primary canvas.
             let first = layer.layouts.values().next().copied();
-            layer.layouts.retain(|f, _| project.format(*f).is_some());
+            layer.layouts.retain(|f, _| workspace.canvas(*f).is_some());
             if layer.layouts.is_empty()
                 && let Some(lo) = first
             {
@@ -139,7 +139,7 @@ impl Clip {
     /// it), and the new root's id.
     pub fn instantiate(
         &self,
-        project: &Project,
+        workspace: &Workspace,
         scene: Id,
         name: &str,
         parent: Option<Id>,
@@ -149,15 +149,15 @@ impl Clip {
         if let Some(root) = clip.layers.first_mut() {
             root.prefab = Some(name.to_string());
         }
-        let (commands, roots) = clip.paste(project, scene, parent, index);
+        let (commands, roots) = clip.paste(workspace, scene, parent, index);
         (commands, roots.first().copied())
     }
 
     /// The commands that rebuild instance `root` from this clip (a prefab's contents): it keeps
     /// its place in the tree, where it sits on the canvas and its name; everything under it is
     /// the prefab's. Returns the rebuilt root's id.
-    pub fn replace_instance(&self, project: &Project, scene: Id, root: Id) -> (Vec<Command>, Option<Id>) {
-        let Some(sc) = project.scene(scene) else { return (vec![], None) };
+    pub fn replace_instance(&self, workspace: &Workspace, scene: Id, root: Id) -> (Vec<Command>, Option<Id>) {
+        let Some(sc) = workspace.scene(scene) else { return (vec![], None) };
         let Some(old) = sc.layer(root) else { return (vec![], None) };
         let siblings: Vec<Id> = sc.children(old.parent).map(|l| l.id).collect();
         let at = siblings.iter().position(|s| *s == root);
@@ -166,7 +166,7 @@ impl Clip {
         first.layouts = old.layouts.keys().filter_map(|f| Some((*f, sc.world(root, *f)?))).collect();
         first.name = old.name.clone();
         first.prefab = old.prefab.clone();
-        let (paste, roots) = clip.paste(project, scene, old.parent, at);
+        let (paste, roots) = clip.paste(workspace, scene, old.parent, at);
         let mut commands = vec![Command::RemoveLayer { scene, layer: root }];
         commands.extend(paste);
         (commands, roots.first().copied())
@@ -193,19 +193,19 @@ pub struct SceneAsset {
 
 impl SceneAsset {
     /// `scene` as an asset.
-    pub fn of(project: &Project, scene: Id) -> Option<SceneAsset> {
-        let sc = project.scene(scene)?;
+    pub fn of(workspace: &Workspace, scene: Id) -> Option<SceneAsset> {
+        let sc = workspace.scene(scene)?;
         let roots: Vec<Id> = sc.layers.iter().filter(|l| l.parent.is_none()).map(|l| l.id).collect();
-        let clip = Clip::copy(project, scene, &roots).unwrap_or(Clip { layers: vec![], inputs: vec![] });
+        let clip = Clip::copy(workspace, scene, &roots).unwrap_or(Clip { layers: vec![], inputs: vec![] });
         Some(SceneAsset { name: sc.name.clone(), clip })
     }
 
     /// The commands that add it as a new scene at `index` (`None`: last), and its id.
-    pub fn add(&self, project: &Project, index: Option<usize>) -> (Vec<Command>, Id) {
+    pub fn add(&self, workspace: &Workspace, index: Option<usize>) -> (Vec<Command>, Id) {
         let scene = Scene::new(self.name.clone());
         let id = scene.id;
         // the layers are pasted into the new scene, as if it were already there
-        let mut with = project.clone();
+        let mut with = workspace.clone();
         with.scenes.push(std::sync::Arc::new(scene.clone()));
         let (layers, _) = self.clip.paste(&with, id, None, None);
         let mut commands = vec![Command::AddScene { scene, index }];

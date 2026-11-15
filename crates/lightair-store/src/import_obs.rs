@@ -8,7 +8,7 @@
 use std::collections::{HashMap, HashSet};
 
 use lightair_core::{
-    Command, Crop, Direction, Effect, Fit, Format, Id, Input, Layer, Layout, Project, Scene, Track, TransitionKind,
+    Command, Crop, Direction, Effect, Fit, Canvas, Id, Input, Layer, Layout, Workspace, Scene, Track, TransitionKind,
     TransitionSettings,
 };
 use serde_json::Value;
@@ -35,7 +35,7 @@ pub struct EstimatedLayer {
     pub scene: Id,
     pub layer: Id,
     pub input: Id,
-    pub format: Id,
+    pub canvas: Id,
     /// The layout as imported (a layer the user has since changed is left alone).
     pub layout: Layout,
     /// The OBS scene item, for recomputing the box.
@@ -155,7 +155,7 @@ fn volume_db(volume: f64) -> f32 {
     if volume > 0.0 { (20.0 * volume.log10()) as f32 } else { f32::NEG_INFINITY }
 }
 
-/// OBS's capture sources become Lightair's portable kinds (the project opens on either platform).
+/// OBS's capture sources become Lightair's portable kinds (the workspace opens on either platform).
 fn portable(mut input: Input) -> Input {
     if let Some((kind, settings)) = lightair_core::kinds::from_libobs(&input.kind, &input.settings) {
         input.kind = kind.into();
@@ -284,12 +284,12 @@ fn effects_of(source: &Value, report: &mut ImportReport) -> Vec<Effect> {
 }
 
 /// Converts an OBS scene collection into commands that add its scenes, inputs and audio tracks
-/// to `project` as one undo step. The project's primary format is used for geometry.
-pub fn import_obs_collection(json: &str, project: &Project) -> Result<(Command, ImportReport), ImportError> {
+/// to `workspace` as one undo step. The workspace's primary canvas is used for geometry.
+pub fn import_obs_collection(json: &str, workspace: &Workspace) -> Result<(Command, ImportReport), ImportError> {
     let root: Value = serde_json::from_str(json).map_err(|e| ImportError::Invalid(e.to_string()))?;
     let sources = root["sources"].as_array().ok_or_else(|| ImportError::Invalid("no sources".into()))?;
-    let format: Format = project.primary_format().clone();
-    let canvas = (format.width, format.height);
+    let primary: Canvas = workspace.primary_canvas().clone();
+    let canvas = (primary.width, primary.height);
     let mut report = ImportReport::default();
     let mut commands = Vec::new();
 
@@ -331,10 +331,10 @@ pub fn import_obs_collection(json: &str, project: &Project) -> Result<(Command, 
         .unwrap_or_else(|| sources.iter().filter(|s| kind_of(s) == "scene").map(name_of).collect());
     let mut scene_ids: HashMap<String, Id> = HashMap::new();
     let mut tracks = Vec::new();
-    let mut taken: HashSet<String> = project.scenes.iter().map(|s| s.name.clone()).collect();
+    let mut taken: HashSet<String> = workspace.scenes.iter().map(|s| s.name.clone()).collect();
     for scene_name in &order {
         let Some(src) = sources.iter().find(|s| kind_of(s) == "scene" && name_of(s) == *scene_name) else { continue };
-        // Keep names unique next to the project's own scenes.
+        // Keep names unique next to the workspace's own scenes.
         let mut name = scene_name.clone();
         let mut n = 2;
         while taken.contains(&name) {
@@ -378,13 +378,13 @@ pub fn import_obs_collection(json: &str, project: &Project) -> Result<(Command, 
             if guessed || layout.rotation != 0.0 {
                 estimated.push(name_of(item));
             }
-            let mut layer = Layer::new(name_of(item), *input_id, [(format.id, layout)]);
+            let mut layer = Layer::new(name_of(item), *input_id, [(primary.id, layout)]);
             if guessed {
                 report.estimated.push(EstimatedLayer {
                     scene: scene.id,
                     layer: layer.id,
                     input: *input_id,
-                    format: format.id,
+                    canvas: primary.id,
                     layout,
                     item: item.clone(),
                 });

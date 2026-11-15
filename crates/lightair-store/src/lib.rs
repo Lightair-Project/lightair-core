@@ -1,8 +1,8 @@
-//! Project packages on disk (docs/14-data-persistence-settings.md).
+//! Workspace packages on disk (docs/14-data-persistence-settings.md).
 //!
 //! ```text
 //! My Show.lightair/
-//! ├─ project.json     manifest: format version, id, name, formats, program, scene order
+//! ├─ workspace.json     manifest: canvas version, id, name, canvases, program, scene order
 //! ├─ inputs.json      media inputs
 //! ├─ audio.json       mixer tracks and their effects
 //! ├─ mixer.json       buses, mixes and the master
@@ -28,10 +28,10 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use lightair_core::{Command, Format, Id, Input, OutputSettings, Project, Scene, Track};
+use lightair_core::{Command, Canvas, Id, Input, OutputSettings, Workspace, Scene, Track};
 use serde::{Deserialize, Serialize};
 
-/// Current on-disk format. Bump it and add a migration in [`migrate`] when the schema changes.
+/// Current on-disk canvas. Bump it and add a migration in [`migrate`] when the schema changes.
 /// 2: capture inputs use Lightair's portable kinds (lightair_core::kinds).
 pub const FORMAT_VERSION: u32 = 2;
 
@@ -41,7 +41,7 @@ pub enum StoreError {
     Io { path: PathBuf, source: std::io::Error },
     #[error("{path}: {source}")]
     Json { path: PathBuf, source: serde_json::Error },
-    #[error("this project was saved by a newer Lightair (format {found}, this version reads up to {FORMAT_VERSION})")]
+    #[error("this workspace was saved by a newer Lightair (format {found}, this version reads up to {FORMAT_VERSION})")]
     TooNew { found: u32 },
     #[error("scene file missing for {0}")]
     MissingScene(Id),
@@ -57,7 +57,8 @@ struct Manifest {
     format_version: u32,
     id: Id,
     name: String,
-    formats: Vec<Format>,
+    #[serde(alias = "formats")]
+    canvases: Vec<Canvas>,
     program: Option<Id>,
     /// Scene ids in display order; scene contents live in `scenes/<id>.json`.
     scenes: Vec<Id>,
@@ -88,52 +89,72 @@ fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, StoreError>
     serde_json::from_slice(&bytes).map_err(|source| StoreError::Json { path: path.into(), source })
 }
 
-/// Writes the whole project into `dir` (created if needed). Scene files for removed scenes are
+/// Writes the whole workspace into `dir` (created if needed). Scene files for removed scenes are
 /// deleted.
-pub fn save(dir: &Path, project: &Project) -> Result<(), StoreError> {
+pub fn save(dir: &Path, workspace: &Workspace) -> Result<(), StoreError> {
     let scenes_dir = dir.join("scenes");
     fs::create_dir_all(&scenes_dir).map_err(io(&scenes_dir))?;
-    for scene in &project.scenes {
+    for scene in &workspace.scenes {
         write_json(&scenes_dir.join(format!("{}.json", scene.id)), &**scene)?;
     }
-    let keep: std::collections::HashSet<String> = project.scenes.iter().map(|s| format!("{}.json", s.id)).collect();
+    let keep: std::collections::HashSet<String> = workspace.scenes.iter().map(|s| format!("{}.json", s.id)).collect();
     for entry in fs::read_dir(&scenes_dir).map_err(io(&scenes_dir))?.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         if name.ends_with(".json") && !keep.contains(&name) {
             let _ = fs::remove_file(entry.path());
         }
     }
-    let inputs: Vec<&Input> = project.inputs.values().map(|i| &**i).collect();
+    let inputs: Vec<&Input> = workspace.inputs.values().map(|i| &**i).collect();
     write_json(&dir.join("inputs.json"), &inputs)?;
-    let tracks: Vec<&Track> = project.tracks.iter().map(|t| &**t).collect();
+    let tracks: Vec<&Track> = workspace.tracks.iter().map(|t| &**t).collect();
     write_json(&dir.join("audio.json"), &tracks)?;
-    write_json(&dir.join("mixer.json"), &project.audio)?;
-    write_json(&dir.join("outputs.json"), &project.outputs)?;
+    write_json(&dir.join("mixer.json"), &workspace.audio)?;
+    write_json(&dir.join("outputs.json"), &workspace.outputs)?;
     // The manifest goes last: it is what makes the new scene files "current".
     write_json(
-        &dir.join("project.json"),
+        &manifest(dir),
         &Manifest {
             format_version: FORMAT_VERSION,
-            id: project.id,
-            name: project.name.clone(),
-            formats: project.formats.clone(),
-            program: project.program,
-            scenes: project.scenes.iter().map(|s| s.id).collect(),
-            transition: project.transition,
-            stinger: project.stinger.clone(),
+            id: workspace.id,
+            name: workspace.name.clone(),
+            canvases: workspace.canvases.clone(),
+            program: workspace.program,
+            scenes: workspace.scenes.iter().map(|s| s.id).collect(),
+            transition: workspace.transition,
+            stinger: workspace.stinger.clone(),
         },
     )
 }
 
-/// Reads the project files in `dir` (without replaying the journal).
-pub fn load_snapshot(dir: &Path) -> Result<Project, StoreError> {
-    let raw: serde_json::Value = read_json(&dir.join("project.json"))?;
+/// A workspace's manifest file (the scenes' order, its canvases…): `workspace.json`. A
+/// workspace saved before the rename has `project.json`; it's renamed the first time it's read.
+pub fn manifest(dir: &Path) -> std::path::PathBuf {
+    let new = dir.join("workspace.json");
+    let old = dir.join("project.json");
+    if !new.exists()
+        && old.exists()
+        && let Err(e) = fs::rename(&old, &new)
+    {
+        tracing::warn!(%e, dir = %dir.display(), "couldn't rename project.json to workspace.json");
+        return old;
+    }
+    new
+}
+
+/// Whether `dir` holds a workspace.
+pub fn is_workspace(dir: &Path) -> bool {
+    dir.join("workspace.json").exists() || dir.join("project.json").exists()
+}
+
+/// Reads the workspace files in `dir` (without replaying the journal).
+pub fn load_snapshot(dir: &Path) -> Result<Workspace, StoreError> {
+    let raw: serde_json::Value = read_json(&manifest(dir))?;
     let version = raw.get("formatVersion").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
     if version > FORMAT_VERSION {
         return Err(StoreError::TooNew { found: version });
     }
     let manifest: Manifest = serde_json::from_value(migrate(raw, version))
-        .map_err(|source| StoreError::Json { path: dir.join("project.json"), source })?;
+        .map_err(|source| StoreError::Json { path: manifest(dir), source })?;
     let inputs: Vec<Input> = read_json(&dir.join("inputs.json"))?;
     let audio = dir.join("audio.json");
     let tracks: Vec<Track> = if audio.exists() { read_json(&audio)? } else { Vec::new() };
@@ -150,10 +171,10 @@ pub fn load_snapshot(dir: &Path) -> Result<Project, StoreError> {
         }
         scenes.push(Arc::new(read_json::<Scene>(&path)?));
     }
-    let mut project = Project {
+    let mut workspace = Workspace {
         id: manifest.id,
         name: manifest.name,
-        formats: manifest.formats,
+        canvases: manifest.canvases,
         inputs: inputs.into_iter().map(|i| (i.id, Arc::new(i))).collect::<BTreeMap<_, _>>(),
         scenes,
         program: manifest.program,
@@ -163,12 +184,12 @@ pub fn load_snapshot(dir: &Path) -> Result<Project, StoreError> {
         transition: manifest.transition,
         stinger: manifest.stinger,
     };
-    // format 1 stored libobs's macOS ids
-    lightair_core::kinds::migrate(&mut project);
-    Ok(project)
+    // canvas 1 stored libobs's macOS ids
+    lightair_core::kinds::migrate(&mut workspace);
+    Ok(workspace)
 }
 
-/// Upgrades an older manifest to the current format, one version at a time.
+/// Upgrades an older manifest to the current canvas, one version at a time.
 fn migrate(manifest: serde_json::Value, from: u32) -> serde_json::Value {
     let mut value = manifest;
     for version in from..FORMAT_VERSION {
@@ -186,7 +207,7 @@ fn migrate(manifest: serde_json::Value, from: u32) -> serde_json::Value {
     value
 }
 
-/// An open project package: the journal for committed commands, plus compaction.
+/// An open workspace package: the journal for committed commands, plus compaction.
 pub struct Package {
     dir: PathBuf,
     journal: File,
@@ -196,17 +217,17 @@ pub struct Package {
 /// What [`Package::open`] found.
 pub struct Opened {
     pub package: Package,
-    pub project: Project,
+    pub workspace: Workspace,
     /// Commands replayed from the journal (non-zero means the last session didn't close cleanly).
     pub recovered: usize,
 }
 
 impl Package {
     /// Opens (or creates, with `initial`) the package at `dir`, replaying any journal tail.
-    pub fn open(dir: &Path, initial: impl FnOnce() -> Project) -> Result<Opened, StoreError> {
+    pub fn open(dir: &Path, initial: impl FnOnce() -> Workspace) -> Result<Opened, StoreError> {
         let mut stale = false;
-        let mut project = if dir.join("project.json").exists() {
-            stale = read_json::<serde_json::Value>(&dir.join("project.json"))?
+        let mut workspace = if is_workspace(dir) {
+            stale = read_json::<serde_json::Value>(&manifest(dir))?
                 .get("formatVersion")
                 .and_then(|v| v.as_u64())
                 .is_none_or(|v| v < FORMAT_VERSION as u64);
@@ -226,21 +247,21 @@ impl Package {
                 let Ok(line) = line else { break };
                 // A torn last line (crash mid-write) is ignored.
                 let Ok(cmd) = serde_json::from_str::<Command>(&line) else { break };
-                if cmd.apply(&mut project).is_ok() {
+                if cmd.apply(&mut workspace).is_ok() {
                     recovered += 1;
                 }
             }
         }
         // a journal from before portable kinds adds libobs ids
-        let migrated = lightair_core::kinds::migrate(&mut project);
+        let migrated = lightair_core::kinds::migrate(&mut workspace);
         let journal = OpenOptions::new().create(true).append(true).open(&journal_path).map_err(io(&journal_path))?;
         let mut package = Package { dir: dir.to_path_buf(), journal, pending: 0 };
-        // an older format is saved in this one
+        // an older canvas is saved in this one
         if recovered > 0 || migrated || stale {
             tracing::warn!(recovered, "replayed unsaved changes from the journal");
-            package.compact(&project)?;
+            package.compact(&workspace)?;
         }
-        Ok(Opened { package, project, recovered })
+        Ok(Opened { package, workspace, recovered })
     }
 
     pub fn dir(&self) -> &Path {
@@ -269,9 +290,9 @@ impl Package {
         self.pending
     }
 
-    /// Writes the project files and empties the journal.
-    pub fn compact(&mut self, project: &Project) -> Result<(), StoreError> {
-        save(&self.dir, project)?;
+    /// Writes the workspace files and empties the journal.
+    pub fn compact(&mut self, workspace: &Workspace) -> Result<(), StoreError> {
+        save(&self.dir, workspace)?;
         let path = self.dir.join("journal/current.log");
         self.journal.set_len(0).map_err(io(&path))?;
         self.journal.sync_all().map_err(io(&path))?;

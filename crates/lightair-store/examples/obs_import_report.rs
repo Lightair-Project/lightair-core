@@ -4,8 +4,8 @@
 fn main() {
     let path = std::env::args().nth(1).expect("usage: obs_import_report <collection.json>");
     let json = std::fs::read_to_string(&path).expect("readable file");
-    let project = lightair_core::Project::new("Dry run");
-    match lightair_store::import_obs_collection(&json, &project) {
+    let workspace = lightair_core::Workspace::new("Dry run");
+    match lightair_store::import_obs_collection(&json, &workspace) {
         Ok((_, report)) => {
             println!("{}\n", report.summary());
             for (title, items) in [

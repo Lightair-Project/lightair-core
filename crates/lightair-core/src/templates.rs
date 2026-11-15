@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use crate::catalog;
 use crate::command::Command;
 use crate::model::{
-    AudioMix, Bus, Effect, Id, Input, Master, Project, Route, Send, StemFormat, StemPoint, Track, TrackChannels,
+    AudioMix, Bus, Effect, Id, Input, Master, Workspace, Route, Send, StemFormat, StemPoint, Track, TrackChannels,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -141,9 +141,9 @@ fn mics(b: &mut Build, m: &Mics, names: &[&str], effects: impl Fn() -> Vec<Effec
 }
 
 /// The commands that set the mixer up as `template`, replacing what's there.
-pub fn apply(project: &Project, template: Template, m: &Mics) -> Command {
+pub fn apply(workspace: &Workspace, template: Template, m: &Mics) -> Command {
     let mut b = Build::new();
-    let mut recording = project.outputs.recording.clone();
+    let mut recording = workspace.outputs.recording.clone();
     recording.file_mixes.clear();
     match template {
         Template::Streaming => {
@@ -246,24 +246,24 @@ pub fn apply(project: &Project, template: Template, m: &Mics) -> Command {
 
     // out with the old mixer: tracks, then their audio-only inputs nothing else shows
     let mut commands = Vec::new();
-    for t in &project.tracks {
+    for t in &workspace.tracks {
         commands.push(Command::RemoveTrack { track: t.id });
     }
-    let shown = |id: Id| project.scenes.iter().any(|s| s.layers.iter().any(|l| l.input == Some(id)));
+    let shown = |id: Id| workspace.scenes.iter().any(|s| s.layers.iter().any(|l| l.input == Some(id)));
     let mut seen = std::collections::HashSet::new();
-    for t in &project.tracks {
+    for t in &workspace.tracks {
         if seen.insert(t.input)
-            && let Some(i) = project.inputs.get(&t.input)
+            && let Some(i) = workspace.inputs.get(&t.input)
             && AUDIO_KINDS.contains(&i.kind.as_str())
             && !shown(i.id)
         {
             commands.push(Command::RemoveInput { input: i.id });
         }
     }
-    for m in &project.audio.mixes {
+    for m in &workspace.audio.mixes {
         commands.push(Command::RemoveMix { mix: m.id });
     }
-    for bus in &project.audio.buses {
+    for bus in &workspace.audio.buses {
         commands.push(Command::RemoveBus { bus: bus.id });
     }
     // in with the new
@@ -271,7 +271,7 @@ pub fn apply(project: &Project, template: Template, m: &Mics) -> Command {
     commands.extend(b.buses.into_iter().map(|bus| Command::AddBus { bus, index: None }));
     commands.extend(b.mixes.into_iter().map(|mix| Command::AddMix { mix }));
     commands.extend(b.tracks.into_iter().map(|track| Command::AddTrack { track, index: None }));
-    commands.push(Command::UpdateMaster { master: Master { effects: b.master, ..project.audio.master.clone() } });
+    commands.push(Command::UpdateMaster { master: Master { effects: b.master, ..workspace.audio.master.clone() } });
     commands.push(Command::SetRecordingSettings { settings: recording });
     Command::Batch { label: format!("{} mixer", template.name()), commands }
 }

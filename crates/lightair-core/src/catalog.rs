@@ -1477,7 +1477,7 @@ pub const STUDIO_ID: Id = Id(uuid::Uuid::from_u128(0x6c69_6768_7461_6972_2d73_74
 /// - `studio.*` effects merge into one Camera Studio filter at the first one's place (each
 ///   effect turned off, or not in the stack, leaves its part of the picture alone);
 /// - `fx.<name>` become `lightair_fx` with `fx` set;
-/// - everything else (libobs filters, and a whole Camera Studio from older projects) passes
+/// - everything else (libobs filters, and a whole Camera Studio from older workspaces) passes
 ///   through.
 pub fn lower(effects: &[Effect]) -> Vec<Effect> {
     let mut out = Vec::with_capacity(effects.len());
@@ -1578,7 +1578,7 @@ pub fn makeup_values(preset: &Value) -> Map<String, Value> {
     m
 }
 
-/// Splits an older project's single Camera Studio effect into the face effects it was doing.
+/// Splits an older workspace's single Camera Studio effect into the face effects it was doing.
 /// Effects that would do nothing are left out; returns `None` when there is nothing to split.
 pub fn split_camera_studio(e: &Effect) -> Option<Vec<Effect>> {
     if e.kind != STUDIO_FILTER {
@@ -1672,10 +1672,10 @@ pub fn migrate_audio_effect(e: &Effect) -> Option<Effect> {
 
 /// Commands that turn tracks' libobs audio filters into the audio engine's effects. Run once the
 /// engine plays the mixer (until then the libobs filters are what process the sound).
-pub fn migrate_audio(project: &crate::model::Project) -> Vec<crate::command::Command> {
+pub fn migrate_audio(workspace: &crate::model::Workspace) -> Vec<crate::command::Command> {
     use crate::command::Command;
     let mut out = Vec::new();
-    for t in &project.tracks {
+    for t in &workspace.tracks {
         if t.effects.iter().any(|e| migrate_audio_effect(e).is_some()) {
             let mut track = (**t).clone();
             for e in &mut track.effects {
@@ -1689,12 +1689,12 @@ pub fn migrate_audio(project: &crate::model::Project) -> Vec<crate::command::Com
     out
 }
 
-/// Commands that bring an older project's effects up to date: each input's single Camera
+/// Commands that bring an older workspace's effects up to date: each input's single Camera
 /// Studio effect becomes the face effects it was doing, in its place.
-pub fn migrate(project: &crate::model::Project) -> Vec<crate::command::Command> {
+pub fn migrate(workspace: &crate::model::Workspace) -> Vec<crate::command::Command> {
     use crate::command::Command;
     let mut out = Vec::new();
-    let mut inputs: Vec<_> = project.inputs.values().collect();
+    let mut inputs: Vec<_> = workspace.inputs.values().collect();
     inputs.sort_by_key(|i| i.id.0);
     for input in inputs {
         for (index, e) in input.effects.iter().enumerate().rev() {

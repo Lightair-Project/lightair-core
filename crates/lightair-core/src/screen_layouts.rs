@@ -1,5 +1,5 @@
 //! Screen recording scenes (docs/plans/screen-studio.md, "Camera" and "Look and framing"): the
-//! project's screen on a backdrop with rounded corners and a shadow, and the camera in the
+//! workspace's screen on a backdrop with rounded corners and a shadow, and the camera in the
 //! layouts Screen Studio has: screen only, screen with the camera in a corner, side by side, and
 //! the camera alone. Scenes switch with the Move transition, so the layout animates on air.
 //!
@@ -7,7 +7,7 @@
 
 use serde_json::json;
 
-use crate::{Command, Fit, Id, Input, Layer, Layout, Project, Scene, Shape, ShapeKind, TransitionKind, TransitionSettings};
+use crate::{Command, Fit, Id, Input, Layer, Layout, Workspace, Scene, Shape, ShapeKind, TransitionKind, TransitionSettings};
 
 /// Space around the screen, as a fraction of the canvas's height.
 const PADDING: f32 = 0.07;
@@ -33,8 +33,8 @@ pub struct Sources {
 }
 
 /// The commands that add the layout scenes (and their backdrops), and Move as the transition.
-pub fn scenes(project: &Project, s: &Sources) -> Vec<Command> {
-    let f = project.primary_format();
+pub fn scenes(workspace: &Workspace, s: &Sources) -> Vec<Command> {
+    let f = workspace.primary_canvas();
     let (fid, w, h) = (f.id, f.width as f32, f.height as f32);
     let pad = h * PADDING;
     let mut commands = Vec::new();
@@ -94,7 +94,7 @@ pub fn scenes(project: &Project, s: &Sources) -> Vec<Command> {
         add("Camera", None, Some((alone, "Camera")));
     }
     // the layout animates between them
-    let mut t = project.transition;
+    let mut t = workspace.transition;
     if t.kind != TransitionKind::Move {
         t = TransitionSettings { kind: TransitionKind::Move, ..t };
         commands.push(Command::SetTransition { settings: t });
@@ -108,7 +108,7 @@ mod tests {
 
     #[test]
     fn layouts_fit_the_screen_and_keep_the_shadow_under_it() {
-        let mut p = Project::new("P");
+        let mut p = Workspace::new("P");
         let screen = Input::new("Display", crate::kinds::SCREEN, json!({}));
         let cam = Input::new("Camera", crate::kinds::CAMERA, json!({}));
         let (sid, cid) = (screen.id, cam.id);
@@ -121,7 +121,7 @@ mod tests {
         }
         let names: Vec<_> = p.scenes.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, ["Screen", "Screen + camera", "Split", "Camera"]);
-        let f = p.primary_format().id;
+        let f = p.primary_canvas().id;
         for scene in &p.scenes[..3] {
             let screen = scene.layers.iter().find(|l| l.input == Some(sid)).unwrap().layouts[&f];
             assert!((screen.width / screen.height - 1.6).abs() < 0.01, "the box has the screen's shape");

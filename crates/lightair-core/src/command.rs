@@ -7,21 +7,27 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    ClipSettings, Destination, Effect, Format, Id, Input, Layer, Layout, Project, Reconnect, RecordingSettings, Scene,
+    ClipSettings, Destination, Effect, Canvas, Id, Input, Layer, Layout, Workspace, Reconnect, RecordingSettings, Scene,
     Stinger, Track, TransitionSettings, AudioMix, Bus, Master, Route, MixerStrip,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Command {
-    AddFormat {
-        format: Format,
+    #[serde(alias = "AddFormat")]
+    AddCanvas {
+        #[serde(alias = "format")]
+        canvas: Canvas,
     },
     /// A canvas's new name, size or frame rate (sizes even, 16–7680; 1–240 fps).
-    UpdateFormat {
-        format: Format,
+    #[serde(alias = "UpdateFormat")]
+    UpdateCanvas {
+        #[serde(alias = "format")]
+        canvas: Canvas,
     },
-    RemoveFormat {
-        format: Id,
+    #[serde(alias = "RemoveFormat")]
+    RemoveCanvas {
+        #[serde(alias = "format")]
+        canvas: Id,
     },
 
     AddInput {
@@ -102,13 +108,15 @@ pub enum Command {
     SetLayout {
         scene: Id,
         layer: Id,
-        format: Id,
+        #[serde(alias = "format")]
+        canvas: Id,
         layout: Layout,
     },
     SetLayerVisible {
         scene: Id,
         layer: Id,
-        format: Id,
+        #[serde(alias = "format")]
+        canvas: Id,
         visible: bool,
     },
     SetLayerLocked {
@@ -232,9 +240,11 @@ pub enum Command {
         destination: Id,
         enabled: bool,
     },
-    SetDestinationFormat {
+    #[serde(alias = "SetDestinationFormat")]
+    SetDestinationCanvas {
         destination: Id,
-        format: Option<Id>,
+        #[serde(alias = "format")]
+        canvas: Option<Id>,
     },
     SetRecordingSettings {
         settings: RecordingSettings,
@@ -295,16 +305,16 @@ pub enum CommandError {
     NoLayer(Id),
     #[error("no input {0}")]
     NoInput(Id),
-    #[error("no format {0}")]
-    NoFormat(Id),
+    #[error("no canvas {0}")]
+    NoCanvas(Id),
     #[error("{0} already exists")]
     Duplicate(Id),
     #[error("the input is used by {0} object(s)")]
     InputInUse(usize),
-    #[error("a project needs at least one format")]
-    LastFormat,
+    #[error("a workspace needs at least one canvas")]
+    LastCanvas,
     #[error("a canvas is 16 to 7680 pixels each way, at 1 to 240 fps")]
-    BadFormat,
+    BadCanvas,
     #[error("an object can't sit inside itself, and its parent must come before it")]
     BadHierarchy,
     #[error("no track {0}")]
@@ -325,9 +335,9 @@ impl Command {
     /// Human-readable undo label ("Move layer", "Add scene").
     pub fn label(&self) -> String {
         match self {
-            Command::AddFormat { .. } => "Add format".into(),
-            Command::RemoveFormat { .. } => "Remove format".into(),
-            Command::UpdateFormat { .. } => "Change canvas".into(),
+            Command::AddCanvas { .. } => "Add canvas".into(),
+            Command::RemoveCanvas { .. } => "Remove canvas".into(),
+            Command::UpdateCanvas { .. } => "Change canvas".into(),
             Command::AddInput { .. } => "Add input".into(),
             Command::RemoveInput { .. } => "Remove input".into(),
             Command::RenameInput { .. } => "Rename input".into(),
@@ -381,7 +391,7 @@ impl Command {
             Command::AddDestination { .. } => "Add destination".into(),
             Command::RemoveDestination { .. } => "Remove destination".into(),
             Command::SetDestinationEnabled { .. } => "Toggle destination".into(),
-            Command::SetDestinationFormat { .. } => "Change destination format".into(),
+            Command::SetDestinationCanvas { .. } => "Change destination canvas".into(),
             Command::SetRecordingSettings { .. } => "Change recording settings".into(),
             Command::SetStreamBitrate { .. } => "Change stream bitrate".into(),
             Command::SetTransition { .. } => "Change transition".into(),
@@ -402,7 +412,7 @@ impl Command {
     /// (e.g. every pointer move while dragging a layer).
     pub fn coalesce_key(&self) -> Option<(&'static str, Id, Id)> {
         match self {
-            Command::SetLayout { layer, format, .. } => Some(("layout", *layer, *format)),
+            Command::SetLayout { layer, canvas, .. } => Some(("layout", *layer, *canvas)),
             Command::SetInputSettings { input, .. } => Some(("settings", *input, *input)),
             Command::SetTrackVolume { track, .. } => Some(("volume", *track, *track)),
             Command::UpdateTrack { track } => Some(("track", track.id, track.id)),
@@ -417,7 +427,7 @@ impl Command {
                 if !commands.is_empty() && commands.iter().all(|c| matches!(c, Command::SetLayout { .. })) =>
             {
                 match &commands[0] {
-                    Command::SetLayout { layer, format, .. } => Some(("layouts", *layer, *format)),
+                    Command::SetLayout { layer, canvas, .. } => Some(("layouts", *layer, *canvas)),
                     _ => None,
                 }
             }
@@ -431,121 +441,121 @@ impl Command {
         !matches!(self, Command::SetProgram { .. })
     }
 
-    /// Applies the command to `project`, validating it first. On error the project is unchanged.
-    pub fn apply(&self, project: &mut Project) -> Result<(), CommandError> {
+    /// Applies the command to `workspace`, validating it first. On error the workspace is unchanged.
+    pub fn apply(&self, workspace: &mut Workspace) -> Result<(), CommandError> {
         match self {
-            Command::AddFormat { format } => {
-                if project.format(format.id).is_some() {
-                    return Err(CommandError::Duplicate(format.id));
+            Command::AddCanvas { canvas } => {
+                if workspace.canvas(canvas.id).is_some() {
+                    return Err(CommandError::Duplicate(canvas.id));
                 }
-                project.formats.push(format.clone());
+                workspace.canvases.push(canvas.clone());
             }
-            Command::RemoveFormat { format } => {
+            Command::RemoveCanvas { canvas } => {
                 let idx =
-                    project.formats.iter().position(|f| f.id == *format).ok_or(CommandError::NoFormat(*format))?;
-                if project.formats.len() == 1 {
-                    return Err(CommandError::LastFormat);
+                    workspace.canvases.iter().position(|f| f.id == *canvas).ok_or(CommandError::NoCanvas(*canvas))?;
+                if workspace.canvases.len() == 1 {
+                    return Err(CommandError::LastCanvas);
                 }
-                project.formats.remove(idx);
-                for d in &mut project.outputs.destinations {
-                    if d.format == Some(*format) {
-                        d.format = None;
+                workspace.canvases.remove(idx);
+                for d in &mut workspace.outputs.destinations {
+                    if d.canvas == Some(*canvas) {
+                        d.canvas = None;
                     }
                 }
-                if project.outputs.recording.format == Some(*format) {
-                    project.outputs.recording.format = None;
+                if workspace.outputs.recording.canvas == Some(*canvas) {
+                    workspace.outputs.recording.canvas = None;
                 }
-                if project.outputs.clips.format == Some(*format) {
-                    project.outputs.clips.format = None;
+                if workspace.outputs.clips.canvas == Some(*canvas) {
+                    workspace.outputs.clips.canvas = None;
                 }
-                for scene in &mut project.scenes {
+                for scene in &mut workspace.scenes {
                     for layer in &mut Arc::make_mut(scene).layers {
-                        layer.layouts.remove(format);
+                        layer.layouts.remove(canvas);
                     }
                 }
             }
-            Command::UpdateFormat { format } => {
+            Command::UpdateCanvas { canvas } => {
                 let f =
-                    project.formats.iter_mut().find(|f| f.id == format.id).ok_or(CommandError::NoFormat(format.id))?;
-                let fps = format.fps_num as f32 / format.fps_den.max(1) as f32;
-                if !(16..=7680).contains(&format.width)
-                    || !(16..=7680).contains(&format.height)
+                    workspace.canvases.iter_mut().find(|f| f.id == canvas.id).ok_or(CommandError::NoCanvas(canvas.id))?;
+                let fps = canvas.fps_num as f32 / canvas.fps_den.max(1) as f32;
+                if !(16..=7680).contains(&canvas.width)
+                    || !(16..=7680).contains(&canvas.height)
                     || !(1.0..=240.0).contains(&fps)
                 {
-                    return Err(CommandError::BadFormat);
+                    return Err(CommandError::BadCanvas);
                 }
-                *f = Format {
-                    width: format.width & !1,
-                    height: format.height & !1,
-                    name: if format.name.trim().is_empty() { f.name.clone() } else { format.name.clone() },
-                    ..format.clone()
+                *f = Canvas {
+                    width: canvas.width & !1,
+                    height: canvas.height & !1,
+                    name: if canvas.name.trim().is_empty() { f.name.clone() } else { canvas.name.clone() },
+                    ..canvas.clone()
                 };
             }
             Command::AddInput { input } => {
-                if project.inputs.contains_key(&input.id) {
+                if workspace.inputs.contains_key(&input.id) {
                     return Err(CommandError::Duplicate(input.id));
                 }
-                project.inputs.insert(input.id, Arc::new(input.clone()));
+                workspace.inputs.insert(input.id, Arc::new(input.clone()));
             }
             Command::RemoveInput { input } => {
-                if !project.inputs.contains_key(input) {
+                if !workspace.inputs.contains_key(input) {
                     return Err(CommandError::NoInput(*input));
                 }
                 let users =
-                    project.layers_using(*input).count() + project.tracks.iter().filter(|t| t.input == *input).count();
+                    workspace.layers_using(*input).count() + workspace.tracks.iter().filter(|t| t.input == *input).count();
                 if users > 0 {
                     return Err(CommandError::InputInUse(users));
                 }
-                project.inputs.remove(input);
+                workspace.inputs.remove(input);
             }
             Command::RenameInput { input, name } => {
-                Arc::make_mut(project.inputs.get_mut(input).ok_or(CommandError::NoInput(*input))?).name = name.clone();
+                Arc::make_mut(workspace.inputs.get_mut(input).ok_or(CommandError::NoInput(*input))?).name = name.clone();
             }
             Command::SetInputSettings { input, settings } => {
-                Arc::make_mut(project.inputs.get_mut(input).ok_or(CommandError::NoInput(*input))?).settings =
+                Arc::make_mut(workspace.inputs.get_mut(input).ok_or(CommandError::NoInput(*input))?).settings =
                     settings.clone();
             }
             Command::AddScene { scene, index } => {
-                if project.scene(scene.id).is_some() {
+                if workspace.scene(scene.id).is_some() {
                     return Err(CommandError::Duplicate(scene.id));
                 }
                 for layer in &scene.layers {
-                    check_layer(project, layer)?;
+                    check_layer(workspace, layer)?;
                 }
                 if !scene.is_well_formed() {
                     return Err(CommandError::BadHierarchy);
                 }
-                let at = index.unwrap_or(project.scenes.len()).min(project.scenes.len());
-                project.scenes.insert(at, Arc::new(scene.clone()));
-                if project.program.is_none() {
-                    project.program = Some(scene.id);
+                let at = index.unwrap_or(workspace.scenes.len()).min(workspace.scenes.len());
+                workspace.scenes.insert(at, Arc::new(scene.clone()));
+                if workspace.program.is_none() {
+                    workspace.program = Some(scene.id);
                 }
             }
             Command::RemoveScene { scene } => {
-                let idx = project.scene_index(*scene).ok_or(CommandError::NoScene(*scene))?;
-                project.scenes.remove(idx);
-                if project.program == Some(*scene) {
-                    project.program =
-                        project.scenes.get(idx.saturating_sub(1)).or(project.scenes.first()).map(|s| s.id);
+                let idx = workspace.scene_index(*scene).ok_or(CommandError::NoScene(*scene))?;
+                workspace.scenes.remove(idx);
+                if workspace.program == Some(*scene) {
+                    workspace.program =
+                        workspace.scenes.get(idx.saturating_sub(1)).or(workspace.scenes.first()).map(|s| s.id);
                 }
             }
-            Command::RenameScene { scene, name } => scene_mut(project, *scene)?.name = name.clone(),
-            Command::SetSceneScreen { scene, screen } => scene_mut(project, *scene)?.screen = *screen,
+            Command::RenameScene { scene, name } => scene_mut(workspace, *scene)?.name = name.clone(),
+            Command::SetSceneScreen { scene, screen } => scene_mut(workspace, *scene)?.screen = *screen,
             Command::MoveScene { scene, to } => {
-                let idx = project.scene_index(*scene).ok_or(CommandError::NoScene(*scene))?;
-                let s = project.scenes.remove(idx);
-                let to = (*to).min(project.scenes.len());
-                project.scenes.insert(to, s);
+                let idx = workspace.scene_index(*scene).ok_or(CommandError::NoScene(*scene))?;
+                let s = workspace.scenes.remove(idx);
+                let to = (*to).min(workspace.scenes.len());
+                workspace.scenes.insert(to, s);
             }
             Command::SetProgram { scene } => {
                 if let Some(id) = scene {
-                    project.scene(*id).ok_or(CommandError::NoScene(*id))?;
+                    workspace.scene(*id).ok_or(CommandError::NoScene(*id))?;
                 }
-                project.program = *scene;
+                workspace.program = *scene;
             }
             Command::AddLayer { scene, layer, index } => {
-                check_layer(project, layer)?;
-                let s = scene_mut(project, *scene)?;
+                check_layer(workspace, layer)?;
+                let s = scene_mut(workspace, *scene)?;
                 if s.layer(layer.id).is_some() {
                     return Err(CommandError::Duplicate(layer.id));
                 }
@@ -556,18 +566,18 @@ impl Command {
             }
             Command::RemoveLayer { scene, layer } => {
                 // With everything under it.
-                scene_mut(project, *scene)?.take_subtree(*layer).ok_or(CommandError::NoLayer(*layer))?;
+                scene_mut(workspace, *scene)?.take_subtree(*layer).ok_or(CommandError::NoLayer(*layer))?;
             }
-            Command::RenameLayer { scene, layer, name } => layer_mut(project, *scene, *layer)?.name = name.clone(),
+            Command::RenameLayer { scene, layer, name } => layer_mut(workspace, *scene, *layer)?.name = name.clone(),
             Command::MoveLayer { scene, layer, to } => {
                 // Among its siblings, with everything under it.
-                let s = scene_mut(project, *scene)?;
+                let s = scene_mut(workspace, *scene)?;
                 let parent = s.layer(*layer).ok_or(CommandError::NoLayer(*layer))?.parent;
                 let block = s.take_subtree(*layer).ok_or(CommandError::NoLayer(*layer))?;
                 s.put_subtree(block, parent, Some(*to));
             }
             Command::ReparentLayer { scene, layer, parent, index } => {
-                let s = scene_mut(project, *scene)?;
+                let s = scene_mut(workspace, *scene)?;
                 let l = s.layer(*layer).ok_or(CommandError::NoLayer(*layer))?.clone();
                 if let Some(p) = parent {
                     s.layer(*p).ok_or(CommandError::NoLayer(*p))?;
@@ -577,8 +587,8 @@ impl Command {
                 }
                 // Same place on the canvas: world layouts re-expressed in the new parent's space.
                 let mut layouts = l.layouts.clone();
-                for (format, local) in layouts.iter_mut() {
-                    if let (Some(world), Some(frame)) = (s.world(*layer, *format), s.frame_of(*parent, *format)) {
+                for (canvas, local) in layouts.iter_mut() {
+                    if let (Some(world), Some(frame)) = (s.world(*layer, *canvas), s.frame_of(*parent, *canvas)) {
                         *local = world.to_local(&frame);
                     }
                 }
@@ -586,134 +596,134 @@ impl Command {
                 block[0].layouts = layouts;
                 s.put_subtree(block, *parent, *index);
             }
-            Command::SetLayout { scene, layer, format, layout } => {
-                project.format(*format).ok_or(CommandError::NoFormat(*format))?;
-                layer_mut(project, *scene, *layer)?.layouts.insert(*format, *layout);
+            Command::SetLayout { scene, layer, canvas, layout } => {
+                workspace.canvas(*canvas).ok_or(CommandError::NoCanvas(*canvas))?;
+                layer_mut(workspace, *scene, *layer)?.layouts.insert(*canvas, *layout);
             }
-            Command::SetLayerVisible { scene, layer, format, visible } => {
-                project.format(*format).ok_or(CommandError::NoFormat(*format))?;
-                let l = layer_mut(project, *scene, *layer)?;
-                if let Some(layout) = l.layouts.get_mut(format) {
+            Command::SetLayerVisible { scene, layer, canvas, visible } => {
+                workspace.canvas(*canvas).ok_or(CommandError::NoCanvas(*canvas))?;
+                let l = layer_mut(workspace, *scene, *layer)?;
+                if let Some(layout) = l.layouts.get_mut(canvas) {
                     layout.visible = *visible;
                 }
             }
-            Command::SetLayerLocked { scene, layer, locked } => layer_mut(project, *scene, *layer)?.locked = *locked,
+            Command::SetLayerLocked { scene, layer, locked } => layer_mut(workspace, *scene, *layer)?.locked = *locked,
             Command::SetLayerPrefab { scene, layer, prefab } => {
-                layer_mut(project, *scene, *layer)?.prefab = prefab.clone()
+                layer_mut(workspace, *scene, *layer)?.prefab = prefab.clone()
             }
             Command::AddTrack { track, index } => {
-                if project.track(track.id).is_some() {
+                if workspace.track(track.id).is_some() {
                     return Err(CommandError::Duplicate(track.id));
                 }
-                if !project.inputs.contains_key(&track.input) {
+                if !workspace.inputs.contains_key(&track.input) {
                     return Err(CommandError::NoInput(track.input));
                 }
-                let at = index.unwrap_or(project.tracks.len()).min(project.tracks.len());
-                project.tracks.insert(at, Arc::new(track.clone()));
+                let at = index.unwrap_or(workspace.tracks.len()).min(workspace.tracks.len());
+                workspace.tracks.insert(at, Arc::new(track.clone()));
             }
             Command::RemoveTrack { track } => {
-                let idx = project.track_index(*track).ok_or(CommandError::NoTrack(*track))?;
-                project.tracks.remove(idx);
+                let idx = workspace.track_index(*track).ok_or(CommandError::NoTrack(*track))?;
+                workspace.tracks.remove(idx);
             }
             Command::RenameTrack { track, name } => {
-                let t = track_mut(project, *track)?;
+                let t = track_mut(workspace, *track)?;
                 t.name = name.clone();
                 t.named = true;
             }
             Command::RenameStrip { strip, name } => match *strip {
                 MixerStrip::Track(id) => {
-                    let t = track_mut(project, id)?;
+                    let t = track_mut(workspace, id)?;
                     t.name = name.clone();
                     t.named = true;
                 }
                 MixerStrip::Bus(id) => {
-                    project.audio.buses.iter_mut().find(|b| b.id == id).ok_or(CommandError::NoBus(id))?.name = name.clone()
+                    workspace.audio.buses.iter_mut().find(|b| b.id == id).ok_or(CommandError::NoBus(id))?.name = name.clone()
                 }
                 MixerStrip::Mix(id) => {
-                    project.audio.mixes.iter_mut().find(|m| m.id == id).ok_or(CommandError::NoMix(id))?.name = name.clone()
+                    workspace.audio.mixes.iter_mut().find(|m| m.id == id).ok_or(CommandError::NoMix(id))?.name = name.clone()
                 }
                 MixerStrip::Master => {}
             },
             Command::SetStripColor { strip, color } => match *strip {
-                MixerStrip::Track(id) => track_mut(project, id)?.color = *color,
+                MixerStrip::Track(id) => track_mut(workspace, id)?.color = *color,
                 MixerStrip::Bus(id) => {
-                    project.audio.buses.iter_mut().find(|b| b.id == id).ok_or(CommandError::NoBus(id))?.color = *color
+                    workspace.audio.buses.iter_mut().find(|b| b.id == id).ok_or(CommandError::NoBus(id))?.color = *color
                 }
                 MixerStrip::Mix(id) => {
-                    project.audio.mixes.iter_mut().find(|m| m.id == id).ok_or(CommandError::NoMix(id))?.color = *color
+                    workspace.audio.mixes.iter_mut().find(|m| m.id == id).ok_or(CommandError::NoMix(id))?.color = *color
                 }
-                MixerStrip::Master => project.audio.master.color = *color,
+                MixerStrip::Master => workspace.audio.master.color = *color,
             },
             Command::MoveTrack { track, to } => {
-                let idx = project.track_index(*track).ok_or(CommandError::NoTrack(*track))?;
-                let t = project.tracks.remove(idx);
-                let to = (*to).min(project.tracks.len());
-                project.tracks.insert(to, t);
+                let idx = workspace.track_index(*track).ok_or(CommandError::NoTrack(*track))?;
+                let t = workspace.tracks.remove(idx);
+                let to = (*to).min(workspace.tracks.len());
+                workspace.tracks.insert(to, t);
             }
             Command::SetTrackVolume { track, volume_db } => {
-                track_mut(project, *track)?.volume_db = volume_db.clamp(f32::NEG_INFINITY, 12.0)
+                track_mut(workspace, *track)?.volume_db = volume_db.clamp(f32::NEG_INFINITY, 12.0)
             }
-            Command::SetTrackMuted { track, muted } => track_mut(project, *track)?.muted = *muted,
-            Command::SetTrackCue { track, cue } => track_mut(project, *track)?.cue = *cue,
+            Command::SetTrackMuted { track, muted } => track_mut(workspace, *track)?.muted = *muted,
+            Command::SetTrackCue { track, cue } => track_mut(workspace, *track)?.cue = *cue,
             Command::UpdateTrack { track } => {
-                if !project.inputs.contains_key(&track.input) {
+                if !workspace.inputs.contains_key(&track.input) {
                     return Err(CommandError::NoInput(track.input));
                 }
-                *track_mut(project, track.id)? = track.clone();
-                check_audio(project)?;
+                *track_mut(workspace, track.id)? = track.clone();
+                check_audio(workspace)?;
             }
             Command::AddBus { bus, index } => {
-                if project.audio.bus(bus.id).is_some() {
+                if workspace.audio.bus(bus.id).is_some() {
                     return Err(CommandError::Duplicate(bus.id));
                 }
-                let buses = &mut project.audio.buses;
+                let buses = &mut workspace.audio.buses;
                 buses.insert(index.unwrap_or(buses.len()).min(buses.len()), bus.clone());
-                check_audio(project)?;
+                check_audio(workspace)?;
             }
             Command::RemoveBus { bus } => {
-                let idx = project.audio.buses.iter().position(|b| b.id == *bus).ok_or(CommandError::NoBus(*bus))?;
-                project.audio.buses.remove(idx);
-                for t in &mut project.tracks {
+                let idx = workspace.audio.buses.iter().position(|b| b.id == *bus).ok_or(CommandError::NoBus(*bus))?;
+                workspace.audio.buses.remove(idx);
+                for t in &mut workspace.tracks {
                     if t.route == Route::Bus(*bus) {
                         Arc::make_mut(t).route = Route::Program;
                     }
                 }
-                for b in &mut project.audio.buses {
+                for b in &mut workspace.audio.buses {
                     if b.route == Route::Bus(*bus) {
                         b.route = Route::Program;
                     }
                 }
             }
             Command::UpdateBus { bus } => {
-                let b = project.audio.buses.iter_mut().find(|b| b.id == bus.id).ok_or(CommandError::NoBus(bus.id))?;
+                let b = workspace.audio.buses.iter_mut().find(|b| b.id == bus.id).ok_or(CommandError::NoBus(bus.id))?;
                 *b = bus.clone();
-                check_audio(project)?;
+                check_audio(workspace)?;
             }
             Command::AddMix { mix } => {
-                if project.audio.mix(mix.id).is_some() {
+                if workspace.audio.mix(mix.id).is_some() {
                     return Err(CommandError::Duplicate(mix.id));
                 }
-                project.audio.mixes.push(mix.clone());
+                workspace.audio.mixes.push(mix.clone());
             }
             Command::RemoveMix { mix } => {
-                let idx = project.audio.mixes.iter().position(|m| m.id == *mix).ok_or(CommandError::NoMix(*mix))?;
-                project.audio.mixes.remove(idx);
-                for t in &mut project.tracks {
+                let idx = workspace.audio.mixes.iter().position(|m| m.id == *mix).ok_or(CommandError::NoMix(*mix))?;
+                workspace.audio.mixes.remove(idx);
+                for t in &mut workspace.tracks {
                     if t.sends.iter().any(|s| s.mix == *mix) {
                         Arc::make_mut(t).sends.retain(|s| s.mix != *mix);
                     }
                 }
-                for b in &mut project.audio.buses {
+                for b in &mut workspace.audio.buses {
                     b.sends.retain(|s| s.mix != *mix);
                 }
             }
             Command::UpdateMix { mix } => {
-                let m = project.audio.mixes.iter_mut().find(|m| m.id == mix.id).ok_or(CommandError::NoMix(mix.id))?;
+                let m = workspace.audio.mixes.iter_mut().find(|m| m.id == mix.id).ok_or(CommandError::NoMix(mix.id))?;
                 *m = mix.clone();
             }
-            Command::UpdateMaster { master } => project.audio.master = master.clone(),
+            Command::UpdateMaster { master } => workspace.audio.master = master.clone(),
             Command::AddStripEffect { strip, effect, index } => {
-                let list = strip_effects(project, *strip)?;
+                let list = strip_effects(workspace, *strip)?;
                 if list.iter().any(|e| e.id == effect.id) {
                     return Err(CommandError::Duplicate(effect.id));
                 }
@@ -721,21 +731,21 @@ impl Command {
                 list.insert(at, effect.clone());
             }
             Command::RemoveStripEffect { strip, effect } => {
-                let list = strip_effects(project, *strip)?;
+                let list = strip_effects(workspace, *strip)?;
                 let at = list.iter().position(|e| e.id == *effect).ok_or(CommandError::NoEffect(*effect))?;
                 list.remove(at);
             }
             Command::SetStripEffectEnabled { strip, effect, enabled } => {
-                let list = strip_effects(project, *strip)?;
+                let list = strip_effects(workspace, *strip)?;
                 list.iter_mut().find(|e| e.id == *effect).ok_or(CommandError::NoEffect(*effect))?.enabled = *enabled;
             }
             Command::SetStripEffectSettings { strip, effect, settings } => {
-                let list = strip_effects(project, *strip)?;
+                let list = strip_effects(workspace, *strip)?;
                 list.iter_mut().find(|e| e.id == *effect).ok_or(CommandError::NoEffect(*effect))?.settings =
                     settings.clone();
             }
             Command::AddEffect { track, effect, index } => {
-                let t = track_mut(project, *track)?;
+                let t = track_mut(workspace, *track)?;
                 if t.effects.iter().any(|e| e.id == effect.id) {
                     return Err(CommandError::Duplicate(effect.id));
                 }
@@ -743,31 +753,31 @@ impl Command {
                 t.effects.insert(at, effect.clone());
             }
             Command::RemoveEffect { track, effect } => {
-                let t = track_mut(project, *track)?;
+                let t = track_mut(workspace, *track)?;
                 let idx = t.effects.iter().position(|e| e.id == *effect).ok_or(CommandError::NoEffect(*effect))?;
                 t.effects.remove(idx);
             }
             Command::SetEffectEnabled { track, effect, enabled } => {
-                effect_mut(project, *track, *effect)?.enabled = *enabled
+                effect_mut(workspace, *track, *effect)?.enabled = *enabled
             }
             Command::SetEffectSettings { track, effect, settings } => {
-                effect_mut(project, *track, *effect)?.settings = settings.clone()
+                effect_mut(workspace, *track, *effect)?.settings = settings.clone()
             }
             Command::AddDestination { destination } => {
-                if project.outputs.destinations.iter().any(|d| d.id == destination.id) {
+                if workspace.outputs.destinations.iter().any(|d| d.id == destination.id) {
                     return Err(CommandError::Duplicate(destination.id));
                 }
-                project.outputs.destinations.push(destination.clone());
+                workspace.outputs.destinations.push(destination.clone());
             }
             Command::RemoveDestination { destination } => {
-                let before = project.outputs.destinations.len();
-                project.outputs.destinations.retain(|d| d.id != *destination);
-                if project.outputs.destinations.len() == before {
+                let before = workspace.outputs.destinations.len();
+                workspace.outputs.destinations.retain(|d| d.id != *destination);
+                if workspace.outputs.destinations.len() == before {
                     return Err(CommandError::NoDestination(*destination));
                 }
             }
             Command::SetDestinationEnabled { destination, enabled } => {
-                project
+                workspace
                     .outputs
                     .destinations
                     .iter_mut()
@@ -775,24 +785,24 @@ impl Command {
                     .ok_or(CommandError::NoDestination(*destination))?
                     .enabled = *enabled;
             }
-            Command::SetDestinationFormat { destination, format } => {
-                if let Some(f) = format {
-                    project.format(*f).ok_or(CommandError::NoFormat(*f))?;
+            Command::SetDestinationCanvas { destination, canvas } => {
+                if let Some(f) = canvas {
+                    workspace.canvas(*f).ok_or(CommandError::NoCanvas(*f))?;
                 }
-                project
+                workspace
                     .outputs
                     .destinations
                     .iter_mut()
                     .find(|d| d.id == *destination)
                     .ok_or(CommandError::NoDestination(*destination))?
-                    .format = *format;
+                    .canvas = *canvas;
             }
-            Command::SetRecordingSettings { settings } => project.outputs.recording = settings.clone(),
+            Command::SetRecordingSettings { settings } => workspace.outputs.recording = settings.clone(),
             Command::UpdateDestination { destination } => {
-                if let Some(f) = destination.format {
-                    project.format(f).ok_or(CommandError::NoFormat(f))?;
+                if let Some(f) = destination.canvas {
+                    workspace.canvas(f).ok_or(CommandError::NoCanvas(f))?;
                 }
-                let d = project
+                let d = workspace
                     .outputs
                     .destinations
                     .iter_mut()
@@ -801,23 +811,23 @@ impl Command {
                 *d = destination.clone();
             }
             Command::SetReconnect { reconnect } => {
-                project.outputs.reconnect =
+                workspace.outputs.reconnect =
                     Reconnect { retries: reconnect.retries.min(100), delay_s: reconnect.delay_s.clamp(1, 60) }
             }
-            Command::SetStreamBitrate { kbps } => project.outputs.stream_bitrate_kbps = (*kbps).clamp(500, 51_000),
+            Command::SetStreamBitrate { kbps } => workspace.outputs.stream_bitrate_kbps = (*kbps).clamp(500, 51_000),
             Command::SetClipSettings { settings } => {
-                if let Some(f) = settings.format {
-                    project.format(f).ok_or(CommandError::NoFormat(f))?;
+                if let Some(f) = settings.canvas {
+                    workspace.canvas(f).ok_or(CommandError::NoCanvas(f))?;
                 }
-                project.outputs.clips = ClipSettings { seconds: settings.seconds.clamp(10, 300), ..*settings }
+                workspace.outputs.clips = ClipSettings { seconds: settings.seconds.clamp(10, 300), ..*settings }
             }
             Command::SetTransition { settings } => {
-                project.transition =
+                workspace.transition =
                     TransitionSettings { duration_ms: settings.duration_ms.clamp(50, 5000), ..*settings }
             }
-            Command::SetStinger { stinger } => project.stinger = stinger.clone(),
+            Command::SetStinger { stinger } => workspace.stinger = stinger.clone(),
             Command::AddInputEffect { input, effect, index } => {
-                let i = Arc::make_mut(project.inputs.get_mut(input).ok_or(CommandError::NoInput(*input))?);
+                let i = Arc::make_mut(workspace.inputs.get_mut(input).ok_or(CommandError::NoInput(*input))?);
                 if i.effects.iter().any(|e| e.id == effect.id) {
                     return Err(CommandError::Duplicate(effect.id));
                 }
@@ -825,23 +835,23 @@ impl Command {
                 i.effects.insert(at, effect.clone());
             }
             Command::RemoveInputEffect { input, effect } => {
-                let i = Arc::make_mut(project.inputs.get_mut(input).ok_or(CommandError::NoInput(*input))?);
+                let i = Arc::make_mut(workspace.inputs.get_mut(input).ok_or(CommandError::NoInput(*input))?);
                 let idx = i.effects.iter().position(|e| e.id == *effect).ok_or(CommandError::NoEffect(*effect))?;
                 i.effects.remove(idx);
             }
             Command::SetInputEffectEnabled { input, effect, enabled } => {
-                input_effect_mut(project, *input, *effect)?.enabled = *enabled
+                input_effect_mut(workspace, *input, *effect)?.enabled = *enabled
             }
             Command::SetInputEffectSettings { input, effect, settings } => {
-                input_effect_mut(project, *input, *effect)?.settings = settings.clone()
+                input_effect_mut(workspace, *input, *effect)?.settings = settings.clone()
             }
             Command::Batch { commands, .. } => {
-                // Apply to a scratch copy so a failing step leaves the project untouched.
-                let mut scratch = project.clone();
+                // Apply to a scratch copy so a failing step leaves the workspace untouched.
+                let mut scratch = workspace.clone();
                 for c in commands {
                     c.apply(&mut scratch)?;
                 }
-                *project = scratch;
+                *workspace = scratch;
             }
         }
         Ok(())
@@ -849,23 +859,23 @@ impl Command {
 }
 
 /// A mixer strip's effect list.
-fn strip_effects(project: &mut Project, strip: MixerStrip) -> Result<&mut Vec<Effect>, CommandError> {
+fn strip_effects(workspace: &mut Workspace, strip: MixerStrip) -> Result<&mut Vec<Effect>, CommandError> {
     Ok(match strip {
-        MixerStrip::Track(id) => &mut track_mut(project, id)?.effects,
+        MixerStrip::Track(id) => &mut track_mut(workspace, id)?.effects,
         MixerStrip::Bus(id) => {
-            &mut project.audio.buses.iter_mut().find(|b| b.id == id).ok_or(CommandError::NoBus(id))?.effects
+            &mut workspace.audio.buses.iter_mut().find(|b| b.id == id).ok_or(CommandError::NoBus(id))?.effects
         }
         MixerStrip::Mix(id) => {
-            &mut project.audio.mixes.iter_mut().find(|m| m.id == id).ok_or(CommandError::NoMix(id))?.effects
+            &mut workspace.audio.mixes.iter_mut().find(|m| m.id == id).ok_or(CommandError::NoMix(id))?.effects
         }
-        MixerStrip::Master => &mut project.audio.master.effects,
+        MixerStrip::Master => &mut workspace.audio.master.effects,
     })
 }
 
 /// Routes go to buses that exist, without loops; sends go to mixes that exist.
-fn check_audio(project: &Project) -> Result<(), CommandError> {
-    let a = &project.audio;
-    let strips = project
+fn check_audio(workspace: &Workspace) -> Result<(), CommandError> {
+    let a = &workspace.audio;
+    let strips = workspace
         .tracks
         .iter()
         .map(|t| (t.id, t.route, &t.sends))
@@ -896,42 +906,42 @@ fn check_audio(project: &Project) -> Result<(), CommandError> {
     Ok(())
 }
 
-fn track_mut(project: &mut Project, id: Id) -> Result<&mut Track, CommandError> {
-    let idx = project.track_index(id).ok_or(CommandError::NoTrack(id))?;
-    Ok(Arc::make_mut(&mut project.tracks[idx]))
+fn track_mut(workspace: &mut Workspace, id: Id) -> Result<&mut Track, CommandError> {
+    let idx = workspace.track_index(id).ok_or(CommandError::NoTrack(id))?;
+    Ok(Arc::make_mut(&mut workspace.tracks[idx]))
 }
 
-fn input_effect_mut(project: &mut Project, input: Id, effect: Id) -> Result<&mut Effect, CommandError> {
-    Arc::make_mut(project.inputs.get_mut(&input).ok_or(CommandError::NoInput(input))?)
+fn input_effect_mut(workspace: &mut Workspace, input: Id, effect: Id) -> Result<&mut Effect, CommandError> {
+    Arc::make_mut(workspace.inputs.get_mut(&input).ok_or(CommandError::NoInput(input))?)
         .effects
         .iter_mut()
         .find(|e| e.id == effect)
         .ok_or(CommandError::NoEffect(effect))
 }
 
-fn effect_mut(project: &mut Project, track: Id, effect: Id) -> Result<&mut Effect, CommandError> {
-    track_mut(project, track)?.effects.iter_mut().find(|e| e.id == effect).ok_or(CommandError::NoEffect(effect))
+fn effect_mut(workspace: &mut Workspace, track: Id, effect: Id) -> Result<&mut Effect, CommandError> {
+    track_mut(workspace, track)?.effects.iter_mut().find(|e| e.id == effect).ok_or(CommandError::NoEffect(effect))
 }
 
-fn check_layer(project: &Project, layer: &Layer) -> Result<(), CommandError> {
+fn check_layer(workspace: &Workspace, layer: &Layer) -> Result<(), CommandError> {
     if let Some(input) = layer.input
-        && !project.inputs.contains_key(&input)
+        && !workspace.inputs.contains_key(&input)
     {
         return Err(CommandError::NoInput(input));
     }
-    for format in layer.layouts.keys() {
-        project.format(*format).ok_or(CommandError::NoFormat(*format))?;
+    for canvas in layer.layouts.keys() {
+        workspace.canvas(*canvas).ok_or(CommandError::NoCanvas(*canvas))?;
     }
     Ok(())
 }
 
-fn scene_mut(project: &mut Project, id: Id) -> Result<&mut Scene, CommandError> {
-    let idx = project.scene_index(id).ok_or(CommandError::NoScene(id))?;
-    Ok(Arc::make_mut(&mut project.scenes[idx]))
+fn scene_mut(workspace: &mut Workspace, id: Id) -> Result<&mut Scene, CommandError> {
+    let idx = workspace.scene_index(id).ok_or(CommandError::NoScene(id))?;
+    Ok(Arc::make_mut(&mut workspace.scenes[idx]))
 }
 
-fn layer_mut(project: &mut Project, scene: Id, layer: Id) -> Result<&mut Layer, CommandError> {
-    scene_mut(project, scene)?.layers.iter_mut().find(|l| l.id == layer).ok_or(CommandError::NoLayer(layer))
+fn layer_mut(workspace: &mut Workspace, scene: Id, layer: Id) -> Result<&mut Layer, CommandError> {
+    scene_mut(workspace, scene)?.layers.iter_mut().find(|l| l.id == layer).ok_or(CommandError::NoLayer(layer))
 }
 
 impl Input {
@@ -941,29 +951,29 @@ impl Input {
 }
 
 impl Layer {
-    /// A layer for `input`, laid out the same way in every given format.
-    pub fn new(name: impl Into<String>, input: Id, formats: impl IntoIterator<Item = (Id, Layout)>) -> Self {
+    /// A layer for `input`, laid out the same way in every given canvas.
+    pub fn new(name: impl Into<String>, input: Id, canvases: impl IntoIterator<Item = (Id, Layout)>) -> Self {
         Self {
             id: Id::new(),
             name: name.into(),
             input: Some(input),
             parent: None,
             prefab: None,
-            layouts: formats.into_iter().collect(),
+            layouts: canvases.into_iter().collect(),
             locked: false,
             link: None,
         }
     }
 
-    /// An empty with its pivot at `at` in every given format.
-    pub fn empty(name: impl Into<String>, formats: impl IntoIterator<Item = (Id, (f32, f32))>) -> Self {
+    /// An empty with its pivot at `at` in every given canvas.
+    pub fn empty(name: impl Into<String>, canvases: impl IntoIterator<Item = (Id, (f32, f32))>) -> Self {
         Self {
             id: Id::new(),
             name: name.into(),
             input: None,
             parent: None,
             prefab: None,
-            layouts: formats.into_iter().map(|(f, (x, y))| (f, Layout::boxed(x, y, 0.0, 0.0))).collect(),
+            layouts: canvases.into_iter().map(|(f, (x, y))| (f, Layout::boxed(x, y, 0.0, 0.0))).collect(),
             locked: false,
             link: None,
         }

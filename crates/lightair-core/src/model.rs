@@ -1,7 +1,7 @@
-//! The project document (docs/07-scenes-layers-canvas.md, docs/14-data-persistence-settings.md).
+//! The workspace document (docs/07-scenes-layers-canvas.md, docs/14-data-persistence-settings.md).
 //!
 //! Snapshots are immutable and share structure: scenes and inputs sit behind `Arc`, so cloning
-//! a `Project` to apply a command copies pointers, and unchanged parts compare by pointer.
+//! a `Workspace` to apply a command copies pointers, and unchanged parts compare by pointer.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -39,11 +39,12 @@ impl std::fmt::Display for Id {
 
 /// A complete show setup.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Project {
+pub struct Workspace {
     pub id: Id,
     pub name: String,
-    /// Output canvas shapes. The first is the primary format (libobs main canvas).
-    pub formats: Vec<Format>,
+    /// Output canvas shapes. The first is the primary canvas (libobs main canvas).
+    #[serde(alias = "formats")]
+    pub canvases: Vec<Canvas>,
     pub inputs: BTreeMap<Id, Arc<Input>>,
     /// Scenes in display order.
     pub scenes: Vec<Arc<Scene>>,
@@ -75,12 +76,12 @@ pub struct Stinger {
     pub cut_ms: u32,
 }
 
-impl Project {
+impl Workspace {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             id: Id::new(),
             name: name.into(),
-            formats: vec![Format::landscape()],
+            canvases: vec![Canvas::landscape()],
             inputs: BTreeMap::new(),
             scenes: Vec::new(),
             program: None,
@@ -92,13 +93,13 @@ impl Project {
         }
     }
 
-    /// The same project (id, name, formats) with no content: the baseline for a full rebuild,
+    /// The same workspace (id, name, canvases) with no content: the baseline for a full rebuild,
     /// `diff(&p.empty_like(), &p)`.
     pub fn empty_like(&self) -> Self {
         Self {
             id: self.id,
             name: self.name.clone(),
-            formats: self.formats.clone(),
+            canvases: self.canvases.clone(),
             inputs: BTreeMap::new(),
             scenes: Vec::new(),
             program: None,
@@ -110,8 +111,8 @@ impl Project {
         }
     }
 
-    pub fn primary_format(&self) -> &Format {
-        &self.formats[0]
+    pub fn primary_canvas(&self) -> &Canvas {
+        &self.canvases[0]
     }
 
     pub fn scene(&self, id: Id) -> Option<&Arc<Scene>> {
@@ -122,8 +123,8 @@ impl Project {
         self.scenes.iter().position(|s| s.id == id)
     }
 
-    pub fn format(&self, id: Id) -> Option<&Format> {
-        self.formats.iter().find(|f| f.id == id)
+    pub fn canvas(&self, id: Id) -> Option<&Canvas> {
+        self.canvases.iter().find(|f| f.id == id)
     }
 
     pub fn track(&self, id: Id) -> Option<&Arc<Track>> {
@@ -134,7 +135,7 @@ impl Project {
         self.tracks.iter().position(|t| t.id == id)
     }
 
-    /// Layers anywhere in the project that use `input`.
+    /// Layers anywhere in the workspace that use `input`.
     pub fn layers_using(&self, input: Id) -> impl Iterator<Item = (&Scene, &Layer)> {
         self.scenes
             .iter()
@@ -144,7 +145,7 @@ impl Project {
 
 /// An output canvas shape.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Format {
+pub struct Canvas {
     pub id: Id,
     pub name: String,
     pub width: u32,
@@ -153,7 +154,7 @@ pub struct Format {
     pub fps_den: u32,
 }
 
-impl Format {
+impl Canvas {
     pub fn landscape() -> Self {
         Self { id: Id::new(), name: "Landscape".into(), width: 1920, height: 1080, fps_num: 60, fps_den: 1 }
     }
@@ -272,7 +273,7 @@ impl Scene {
     }
 }
 
-/// An input placed in a scene, arranged per format; or, without an input, an *empty* holding
+/// An input placed in a scene, arranged per canvas; or, without an input, an *empty* holding
 /// other layers (see `hierarchy`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Layer {
@@ -284,10 +285,10 @@ pub struct Layer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<Id>,
     /// The prefab this layer (and what's under it) was placed from: the asset's file name in
-    /// the project's `assets` folder. Only an instance's root carries it.
+    /// the workspace's `assets` folder. Only an instance's root carries it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prefab: Option<String>,
-    /// Layout per format id. A format without an entry hides the layer in that format.
+    /// Layout per canvas id. A canvas without an entry hides the layer in that canvas.
     pub layouts: BTreeMap<Id, Layout>,
     pub locked: bool,
     /// The same thing as the layers with this link in other scenes, though it shows another
@@ -297,7 +298,7 @@ pub struct Layer {
     pub link: Option<Id>,
 }
 
-/// Where and how a layer appears in one format.
+/// Where and how a layer appears in one canvas.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Layout {
     /// Top-left of the layer's box, in canvas pixels.
@@ -691,15 +692,15 @@ pub enum MixerStrip {
 }
 
 impl MixerStrip {
-    /// The strip with this id in `project` (tracks, buses, mixes; [`MASTER_ID`]: the master).
-    pub fn find(project: &Project, id: Id) -> Option<Self> {
+    /// The strip with this id in `workspace` (tracks, buses, mixes; [`MASTER_ID`]: the master).
+    pub fn find(workspace: &Workspace, id: Id) -> Option<Self> {
         if id == MASTER_ID {
             Some(MixerStrip::Master)
-        } else if project.track(id).is_some() {
+        } else if workspace.track(id).is_some() {
             Some(MixerStrip::Track(id))
-        } else if project.audio.bus(id).is_some() {
+        } else if workspace.audio.bus(id).is_some() {
             Some(MixerStrip::Bus(id))
-        } else if project.audio.mix(id).is_some() {
+        } else if workspace.audio.mix(id).is_some() {
             Some(MixerStrip::Mix(id))
         } else {
             None
@@ -849,13 +850,14 @@ pub struct ClipSettings {
     pub enabled: bool,
     /// Seconds kept in the buffer (and saved per clip).
     pub seconds: u32,
-    /// Format to clip; `None` = the primary format.
-    pub format: Option<Id>,
+    /// Canvas to clip; `None` = the primary canvas.
+    #[serde(alias = "format")]
+    pub canvas: Option<Id>,
 }
 
 impl Default for ClipSettings {
     fn default() -> Self {
-        Self { enabled: false, seconds: 60, format: None }
+        Self { enabled: false, seconds: 60, canvas: None }
     }
 }
 
@@ -867,13 +869,15 @@ pub struct RecordingSettings {
     /// `mp4` (hybrid, crash-safe), `mkv` or `mov`.
     pub container: String,
     pub bitrate_kbps: u32,
-    /// Format to record; `None` = the primary format. Superseded by `formats`, kept so older
-    /// projects record what they did.
+    /// Canvas to record; `None` = the primary canvas. Superseded by `canvases`, kept so older
+    /// workspaces record what they did.
     #[serde(default)]
-    pub format: Option<Id>,
-    /// The canvases recorded together, each to its own file. Empty: `format`, or else all.
+    #[serde(alias = "format")]
+    pub canvas: Option<Id>,
+    /// The canvases recorded together, each to its own file. Empty: `canvas`, or else all.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub formats: Vec<Id>,
+    #[serde(alias = "formats")]
+    pub canvases: Vec<Id>,
     #[serde(default)]
     pub encoder: VideoEncoder,
     /// Recorded height; the width follows the canvas. `None`: the canvas's own size.
@@ -934,8 +938,8 @@ impl Default for RecordingSettings {
             folder: None,
             container: "mp4".into(),
             bitrate_kbps: 12_000,
-            format: None,
-            formats: Vec::new(),
+            canvas: None,
+            canvases: Vec::new(),
             encoder: VideoEncoder::H264,
             height: None,
             audio_kbps: 192,
@@ -950,27 +954,27 @@ impl Default for RecordingSettings {
 }
 
 impl RecordingSettings {
-    /// The formats Record records, in the project's order (at least one). Until a choice is
-    /// made, every canvas; an older project's single `format` stays its choice.
-    pub fn targets(&self, project: &Project) -> Vec<Id> {
-        let chosen: Vec<Id> = match (self.formats.is_empty(), self.format) {
-            (false, _) => self.formats.clone(),
+    /// The canvases Record records, in the workspace's order (at least one). Until a choice is
+    /// made, every canvas; an older workspace's single `canvas` stays its choice.
+    pub fn targets(&self, workspace: &Workspace) -> Vec<Id> {
+        let chosen: Vec<Id> = match (self.canvases.is_empty(), self.canvas) {
+            (false, _) => self.canvases.clone(),
             (true, Some(f)) => vec![f],
-            (true, None) => project.formats.iter().map(|f| f.id).collect(),
+            (true, None) => workspace.canvases.iter().map(|f| f.id).collect(),
         };
-        let out: Vec<Id> = project.formats.iter().map(|f| f.id).filter(|id| chosen.contains(id)).collect();
-        if out.is_empty() { vec![project.primary_format().id] } else { out }
+        let out: Vec<Id> = workspace.canvases.iter().map(|f| f.id).filter(|id| chosen.contains(id)).collect();
+        if out.is_empty() { vec![workspace.primary_canvas().id] } else { out }
     }
 
-    /// These settings with `format` recorded or not (never none at all).
-    pub fn with_format(&self, project: &Project, format: Id, on: bool) -> RecordingSettings {
-        let mut formats = self.targets(project);
-        if on && !formats.contains(&format) {
-            formats.push(format);
-        } else if !on && formats.len() > 1 {
-            formats.retain(|f| *f != format);
+    /// These settings with `canvas` recorded or not (never none at all).
+    pub fn with_canvas(&self, workspace: &Workspace, canvas: Id, on: bool) -> RecordingSettings {
+        let mut canvases = self.targets(workspace);
+        if on && !canvases.contains(&canvas) {
+            canvases.push(canvas);
+        } else if !on && canvases.len() > 1 {
+            canvases.retain(|f| *f != canvas);
         }
-        RecordingSettings { formats, format: None, ..self.clone() }
+        RecordingSettings { canvases, canvas: None, ..self.clone() }
     }
 }
 
@@ -982,9 +986,10 @@ pub struct Destination {
     pub server: String,
     /// Included when going live.
     pub enabled: bool,
-    /// Format to send (e.g. vertical for TikTok); `None` = the primary format.
+    /// Canvas to send (e.g. vertical for TikTok); `None` = the primary canvas.
     #[serde(default)]
-    pub format: Option<Id>,
+    #[serde(alias = "format")]
+    pub canvas: Option<Id>,
     /// Which platform it is ("youtube", "twitch", …, "custom"), for its badge and help.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub platform: Option<String>,
@@ -1005,7 +1010,7 @@ pub enum TransitionKind {
     Wipe,
     /// Fade through black.
     Dip,
-    /// Plays the project's stinger video over the switch.
+    /// Plays the workspace's stinger video over the switch.
     Stinger,
 }
 

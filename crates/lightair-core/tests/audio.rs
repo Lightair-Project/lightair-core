@@ -1,12 +1,12 @@
-//! The mixer's model: buses, mixes, routing rules, removal, older projects.
+//! The mixer's model: buses, mixes, routing rules, removal, older workspaces.
 
 use lightair_core::{
-    AudioMix, Bus, Command, CommandError, Document, Effect, Input, Project, Route, Send, Track, TrackChannels,
+    AudioMix, Bus, Command, CommandError, Document, Effect, Input, Workspace, Route, Send, Track, TrackChannels,
 };
 use serde_json::json;
 
-fn project() -> (Document, lightair_core::Id) {
-    let mut doc = Document::new(Project::new("Pod"));
+fn workspace() -> (Document, lightair_core::Id) {
+    let mut doc = Document::new(Workspace::new("Pod"));
     let mic = Input::new("Interface", lightair_core::kinds::MIC, json!({}));
     let id = mic.id;
     doc.apply(&Command::AddInput { input: mic }).unwrap();
@@ -17,12 +17,12 @@ fn project() -> (Document, lightair_core::Id) {
 }
 
 fn track(doc: &Document, id: lightair_core::Id) -> Track {
-    (**doc.project().track(id).unwrap()).clone()
+    (**doc.workspace().track(id).unwrap()).clone()
 }
 
 #[test]
 fn routing_to_buses_and_loops() {
-    let (mut doc, tid) = project();
+    let (mut doc, tid) = workspace();
     let (a, b) = (Bus::new("Guests"), Bus::new("Voices"));
     doc.apply(&Command::AddBus { bus: a.clone(), index: None }).unwrap();
     doc.apply(&Command::AddBus { bus: b.clone(), index: None }).unwrap();
@@ -44,7 +44,7 @@ fn routing_to_buses_and_loops() {
 
 #[test]
 fn mixes_and_their_sends() {
-    let (mut doc, tid) = project();
+    let (mut doc, tid) = workspace();
     let phones = AudioMix::new("Headphones");
     let bad = doc.apply(&Command::UpdateTrack {
         track: Track { sends: vec![Send { mix: phones.id, level_db: 0.0, pre_fader: true }], ..track(&doc, tid) },
@@ -82,7 +82,7 @@ fn older_projects_load_and_their_filters_become_engine_effects() {
 #[test]
 fn effects_on_buses_mixes_and_the_master() {
     use lightair_core::{MASTER_ID, MixerStrip};
-    let (mut doc, tid) = project();
+    let (mut doc, tid) = workspace();
     let bus = Bus::new("Music");
     let mix = AudioMix::new("VOD");
     doc.apply(&Command::AddBus { bus: bus.clone(), index: None }).unwrap();
@@ -94,7 +94,7 @@ fn effects_on_buses_mixes_and_the_master() {
         doc.apply(&Command::SetStripEffectSettings { strip, effect: eid, settings: json!({"ceiling_db": -2.0}) }).unwrap();
         doc.apply(&Command::SetStripEffectEnabled { strip, effect: eid, enabled: false }).unwrap();
     }
-    let p = doc.project();
+    let p = doc.workspace();
     assert_eq!(p.audio.bus(bus.id).unwrap().effects[0].settings["ceiling_db"], -2.0);
     assert!(!p.audio.mix(mix.id).unwrap().effects[0].enabled);
     assert_eq!(p.audio.master.effects.len(), 1);
@@ -103,13 +103,13 @@ fn effects_on_buses_mixes_and_the_master() {
     assert_eq!(MixerStrip::find(p, bus.id), Some(MixerStrip::Bus(bus.id)));
     let first = p.audio.master.effects[0].id;
     doc.apply(&Command::RemoveStripEffect { strip: MixerStrip::Master, effect: first }).unwrap();
-    assert!(doc.project().audio.master.effects.is_empty());
+    assert!(doc.workspace().audio.master.effects.is_empty());
 }
 
 #[test]
 fn strips_rename() {
     use lightair_core::MixerStrip;
-    let (mut doc, tid) = project();
+    let (mut doc, tid) = workspace();
     let (bus, mix) = (Bus::new("Bus 1"), AudioMix::new("Mix 1"));
     let (bid, mid) = (bus.id, mix.id);
     doc.apply(&Command::AddBus { bus, index: None }).unwrap();
@@ -117,10 +117,10 @@ fn strips_rename() {
     for (strip, name) in [(MixerStrip::Track(tid), "Host"), (MixerStrip::Bus(bid), "Guests"), (MixerStrip::Mix(mid), "Headphones")] {
         doc.apply(&Command::RenameStrip { strip, name: name.into() }).unwrap();
     }
-    let p = doc.project();
+    let p = doc.workspace();
     assert_eq!(p.track(tid).unwrap().name, "Host");
     assert_eq!(p.audio.bus(bid).unwrap().name, "Guests");
     assert_eq!(p.audio.mix(mid).unwrap().name, "Headphones");
     assert!(doc.undo().is_some());
-    assert_eq!(doc.project().audio.mix(mid).unwrap().name, "Mix 1", "one undo step each");
+    assert_eq!(doc.workspace().audio.mix(mid).unwrap().name, "Mix 1", "one undo step each");
 }
