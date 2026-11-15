@@ -615,9 +615,17 @@ impl Command {
                 let idx = project.track_index(*track).ok_or(CommandError::NoTrack(*track))?;
                 project.tracks.remove(idx);
             }
-            Command::RenameTrack { track, name } => track_mut(project, *track)?.name = name.clone(),
+            Command::RenameTrack { track, name } => {
+                let t = track_mut(project, *track)?;
+                t.name = name.clone();
+                t.named = true;
+            }
             Command::RenameStrip { strip, name } => match *strip {
-                MixerStrip::Track(id) => track_mut(project, id)?.name = name.clone(),
+                MixerStrip::Track(id) => {
+                    let t = track_mut(project, id)?;
+                    t.name = name.clone();
+                    t.named = true;
+                }
                 MixerStrip::Bus(id) => {
                     project.audio.buses.iter_mut().find(|b| b.id == id).ok_or(CommandError::NoBus(id))?.name = name.clone()
                 }
@@ -943,6 +951,7 @@ impl Layer {
             prefab: None,
             layouts: formats.into_iter().collect(),
             locked: false,
+            link: None,
         }
     }
 
@@ -956,6 +965,7 @@ impl Layer {
             prefab: None,
             layouts: formats.into_iter().map(|(f, (x, y))| (f, Layout::boxed(x, y, 0.0, 0.0))).collect(),
             locked: false,
+            link: None,
         }
     }
 

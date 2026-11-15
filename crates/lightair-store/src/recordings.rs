@@ -46,9 +46,18 @@ impl Kind {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct File {
     pub path: PathBuf,
-    /// The format it holds ("Landscape", "Vertical"), for a recording of several.
+    /// The canvas it holds ("Landscape", "Vertical"), for a recording of several.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format: Option<String>,
+    /// What a take recorded into it: "Screen", "Camera"…
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub track: Option<String>,
+}
+
+impl File {
+    pub fn new(path: PathBuf) -> File {
+        File { path, format: None, track: None }
+    }
 }
 
 /// A marker: when (from the start, ms) and what.
@@ -242,7 +251,7 @@ impl Index {
                 ["wav", "m4a", "mp3", "aac", "flac"].iter().any(|a| e.eq_ignore_ascii_case(a))
             });
             let kind = if audio { Kind::Multitrack } else { Kind::Recording };
-            let mut item = Item::new(kind, title, vec![File { path: path.clone(), format: None }], started_ms);
+            let mut item = Item::new(kind, title, vec![File::new(path.clone())], started_ms);
             item.duration_ms = mp4_duration_ms(&path);
             out.push(item);
         }
@@ -304,12 +313,12 @@ pub fn take_item(folder: &Path) -> Option<Item> {
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(|v| Some(File { path: folder.join(v["file"].as_str()?), format: v["name"].as_str().map(String::from) }))
+        .filter_map(|v| Some(File { track: v["name"].as_str().map(String::from), ..File::new(folder.join(v["file"].as_str()?)) }))
         .collect();
-    files.extend(take["audio"].as_array().into_iter().flatten().filter_map(|a| Some(File { path: folder.join(a.as_str()?), format: None })));
+    files.extend(take["audio"].as_array().into_iter().flatten().filter_map(|a| Some(File::new(folder.join(a.as_str()?)))));
     for extra in ["input.bin", "take.json", "edit.json"] {
         if folder.join(extra).exists() {
-            files.push(File { path: folder.join(extra), format: None });
+            files.push(File::new(folder.join(extra)));
         }
     }
     let title = folder.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();

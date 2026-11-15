@@ -4,7 +4,7 @@
 //!
 //! Property names: "x", "y", "scale", "rotation", "opacity"; "brightness", "contrast",
 //! "saturation", "temperature", "vignette", "blur"; "crop.l", "crop.t", "crop.r", "crop.b";
-//! "fx.<n>.<setting>" (the clip's n-th effect).
+//! "fx.<id>.<setting>" (the clip's effect with that id).
 
 use std::collections::BTreeMap;
 
@@ -154,8 +154,8 @@ impl Clip {
     /// Its effects at `t` (keyed settings at their values there).
     pub fn effects_at(&self, t: u64) -> Vec<ClipEffect> {
         let mut out = self.effects.clone();
-        for (n, e) in out.iter_mut().enumerate() {
-            let prefix = format!("fx.{n}.");
+        for e in out.iter_mut() {
+            let prefix = format!("fx.{}.", e.id);
             for (p, keys) in self.anim.range(prefix.clone()..) {
                 let Some(setting) = p.strip_prefix(&prefix) else { break };
                 if let Some(v) = value(keys, t.saturating_sub(self.start_ms)) {
@@ -240,6 +240,30 @@ mod tests {
         c.toggle_key("scale", 3_000, &mut s);
         c.toggle_key("scale", 1_000, &mut s);
         assert!(c.keys_of("scale").is_empty() && s == 1.0);
+    }
+
+    #[test]
+    fn effect_keys_stay_with_their_effect() {
+        use crate::sequence::{ClipEffect, Sequence, Track, TrackKind};
+        let mut c = Clip::new(Id::nil(), 0, 4_000);
+        c.effects = vec![ClipEffect::new("fx.a", Default::default()), ClipEffect::new("fx.b", Default::default())];
+        let key = format!("fx.{}.amount", c.effects[1].id);
+        let mut base = 0.0;
+        c.toggle_key(&key, 0, &mut base);
+        c.set_key(&key, 4_000, 1.0);
+        // moved first: its keys go with it
+        c.effects.swap(0, 1);
+        let at = |c: &Clip| c.effects_at(4_000).iter().map(|e| (e.kind.clone(), e.settings.get("amount").and_then(|v| v.as_f64()))).collect::<Vec<_>>();
+        assert_eq!(at(&c), vec![("fx.b".to_string(), Some(1.0)), ("fx.a".to_string(), None)]);
+        // keys from before effects had ids ("fx.<place>.…") are named for theirs
+        let mut old = Clip::new(Id::nil(), 0, 4_000);
+        old.effects = c.effects.clone();
+        old.anim.insert("fx.0.amount".into(), vec![Key { at_ms: 0, v: 0.5 }]);
+        let mut seq = Sequence::new((640, 360), 30);
+        seq.tracks = vec![Track { clips: vec![old], ..Track::empty(TrackKind::Video) }];
+        seq.name_effect_keys();
+        let named = format!("fx.{}.amount", seq.tracks[0].clips[0].effects[0].id);
+        assert!(seq.tracks[0].clips[0].anim.contains_key(&named));
     }
 
     #[test]

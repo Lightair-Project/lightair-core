@@ -38,6 +38,9 @@ pub fn scenes(project: &Project, s: &Sources) -> Vec<Command> {
     let (fid, w, h) = (f.id, f.width as f32, f.height as f32);
     let pad = h * PADDING;
     let mut commands = Vec::new();
+    // every scene's backdrop is the same thing (each its own input, its shadow where its screen
+    // is): the Move transition glides between them
+    let backdrop_link = Id::new();
     let mut add = |name: &str, screen_box: Option<(f32, f32, f32, f32)>, camera: Option<(Layout, &str)>| {
         let mut scene = Scene::new(name);
         if let Some((x, y, bw, bh)) = screen_box {
@@ -50,7 +53,7 @@ pub fn scenes(project: &Project, s: &Sources) -> Vec<Command> {
                     "shadow_radius": bh.min(bw) * 0.025, "shadow_blur": h * 0.035, "shadow_opacity": 0.5,
                 }),
             );
-            scene.layers.push(Layer::new("Backdrop", backdrop.id, [(fid, Layout::boxed(0.0, 0.0, w, h))]));
+            scene.layers.push(Layer { link: Some(backdrop_link), ..Layer::new("Backdrop", backdrop.id, [(fid, Layout::boxed(0.0, 0.0, w, h))]) });
             commands.push(Command::AddInput { input: backdrop });
             let mut l = Layout::boxed(x, y, bw, bh);
             l.fit = Fit::Stretch;

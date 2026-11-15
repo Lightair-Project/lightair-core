@@ -20,12 +20,34 @@ pub struct Source {
     pub log: Option<PathBuf>,
 }
 
+/// A take's screen among its videos (`take.json`'s `video`): the one whose `kind` is "screen".
+/// Takes from before `kind` was written only say it in their name ("Screen", "Screen 2").
+pub fn take_screen<'a>(videos: &[&'a serde_json::Value]) -> Option<&'a serde_json::Value> {
+    match videos.iter().any(|v| v.get("kind").is_some()) {
+        true => videos.iter().find(|v| v["kind"] == "screen").copied(),
+        false => videos.iter().find(|v| v["name"].as_str().is_some_and(|n| n.starts_with("Screen"))).copied(),
+    }
+}
+
+/// Whose sound a take's stem `file` is: its mixer track's name (`take.json`'s `audio_tracks`).
+/// Takes from before that was written only say it in the file's name ("Audio - Mic.wav").
+pub fn take_stem_name(take: &serde_json::Value, file: &Path) -> String {
+    let file_name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    if let Some(tracks) = take["audio_tracks"].as_array()
+        && let Some(name) = tracks.iter().find(|t| t["file"].as_str() == Some(file_name.as_str())).and_then(|t| t["name"].as_str())
+    {
+        return name.to_string();
+    }
+    let stem = file.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    stem.strip_prefix("Audio - ").unwrap_or(&stem).to_string()
+}
+
 impl Source {
     /// A take folder: its screen, its stems and its input log (from take.json).
     pub fn of_take(folder: &Path) -> Option<Source> {
         let take: serde_json::Value = serde_json::from_slice(&std::fs::read(folder.join("take.json")).ok()?).ok()?;
-        let video = take["video"].as_array()?.iter().find(|v| v["name"].as_str().is_some_and(|n| n.starts_with("Screen")))
-            .or_else(|| take["video"].as_array()?.first())?;
+        let videos: Vec<&serde_json::Value> = take["video"].as_array()?.iter().collect();
+        let video = take_screen(&videos).or_else(|| videos.first().copied())?;
         let audio = take["audio"].as_array().map(|a| a.iter().filter_map(|f| f.as_str().map(|f| folder.join(f))).collect()).unwrap_or_default();
         let log = folder.join("input.bin");
         Some(Source { video: folder.join(video["file"].as_str()?), audio, log: log.exists().then_some(log) })

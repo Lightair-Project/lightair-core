@@ -24,6 +24,20 @@ pub const MIC: &str = "lightair_mic";
 pub const DESKTOP_AUDIO: &str = "lightair_desktop_audio";
 /// One app's sound. Settings: `app` (macOS: bundle id; Windows: libobs's window string).
 pub const APP_AUDIO: &str = "lightair_app_audio";
+/// A microphone or audio interface the audio engine captures itself (low latency; what the
+/// mixer's "Audio input" adds). Settings: `device` (its name; "" for the system's default).
+pub const AUDIO_DEVICE: &str = "lightair_audio_device";
+
+/// libobs's own sound-only source types (inputs made outside Lightair's kinds).
+const LIBOBS_AUDIO: [&str; 7] = [
+    "coreaudio_input_capture",
+    "coreaudio_output_capture",
+    "sck_audio_capture",
+    "wasapi_input_capture",
+    "wasapi_output_capture",
+    "wasapi_process_output_capture",
+    "pulse_input_capture",
+];
 
 /// Screen modes (`mode`).
 pub const DISPLAY: i64 = 0;
@@ -36,7 +50,12 @@ pub const ALL: [&str; 5] = [SCREEN, CAMERA, MIC, DESKTOP_AUDIO, APP_AUDIO];
 
 /// Sound-only kinds.
 pub fn is_audio(kind: &str) -> bool {
-    matches!(kind, MIC | DESKTOP_AUDIO | APP_AUDIO)
+    matches!(kind, MIC | DESKTOP_AUDIO | APP_AUDIO | AUDIO_DEVICE) || LIBOBS_AUDIO.contains(&kind)
+}
+
+/// A microphone or audio interface, however it's captured.
+pub fn is_mic(kind: &str) -> bool {
+    matches!(kind, MIC | AUDIO_DEVICE)
 }
 
 /// The setting that names which display, window, app or device an input takes, if its kind has

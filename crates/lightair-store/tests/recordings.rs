@@ -6,7 +6,7 @@ use std::path::Path;
 use lightair_store::recordings::{File, Index, Item, Kind, mp4_duration_ms, move_item};
 
 fn item(path: &Path) -> Item {
-    Item::new(Kind::Recording, "Show", vec![File { path: path.to_path_buf(), format: None }], 1_700_000_000_000)
+    Item::new(Kind::Recording, "Show", vec![File::new(path.to_path_buf())], 1_700_000_000_000)
 }
 
 #[test]
@@ -18,7 +18,7 @@ fn entries_are_added_and_read_back() {
     let mut first = item(&a);
     first.markers.push(lightair_store::recordings::Marker { at_ms: 1500, label: "Intro".into() });
     Index::add_to(project.path(), first.clone()).unwrap();
-    let clip = Item::new(Kind::Clip, "Clip", vec![File { path: media.path().join("c.mp4"), format: None }], 1_800_000_000_000);
+    let clip = Item::new(Kind::Clip, "Clip", vec![File::new(media.path().join("c.mp4"))], 1_800_000_000_000);
     Index::add_to(project.path(), clip.clone()).unwrap();
     let index = Index::load(project.path());
     assert_eq!(index.items.len(), 2);

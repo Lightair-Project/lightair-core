@@ -22,3 +22,9 @@ pub use model::{
     OutputSettings, Project, Reconnect, RecordingSettings, Scene, ScreenLook, Shape, ShapeKind, Stinger, Track, TransitionKind,
     TransitionSettings, VideoEncoder,
 };
+
+/// `name` made safe for a file name (a canvas, track or project name in a file's name): the
+/// characters macOS and Windows don't allow become "-".
+pub fn file_safe(name: &str) -> String {
+    name.chars().map(|c| if "/\\:*?\"<>|".contains(c) || c.is_control() { '-' } else { c }).collect()
+}

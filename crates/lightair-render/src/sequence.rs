@@ -89,14 +89,19 @@ impl Media {
         };
         let take: serde_json::Value = std::fs::read(folder.join("take.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
         let videos: Vec<&serde_json::Value> = take["video"].as_array().map(|a| a.iter().collect()).unwrap_or_default();
-        let screen = videos.iter().find(|v| v["name"].as_str().is_some_and(|n| n.starts_with("Screen")));
+        let screen = crate::export::take_screen(&videos);
         let (canvas_w, canvas_h) = (scene.canvas.0.max(1) as f32, scene.canvas.1.max(1) as f32);
         let mut out = Vec::new();
         // the screen, with its look, across the frame
-        if screen.is_some()
+        if let Some(screen) = screen
             && let Some(main) = parts.first()
         {
-            out.push(TakePart { name: "Screen".into(), ..TakePart::of(main.clone()) });
+            // named as its layer was in the scene
+            let named = scene.layers.iter().find_map(|l| match &l.what {
+                lightair_store::take_scene::What::Recorded { input } if screen["input"].as_str() == Some(&input.to_string()) => Some(l.name.clone()),
+                _ => None,
+            });
+            out.push(TakePart { name: named.unwrap_or_else(|| "Screen".into()), ..TakePart::of(main.clone()) });
         }
         for layer in &scene.layers {
             use lightair_store::take_scene::What;
@@ -104,7 +109,7 @@ impl Media {
             let part = match &layer.what {
                 What::Recorded { input } => {
                     let Some(v) = videos.iter().find(|v| v["input"].as_str() == Some(&input.to_string())) else { continue };
-                    if screen.is_some_and(|s| std::ptr::eq(*s, *v)) {
+                    if screen.is_some_and(|s| std::ptr::eq(s, *v)) {
                         continue;
                     }
                     let Some(file) = v["file"].as_str() else { continue };
@@ -182,8 +187,7 @@ impl Media {
         }
         for stem in stems {
             if let Ok(mut m) = Media::from_file(&stem) {
-                // "Audio - Mic.wav": "Mic"
-                m.name = m.name.strip_prefix("Audio - ").unwrap_or(&m.name).to_string();
+                m.name = crate::export::take_stem_name(&take, &stem);
                 out.push(m);
             }
         }
@@ -456,11 +460,20 @@ fn is_uncropped(c: &(f32, f32, f32, f32)) -> bool {
 /// An effect on a clip's picture: the catalog's kind and its settings (by uniform name).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClipEffect {
+    /// Its keys are named for it (`fx.<id>.<setting>`), so they stay with it wherever it moves.
+    #[serde(default = "Id::new")]
+    pub id: Id,
     pub kind: String,
     #[serde(default)]
     pub settings: serde_json::Map<String, serde_json::Value>,
     #[serde(default = "yes")]
     pub on: bool,
+}
+
+impl ClipEffect {
+    pub fn new(kind: impl Into<String>, settings: serde_json::Map<String, serde_json::Value>) -> ClipEffect {
+        ClipEffect { id: Id::new(), kind: kind.into(), settings, on: true }
+    }
 }
 
 fn is_zero(v: &u64) -> bool {
@@ -502,18 +515,48 @@ impl TakePart {
         self.media.as_ref().map(|m| m.path.as_path())
     }
 
-    /// What it is, in a word: "Screen", "Video", "Sound", "Picture", "Text", "Colour".
-    pub fn what(&self) -> &'static str {
-        match (&self.media, &self.content) {
-            (Some(m), _) if m.take.is_some() => "Screen",
+    /// What it is.
+    pub fn kind(&self) -> Option<PartKind> {
+        Some(match (&self.media, &self.content) {
+            (Some(m), _) if m.take.is_some() => PartKind::Screen,
             (Some(m), _) => match m.kind {
-                MediaKind::Video => "Video",
-                MediaKind::Audio => "Sound",
-                MediaKind::Image => "Picture",
+                MediaKind::Video => PartKind::Video,
+                MediaKind::Audio => PartKind::Sound,
+                MediaKind::Image => PartKind::Picture,
             },
-            (None, Some(Content::Text(_))) => "Text",
-            (None, Some(Content::Shape(_))) => "Colour",
-            _ => "",
+            (None, Some(Content::Text(_))) => PartKind::Text,
+            (None, Some(Content::Shape(_))) => PartKind::Shape,
+            _ => return None,
+        })
+    }
+
+    /// What it is, in a word.
+    pub fn what(&self) -> &'static str {
+        self.kind().map_or("", PartKind::word)
+    }
+}
+
+/// What a take's part is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PartKind {
+    /// The screen, drawn with its look.
+    Screen,
+    Video,
+    Sound,
+    Picture,
+    Text,
+    Shape,
+}
+
+impl PartKind {
+    pub fn word(self) -> &'static str {
+        match self {
+            PartKind::Screen => "Screen",
+            PartKind::Video => "Video",
+            PartKind::Sound => "Sound",
+            PartKind::Picture => "Picture",
+            PartKind::Text => "Text",
+            PartKind::Shape => "Shape",
         }
     }
 }
@@ -876,7 +919,25 @@ impl Sequence {
     }
 
     pub fn load(path: &Path) -> std::io::Result<Sequence> {
-        serde_json::from_slice(&std::fs::read(path)?).map_err(std::io::Error::other)
+        let mut s: Sequence = serde_json::from_slice(&std::fs::read(path)?).map_err(std::io::Error::other)?;
+        s.name_effect_keys();
+        Ok(s)
+    }
+
+    /// Effect keys from before effects had ids ("fx.<place>.<setting>"), named for their
+    /// effects ("fx.<id>.<setting>").
+    pub fn name_effect_keys(&mut self) {
+        for c in self.tracks.iter_mut().flat_map(|t| t.clips.iter_mut()) {
+            let old: Vec<String> = c.anim.keys().filter(|p| p.starts_with("fx.")).cloned().collect();
+            for p in old {
+                let Some((n, setting)) = p["fx.".len()..].split_once('.') else { continue };
+                let Some(e) = n.parse::<usize>().ok().and_then(|n| c.effects.get(n)) else { continue };
+                let named = format!("fx.{}.{setting}", e.id);
+                if let Some(keys) = c.anim.remove(&p) {
+                    c.anim.insert(named, keys);
+                }
+            }
+        }
     }
 
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
@@ -1441,7 +1502,9 @@ impl EditProject {
     }
 
     pub fn load(workspace: &Path, id: Id) -> std::io::Result<EditProject> {
-        serde_json::from_slice(&std::fs::read(Self::path(workspace, id))?).map_err(std::io::Error::other)
+        let mut p: EditProject = serde_json::from_slice(&std::fs::read(Self::path(workspace, id))?).map_err(std::io::Error::other)?;
+        p.sequence.name_effect_keys();
+        Ok(p)
     }
 
     /// Saves it (whole, through a temporary file), marked changed now.

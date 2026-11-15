@@ -36,7 +36,7 @@ fn every_effect_changes_the_picture_and_hidden_areas_pixelate() {
     for kind in &kinds {
         let mut s = seq.clone();
         let def = lightair_core::catalog::def(kind).unwrap();
-        s.clip_mut(clip).unwrap().effects = vec![ClipEffect { kind: kind.to_string(), settings: def.defaults(), on: true }];
+        s.clip_mut(clip).unwrap().effects = vec![ClipEffect::new(*kind, def.defaults())];
         r.set(&s).unwrap();
         let f = r.frame(1_000);
         let n = differ(&plain, &f);
@@ -49,9 +49,9 @@ fn every_effect_changes_the_picture_and_hidden_areas_pixelate() {
     // two in a row, and one switched off
     let mut s = seq.clone();
     s.clip_mut(clip).unwrap().effects = vec![
-        ClipEffect { kind: "fx.blur".into(), settings: lightair_core::catalog::def("fx.blur").unwrap().defaults(), on: true },
-        ClipEffect { kind: "fx.invert".into(), settings: lightair_core::catalog::def("fx.invert").unwrap().defaults(), on: false },
-        ClipEffect { kind: "fx.mono".into(), settings: lightair_core::catalog::def("fx.mono").unwrap().defaults(), on: true },
+        ClipEffect { on: true, ..ClipEffect::new("fx.blur", lightair_core::catalog::def("fx.blur").unwrap().defaults()) },
+        ClipEffect { on: false, ..ClipEffect::new("fx.invert", lightair_core::catalog::def("fx.invert").unwrap().defaults()) },
+        ClipEffect { on: true, ..ClipEffect::new("fx.mono", lightair_core::catalog::def("fx.mono").unwrap().defaults()) },
     ];
     r.set(&s).unwrap();
     let f = r.frame(1_000);

@@ -118,12 +118,25 @@ pub fn parse(json: &[u8]) -> Option<Transcript> {
     Some(Transcript { language, words })
 }
 
-/// Filler words, as people say them in the languages Lightair's users speak most.
-const FILLERS: &[&str] = &["um", "umm", "uh", "uhh", "er", "erm", "ah", "hmm", "mm", "eh", "ehm", "äh", "ähm", "euh", "eto", "anu"];
+/// Filler sounds that are words in no language Lightair's users speak.
+const FILLERS_ANY: &[&str] = &["um", "umm", "uh", "uhh", "erm", "hmm", "mm", "ehm", "äh", "ähm", "euh"];
 
-fn is_filler(w: &str) -> bool {
+/// Filler words of a language (whisper's code: "en", "de"…), beyond [`FILLERS_ANY`]: short
+/// words that are fillers there but real words elsewhere (German "er" is "he").
+fn fillers_of(language: &str) -> &'static [&'static str] {
+    match language {
+        "en" => &["er", "ah", "eh"],
+        "de" => &["öh", "hm"],
+        "fr" => &["ben", "bah"],
+        "ja" => &["eto", "ano", "anō", "ēto"],
+        "id" | "ms" => &["eh", "em", "anu"],
+        _ => &[],
+    }
+}
+
+fn is_filler(w: &str, language: &str) -> bool {
     let w: String = w.chars().filter(|c| c.is_alphabetic()).collect::<String>().to_lowercase();
-    FILLERS.contains(&w.as_str())
+    FILLERS_ANY.contains(&w.as_str()) || fillers_of(language).contains(&w.as_str())
 }
 
 /// The edit without the filler words and the pauses longer than `pause_ms` (a pause keeps
@@ -131,7 +144,7 @@ fn is_filler(w: &str) -> bool {
 pub fn tighten(edit: &Edit, t: &Transcript, pause_ms: u64, keep_ms: u64) -> Edit {
     // the ranges to take out, in source time
     let mut out: Vec<(u64, u64)> = Vec::new();
-    for w in t.words.iter().filter(|w| is_filler(&w.text)) {
+    for w in t.words.iter().filter(|w| is_filler(&w.text, &t.language)) {
         out.push((w.start_ms, w.end_ms));
     }
     for pair in t.words.windows(2) {
@@ -161,7 +174,7 @@ pub fn tighten(edit: &Edit, t: &Transcript, pause_ms: u64, keep_ms: u64) -> Edit
 /// filler words and the pauses longer than `pause_ms` (a pause keeps `keep_ms`), in order.
 pub fn tightening(t: &Transcript, from: u64, to: u64, pause_ms: u64, keep_ms: u64) -> Vec<(u64, u64)> {
     let words: Vec<&Word> = t.words.iter().filter(|w| w.end_ms > from && w.start_ms < to).collect();
-    let mut out: Vec<(u64, u64)> = words.iter().filter(|w| is_filler(&w.text)).map(|w| (w.start_ms.max(from), w.end_ms.min(to))).collect();
+    let mut out: Vec<(u64, u64)> = words.iter().filter(|w| is_filler(&w.text, &t.language)).map(|w| (w.start_ms.max(from), w.end_ms.min(to))).collect();
     for pair in words.windows(2) {
         let (a, b) = (pair[0], pair[1]);
         if b.start_ms > a.end_ms + pause_ms {
@@ -185,9 +198,9 @@ pub fn merge(mut r: Vec<(u64, u64)>) -> Vec<(u64, u64)> {
     out
 }
 
-/// Whether a word is a filler ("um", "uh", …).
-pub fn filler(w: &str) -> bool {
-    is_filler(w)
+/// Whether a word is a filler ("um", "uh", …) in the transcript's language.
+pub fn filler(t: &Transcript, w: &str) -> bool {
+    is_filler(w, &t.language)
 }
 
 /// Words (start, end, text) as lines of up to `max_chars`, a line ending at a pause or after
@@ -209,7 +222,7 @@ pub fn lines<'a>(words: impl IntoIterator<Item = (u64, u64, &'a str)>, max_chars
 
 /// Captions for a sequence: its transcript's words (fillers left out) as lines.
 pub fn caption_lines(t: &Transcript, max_chars: usize) -> Vec<(u64, u64, String)> {
-    lines(t.words.iter().filter(|w| !is_filler(&w.text)).map(|w| (w.start_ms, w.end_ms, w.text.as_str())), max_chars)
+    lines(t.words.iter().filter(|w| !is_filler(&w.text, &t.language)).map(|w| (w.start_ms, w.end_ms, w.text.as_str())), max_chars)
 }
 
 /// Subtitles (SubRip) for the result: the transcript's words through the edit's cuts and speed,
@@ -219,7 +232,7 @@ pub fn srt(edit: &Edit, t: &Transcript, max_chars: usize) -> String {
     let words: Vec<(u64, u64, &str)> = t
         .words
         .iter()
-        .filter(|w| !is_filler(&w.text))
+        .filter(|w| !is_filler(&w.text, &t.language))
         .filter_map(|w| Some((timeline::result_at(edit, w.start_ms)?, timeline::result_at(edit, w.end_ms.saturating_sub(1))?, w.text.as_str())))
         .collect();
     let lines = lines(words, max_chars);

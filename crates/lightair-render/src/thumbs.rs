@@ -200,7 +200,7 @@ pub fn make(dir: &Path) -> Result<(), String> {
         shoot(&one(sunset, 2_000, |c| c.filter = *f), 0, &filter(dir, i))?;
     }
     for d in effects() {
-        let fx = ClipEffect { kind: d.kind.into(), settings: d.defaults(), on: true };
+        let fx = ClipEffect::new(d.kind, d.defaults());
         shoot(&one(sunset, 2_000, |c| c.effects = vec![fx]), 500, &effect(dir, d.kind))?;
     }
     for (i, (_, kind)) in TransitionKind::ALL.iter().enumerate() {

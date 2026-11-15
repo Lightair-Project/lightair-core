@@ -290,6 +290,11 @@ pub struct Layer {
     /// Layout per format id. A format without an entry hides the layer in that format.
     pub layouts: BTreeMap<Id, Layout>,
     pub locked: bool,
+    /// The same thing as the layers with this link in other scenes, though it shows another
+    /// input (each screen recording scene's own backdrop): the Move transition glides between
+    /// them. Layers showing the same input glide anyway.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<Id>,
 }
 
 /// Where and how a layer appears in one format.
@@ -489,6 +494,10 @@ pub struct Track {
     /// The strip's colour in the mixer (0xRRGGBB).
     #[serde(default)]
     pub color: Option<u32>,
+    /// The user named it (renamed it): it keeps its name when its source changes; otherwise it
+    /// takes the new source's name.
+    #[serde(default)]
+    pub named: bool,
 }
 
 impl Track {
@@ -511,6 +520,7 @@ impl Track {
             sends: Vec::new(),
             record: false,
             color: None,
+            named: false,
         }
     }
 }

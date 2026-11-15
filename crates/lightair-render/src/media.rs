@@ -164,13 +164,17 @@ pub fn audio_tracks(path: &Path) -> Vec<String> {
                 .enumerate()
                 .map(|(n, st)| {
                     let tags = &st["tags"];
-                    let named = |k: &str| tags[k].as_str().map(str::trim).filter(|t| !t.is_empty() && !t.to_lowercase().contains("handler")).map(String::from);
+                    // (the names muxers give every track aren't names: "SoundHandler", "Core Media Audio"…)
+                    let named = |k: &str| tags[k].as_str().map(str::trim).filter(|t| !t.is_empty() && !DEFAULT_TRACK_NAMES.contains(t)).map(String::from);
                     named("title").or_else(|| named("handler_name")).unwrap_or_else(|| format!("Track {}", n + 1))
                 })
                 .collect()
         })
         .unwrap_or_default()
 }
+
+/// The track names muxers write when the track has none of its own.
+const DEFAULT_TRACK_NAMES: [&str; 8] = ["SoundHandler", "VideoHandler", "Core Media Audio", "Core Media Video", "Apple Sound Media Handler", "Apple Video Media Handler", "ISO Media file produced by Google Inc.", "Mainconcept MP4 Sound Media Handler"];
 
 pub fn contents(path: &Path) -> Result<Contents, MediaError> {
     let ffprobe = find("ffprobe").ok_or(MediaError::NoFfmpeg)?;
