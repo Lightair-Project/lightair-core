@@ -5,8 +5,14 @@ use std::path::Path;
 
 /// Free space (for the user) on the volume holding `path`, or its nearest existing parent.
 pub fn free_bytes(path: &Path) -> Option<u64> {
+    space(path).map(|(free, _)| free)
+}
+
+/// Free space (for the user) and the size of the volume holding `path`, or its nearest
+/// existing parent: (free, total) in bytes.
+pub fn space(path: &Path) -> Option<(u64, u64)> {
     let existing = path.ancestors().find(|p| p.exists())?;
-    imp::free_bytes(existing)
+    imp::space(existing)
 }
 
 /// Shows `path` selected in Finder (Explorer).
@@ -24,10 +30,11 @@ mod unix {
     use std::os::unix::ffi::OsStrExt;
     use std::path::Path;
 
-    pub fn free_bytes(path: &Path) -> Option<u64> {
+    pub fn space(path: &Path) -> Option<(u64, u64)> {
         let c = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
         let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
-        (unsafe { libc::statvfs(c.as_ptr(), &mut st) } == 0).then_some(st.f_bavail as u64 * st.f_frsize as u64)
+        (unsafe { libc::statvfs(c.as_ptr(), &mut st) } == 0)
+            .then_some((st.f_bavail as u64 * st.f_frsize as u64, st.f_blocks as u64 * st.f_frsize as u64))
     }
 }
 
@@ -41,7 +48,7 @@ mod imp {
     use objc2::runtime::{AnyClass, AnyObject, Bool};
     use objc2_foundation::NSString;
 
-    pub use super::unix::free_bytes;
+    pub use super::unix::space;
 
     pub fn reveal(path: &Path) -> io::Result<()> {
         let status = std::process::Command::new("/usr/bin/open").arg("-R").arg(path).status()?;
@@ -83,11 +90,11 @@ mod imp {
         path.as_os_str().encode_wide().chain(std::iter::repeat_n(0, nulls)).collect()
     }
 
-    pub fn free_bytes(path: &Path) -> Option<u64> {
+    pub fn space(path: &Path) -> Option<(u64, u64)> {
         let p = wide(path, 1);
-        let mut free = 0u64;
-        (unsafe { GetDiskFreeSpaceExW(p.as_ptr(), &mut free, std::ptr::null_mut(), std::ptr::null_mut()) } != 0)
-            .then_some(free)
+        let (mut free, mut total) = (0u64, 0u64);
+        (unsafe { GetDiskFreeSpaceExW(p.as_ptr(), &mut free, &mut total, std::ptr::null_mut()) } != 0)
+            .then_some((free, total))
     }
 
     pub fn reveal(path: &Path) -> io::Result<()> {
@@ -118,7 +125,7 @@ mod imp {
     use std::io;
     use std::path::Path;
 
-    pub use super::unix::free_bytes;
+    pub use super::unix::space;
 
     pub fn reveal(_: &Path) -> io::Result<()> {
         Err(io::Error::from(io::ErrorKind::Unsupported))
@@ -135,6 +142,8 @@ mod tests {
     fn free_space_of_a_new_folder_is_its_volumes() {
         let dir = std::env::temp_dir().join("lightair-platform-free").join("not-made-yet");
         assert!(super::free_bytes(&dir).is_some_and(|b| b > 0));
+        let (free, total) = super::space(&dir).unwrap();
+        assert!(total >= free && total > 0, "free {free} of {total}");
     }
 
     // (not on macOS: it would leave the file in the user's Trash)
