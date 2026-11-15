@@ -296,9 +296,13 @@ pub struct Object {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<Id>,
     /// The prefab this object (and what's under it) was placed from: the asset's file name in
-    /// the workspace's `assets` folder. Only an instance's root carries it.
+    /// the workspace's `assets` folder, where it was last. Only an instance's root carries it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prefab: Option<String>,
+    /// That prefab's own id (kept in its file): the link holds when the file is renamed.
+    /// Instances placed before prefabs had ids have none, and go by `prefab` alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefab_id: Option<Id>,
     /// Layout per canvas id. A canvas without an entry hides the object in that canvas.
     pub layouts: BTreeMap<Id, Layout>,
     pub locked: bool,

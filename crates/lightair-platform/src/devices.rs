@@ -35,3 +35,33 @@ pub fn allow_ios_screens() {
         }
     }
 }
+
+/// Whether a camera is a virtual one (a camera made by an app: OBS's, a meeting app's…) rather
+/// than hardware. macOS: its transport type (`kIOAudioDeviceTransportTypeVirtual`, as
+/// AVFoundation reports it); elsewhere, not known (false). `uid` is the device's unique id.
+pub fn camera_is_virtual(uid: &str) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::msg_send;
+        use objc2::rc::Retained;
+        use objc2::runtime::{AnyClass, AnyObject};
+        use objc2_foundation::NSString;
+        #[link(name = "AVFoundation", kind = "framework")]
+        unsafe extern "C" {}
+        let Some(class) = AnyClass::get(c"AVCaptureDevice") else { return false };
+        let id = NSString::from_str(uid);
+        unsafe {
+            let device: Option<Retained<AnyObject>> = msg_send![class, deviceWithUniqueID: &*id];
+            // 'virt'
+            device.is_some_and(|d| {
+                let transport: i32 = msg_send![&*d, transportType];
+                transport == 0x7669_7274
+            })
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = uid;
+        false
+    }
+}

@@ -128,6 +128,9 @@ fn prefab_instances_link_and_rebuild_in_place() {
     // The prefab's contents, as saved.
     let mut prefab = Clip::copy(s.doc.workspace(), s.scene, &[gid]).unwrap();
     prefab.objects[0].prefab = None;
+    // its own id, in its file: what instances link by
+    let prefab_id = lightair_core::Id::new();
+    prefab.prefab_id = Some(prefab_id);
 
     // Place an instance elsewhere: its root is linked.
     let (commands, root) = prefab.instantiate(s.doc.workspace(), s.scene, "Badge.prefab", None, None);
@@ -135,6 +138,7 @@ fn prefab_instances_link_and_rebuild_in_place() {
     let root = root.unwrap();
     let sc = s.doc.workspace().scene(s.scene).unwrap();
     assert_eq!(sc.object(root).unwrap().prefab.as_deref(), Some("Badge.prefab"));
+    assert_eq!(sc.object(root).unwrap().prefab_id, Some(prefab_id), "linked by the prefab's id");
 
     // Move and rename the instance, then change the prefab (a second label) and rebuild it.
     let mut layout = sc.object(root).unwrap().layouts[&f];
@@ -155,6 +159,7 @@ fn prefab_instances_link_and_rebuild_in_place() {
     let r = sc.object(rebuilt).unwrap();
     assert_eq!(r.name, "Guest badge", "keeps its name");
     assert_eq!(r.prefab.as_deref(), Some("Badge.prefab"), "still linked");
+    assert_eq!(r.prefab_id, Some(prefab_id), "still linked by its id");
     assert!(close(sc.world(rebuilt, f).unwrap().x, 700.0), "keeps its place");
     let kids: Vec<String> = sc.children(Some(rebuilt)).map(|l| l.name.clone()).collect();
     assert_eq!(kids, ["Label", "Subtitle"], "takes the prefab's contents");

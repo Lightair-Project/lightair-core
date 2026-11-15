@@ -62,8 +62,10 @@ impl Template {
 pub struct Mics {
     /// The source kind of an audio interface (the engine's device source).
     pub kind: String,
-    /// The interface ("" for the system default source).
+    /// The interface's id ("" for the system default source).
     pub device: String,
+    /// What it's called (the source's name).
+    pub name: String,
     /// Its channels (an 8-channel interface gives 8 mics).
     pub channels: u16,
 }
@@ -127,7 +129,7 @@ impl Build {
 /// default source. Their ids.
 fn mics(b: &mut Build, m: &Mics, names: &[&str], effects: impl Fn() -> Vec<Effect>) -> Vec<Id> {
     let n = if m.channels >= 2 { names.len().min(m.channels as usize) } else { 1 };
-    let name = if m.device.is_empty() { "Microphone".to_string() } else { m.device.clone() };
+    let name = if m.device.is_empty() { "System Default".to_string() } else { m.name.clone() };
     let source = b.source(&name, &m.kind, json!({ "device": m.device }));
     (0..n)
         .map(|c| {

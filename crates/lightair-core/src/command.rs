@@ -119,13 +119,16 @@ pub enum Command {
         parent: Option<Id>,
         index: Option<usize>,
     },
-    /// Links a object to a prefab asset, or unlinks it (`None`: it becomes ordinary objects).
+    /// Links an object to a prefab asset (its file and its id), or unlinks it (`None`: it
+    /// becomes ordinary objects).
     #[serde(alias = "SetLayerPrefab")]
     SetObjectPrefab {
         scene: Id,
         #[serde(alias = "layer")]
         object: Id,
         prefab: Option<String>,
+        #[serde(default)]
+        prefab_id: Option<Id>,
     },
     SetLayout {
         scene: Id,
@@ -644,8 +647,10 @@ impl Command {
                 }
             }
             Command::SetObjectLocked { scene, object, locked } => object_mut(workspace, *scene, *object)?.locked = *locked,
-            Command::SetObjectPrefab { scene, object, prefab } => {
-                object_mut(workspace, *scene, *object)?.prefab = prefab.clone()
+            Command::SetObjectPrefab { scene, object, prefab, prefab_id } => {
+                let o = object_mut(workspace, *scene, *object)?;
+                o.prefab = prefab.clone();
+                o.prefab_id = prefab.as_ref().and(*prefab_id);
             }
             Command::AddTrack { track, index } => {
                 if workspace.track(track.id).is_some() {
@@ -995,6 +1000,7 @@ impl Object {
             source: Some(source),
             parent: None,
             prefab: None,
+            prefab_id: None,
             layouts: canvases.into_iter().collect(),
             locked: false,
             link: None,
@@ -1009,6 +1015,7 @@ impl Object {
             source: None,
             parent: None,
             prefab: None,
+            prefab_id: None,
             layouts: canvases.into_iter().map(|(f, (x, y))| (f, Layout::boxed(x, y, 0.0, 0.0))).collect(),
             locked: false,
             link: None,

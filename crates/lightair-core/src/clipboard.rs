@@ -21,6 +21,9 @@ pub struct Clip {
     #[serde(alias = "layers")]
     pub objects: Vec<Object>,
     pub sources: Vec<Source>,
+    /// A prefab's own id, when this is a prefab's file: its instances link by it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefab_id: Option<Id>,
 }
 
 /// Marks Lightair's data on the system clipboard.
@@ -66,7 +69,7 @@ impl Clip {
                 sources.push((**source).clone());
             }
         }
-        Some(Clip { objects, sources })
+        Some(Clip { objects, sources, prefab_id: None })
     }
 
     /// The commands that paste this into `scene` under `parent` (`None`: the top level), at
@@ -151,6 +154,7 @@ impl Clip {
         let mut clip = self.clone();
         if let Some(root) = clip.objects.first_mut() {
             root.prefab = Some(name.to_string());
+            root.prefab_id = self.prefab_id;
         }
         let (commands, roots) = clip.paste(workspace, scene, parent, index);
         (commands, roots.first().copied())
@@ -169,6 +173,7 @@ impl Clip {
         first.layouts = old.layouts.keys().filter_map(|f| Some((*f, sc.world(root, *f)?))).collect();
         first.name = old.name.clone();
         first.prefab = old.prefab.clone();
+        first.prefab_id = old.prefab_id;
         let (paste, roots) = clip.paste(workspace, scene, old.parent, at);
         let mut commands = vec![Command::RemoveObject { scene, object: root }];
         commands.extend(paste);
@@ -199,7 +204,7 @@ impl SceneAsset {
     pub fn of(workspace: &Workspace, scene: Id) -> Option<SceneAsset> {
         let sc = workspace.scene(scene)?;
         let roots: Vec<Id> = sc.objects.iter().filter(|l| l.parent.is_none()).map(|l| l.id).collect();
-        let clip = Clip::copy(workspace, scene, &roots).unwrap_or(Clip { objects: vec![], sources: vec![] });
+        let clip = Clip::copy(workspace, scene, &roots).unwrap_or(Clip { objects: vec![], sources: vec![], prefab_id: None });
         Some(SceneAsset { name: sc.name.clone(), clip })
     }
 

@@ -5,7 +5,8 @@ use lightair_core::{AudioMix, Bus, Command, Document, Source, Workspace, Route, 
 use serde_json::json;
 
 fn interface(channels: u16) -> Mics {
-    Mics { kind: "lightair_audio_device".into(), device: if channels > 2 { "Interface".into() } else { String::new() }, channels }
+    let device: String = if channels > 2 { "Interface".into() } else { String::new() };
+    Mics { kind: "lightair_audio_device".into(), name: device.clone(), device, channels }
 }
 
 fn names(doc: &Document) -> Vec<String> {

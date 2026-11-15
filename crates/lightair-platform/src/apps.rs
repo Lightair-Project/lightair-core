@@ -9,6 +9,15 @@ pub struct App {
     pub id: String,
 }
 
+/// Whether a window in a capture's window list is one to leave out: Lightair's own (a mirror),
+/// or the system's (the Dock, the menu bar, Control Centre, the desktop…). `window` is the value
+/// the platform's window capture lists: macOS, the window's number; Windows, libobs's
+/// `title:class:exe` string. Decided by the window's owner (its process, its kind of app, its
+/// program file), never by the names people see, which change with the language.
+pub fn hide_window(window: &str) -> bool {
+    imp::hide_window(window)
+}
+
 /// The open apps with windows (the ones in the Dock or taskbar), by name; not Lightair itself.
 pub fn running() -> Vec<App> {
     let mut out = imp::running();
@@ -24,6 +33,55 @@ mod imp {
     use objc2::rc::Retained;
     use objc2::runtime::{AnyClass, AnyObject};
     use objc2_foundation::NSString;
+
+    #[link(name = "CoreGraphics", kind = "framework")]
+    unsafe extern "C" {
+        fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> *mut AnyObject;
+    }
+    #[link(name = "CoreFoundation", kind = "framework")]
+    unsafe extern "C" {
+        fn CFRelease(cf: *const std::ffi::c_void);
+    }
+
+    /// The process that owns window `number` (CoreGraphics' window list).
+    fn window_owner(number: u32) -> Option<i32> {
+        // kCGWindowListOptionIncludingWindow: just that window
+        let list = unsafe { CGWindowListCopyWindowInfo(1 << 3, number) };
+        if list.is_null() {
+            return None;
+        }
+        let pid = unsafe {
+            let n: usize = msg_send![&*list, count];
+            let pid = if n > 0 {
+                let info: *mut AnyObject = msg_send![&*list, objectAtIndex: 0usize];
+                let key = NSString::from_str("kCGWindowOwnerPID");
+                let value: *mut AnyObject = msg_send![&*info, objectForKey: &*key];
+                (!value.is_null()).then(|| msg_send![&*value, intValue])
+            } else {
+                None
+            };
+            CFRelease(list as *const std::ffi::c_void);
+            pid
+        };
+        pid
+    }
+
+    pub fn hide_window(window: &str) -> bool {
+        let Ok(number) = window.parse::<u32>() else { return false };
+        let Some(pid) = window_owner(number) else { return false };
+        if pid as u32 == std::process::id() {
+            return true;
+        }
+        // a regular app (in the Dock) is one to capture; the rest are the system's
+        let Some(class) = AnyClass::get(c"NSRunningApplication") else { return false };
+        unsafe {
+            let app: Option<Retained<AnyObject>> = msg_send![class, runningApplicationWithProcessIdentifier: pid];
+            app.is_none_or(|app| {
+                let policy: isize = msg_send![&*app, activationPolicy];
+                policy != 0
+            })
+        }
+    }
 
     pub fn running() -> Vec<App> {
         let mut out = Vec::new();
@@ -115,6 +173,17 @@ mod imp {
         1
     }
 
+    /// The Windows shell's own programs (the desktop, the taskbar, input and search).
+    const SHELL: [&str; 6] =
+        ["explorer.exe", "textinputhost.exe", "applicationframehost.exe", "shellexperiencehost.exe", "searchhost.exe", "startmenuexperiencehost.exe"];
+
+    pub fn hide_window(window: &str) -> bool {
+        // libobs's `title:class:exe`, `#3A` for ":" and `#22` for "#" inside each part
+        let exe = window.rsplit(':').next().unwrap_or("").replace("#3A", ":").replace("#22", "#").to_lowercase();
+        let own = std::env::current_exe().ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_lowercase()));
+        SHELL.contains(&exe.as_str()) || own.as_deref() == Some(exe.as_str())
+    }
+
     pub fn running() -> Vec<App> {
         let mut out: Vec<App> = Vec::new();
         unsafe { EnumWindows(Some(each), &mut out as *mut Vec<App> as LPARAM) };
@@ -129,5 +198,9 @@ mod imp {
 mod imp {
     pub fn running() -> Vec<super::App> {
         Vec::new()
+    }
+
+    pub fn hide_window(_: &str) -> bool {
+        false
     }
 }
