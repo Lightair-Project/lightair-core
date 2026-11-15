@@ -769,6 +769,15 @@ impl Command {
                 for b in &mut workspace.audio.buses {
                     b.sends.retain(|s| s.mix != *mix);
                 }
+                // destinations on it: back to the master, no VOD track
+                for d in &mut workspace.outputs.destinations {
+                    if d.audio_mix == Some(*mix) {
+                        d.audio_mix = None;
+                    }
+                    if d.vod_mix == Some(*mix) {
+                        d.vod_mix = None;
+                    }
+                }
             }
             Command::UpdateMix { mix } => {
                 let m = workspace.audio.mixes.iter_mut().find(|m| m.id == mix.id).ok_or(CommandError::NoMix(mix.id))?;

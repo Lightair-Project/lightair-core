@@ -319,3 +319,26 @@ fn journal_entries_from_before_sources_were_sources_still_read() {
     let cmd: Command = serde_json::from_str(&old).unwrap();
     assert!(matches!(cmd, Command::RemoveSource { source } if source == id));
 }
+
+#[test]
+fn removing_a_mix_takes_it_off_destinations() {
+    let (mut doc, ..) = setup();
+    let vod = lightair_core::AudioMix::new("VOD (no music)");
+    let mix = vod.id;
+    doc.apply(&Command::AddMix { mix: vod }).unwrap();
+    let destination = lightair_core::Destination {
+        id: lightair_core::Id::new(),
+        name: "Twitch".into(),
+        server: "rtmp://live.twitch.tv/app".into(),
+        enabled: true,
+        canvas: None,
+        platform: Some("twitch".into()),
+        encoding: None,
+        audio_mix: Some(mix),
+        vod_mix: Some(mix),
+    };
+    doc.apply(&Command::AddDestination { destination }).unwrap();
+    doc.apply(&Command::RemoveMix { mix }).unwrap();
+    let d = &doc.workspace().outputs.destinations[0];
+    assert_eq!((d.audio_mix, d.vod_mix), (None, None), "back to the master, no VOD track");
+}

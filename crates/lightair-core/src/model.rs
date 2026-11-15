@@ -1036,6 +1036,13 @@ pub struct Destination {
     /// Its own encoding; `None`: Automatic (the shared bitrate, capped for the platform).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub encoding: Option<Encoding>,
+    /// Its sound: a mix (a music-free one, say); `None`: the master.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_mix: Option<Id>,
+    /// A second audio track for VODs and clips (Twitch's VOD track): a mix, such as the stream
+    /// without copyrighted music; `None`: none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vod_mix: Option<Id>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
