@@ -5,6 +5,7 @@
 pub mod apps;
 pub mod devices;
 pub mod files;
+pub mod net;
 pub mod input;
 pub mod paths;
 pub mod pick_color;
