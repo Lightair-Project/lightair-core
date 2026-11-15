@@ -1,5 +1,5 @@
-//! How fast the Editor's frames come (run by hand: `cargo test -p lightair-render --test speed
-//! -- --ignored --nocapture`). Needs FFmpeg and a GPU.
+//! How fast the Editor's frames come (run by hand: `cargo test -p lightair-render --test render
+//! speed:: -- --ignored --nocapture`). Needs FFmpeg and a GPU.
 
 use std::process::Command;
 use std::time::Instant;
@@ -21,7 +21,7 @@ fn source(dir: &std::path::Path, name: &str, size: &str, fps: u32) -> std::path:
 }
 
 #[test]
-#[ignore]
+#[ignore = "a measurement; run by hand"]
 fn frames_per_second() {
     let dir = tempfile::tempdir().unwrap();
     if media::ffmpeg().is_err() {
@@ -49,7 +49,7 @@ fn frames_per_second() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "a measurement; run by hand"]
 fn swizzle_cost() {
     let mut v = vec![7u8; 1920 * 1080 * 4];
     let start = Instant::now();

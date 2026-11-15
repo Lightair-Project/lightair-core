@@ -3,7 +3,7 @@
 use lightair_core::{Command, Document, Fit, Workspace, TransitionKind};
 use lightair_store::import_obs_collection;
 
-const FIXTURE: &str = include_str!("fixtures/obs-collection.json");
+const FIXTURE: &str = include_str!("../fixtures/obs-collection.json");
 
 fn imported() -> (Workspace, lightair_store::ImportReport) {
     let mut doc = Document::new(Workspace::new("Mine"));

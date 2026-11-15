@@ -1,6 +1,6 @@
 //! What the mixer costs: a podcast-sized graph (eight mics with Voice Clarity, EQ and a
 //! compressor, a music track ducked under them with reverb, a bus, two mixes), timed per block.
-//! Run optimised: `cargo test -p lightair-audio --release --test cost -- --ignored --nocapture`.
+//! Run optimised: `cargo test -p lightair-audio --release --test audio cost -- --ignored --nocapture`.
 
 use lightair_audio::dsp::*;
 use lightair_audio::{Channels, Dest, EffectSpec, Engine, GraphSpec, InputBlock, Mix, Send, Strip};
