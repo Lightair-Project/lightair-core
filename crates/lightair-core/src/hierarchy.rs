@@ -220,7 +220,7 @@ impl Scene {
                 out
             })
             .collect();
-        Scene { id: self.id, name: self.name.clone(), objects, screen: self.screen, transition: self.transition }
+        Scene { id: self.id, name: self.name.clone(), objects, screen: self.screen, transition: self.transition, stinger: self.stinger.clone() }
     }
 
     /// Whether the list keeps every subtree in one run after its parent (for tests and checks).

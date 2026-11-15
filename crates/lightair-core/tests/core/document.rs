@@ -355,6 +355,10 @@ fn a_scene_can_have_its_own_transition() {
     let json = serde_json::to_string(&**doc.workspace().scene(scene).unwrap()).unwrap();
     let back: lightair_core::Scene = serde_json::from_str(&json).unwrap();
     assert_eq!(back.transition, Some(t));
+    // its own stinger video, kept with it
+    let st = lightair_core::Stinger { path: "/videos/intro.mov".into(), cut_ms: 700 };
+    doc.apply(&Command::SetSceneStinger { scene, stinger: Some(st.clone()) }).unwrap();
+    assert_eq!(doc.workspace().scene(scene).unwrap().stinger, Some(st));
     doc.apply(&Command::SetSceneTransition { scene, transition: None }).unwrap();
     assert_eq!(doc.workspace().scene(scene).unwrap().transition, None, "back to the default");
 }

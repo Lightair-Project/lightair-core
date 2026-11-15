@@ -76,6 +76,11 @@ pub enum Command {
         scene: Id,
         transition: Option<TransitionSettings>,
     },
+    /// A scene's own stinger video; `None`: the workspace's.
+    SetSceneStinger {
+        scene: Id,
+        stinger: Option<Stinger>,
+    },
     MoveScene {
         scene: Id,
         to: usize,
@@ -395,6 +400,7 @@ impl Command {
             Command::RenameScene { .. } => "Rename scene".into(),
             Command::SetScreenZoomPointer { .. } => "Change screen zoom and pointer".into(),
             Command::SetSceneTransition { .. } => "Change the scene's transition".into(),
+            Command::SetSceneStinger { .. } => "Change the scene's stinger".into(),
             Command::MoveScene { .. } => "Reorder scenes".into(),
             Command::SetProgram { .. } => "Switch scene".into(),
             Command::AddObject { .. } => "Add object".into(),
@@ -902,6 +908,7 @@ impl Command {
                 scene_mut(workspace, *scene)?.transition =
                     transition.map(|t| TransitionSettings { duration_ms: t.duration_ms.clamp(50, 5000), ..t })
             }
+            Command::SetSceneStinger { scene, stinger } => scene_mut(workspace, *scene)?.stinger = stinger.clone(),
             Command::SetTransition { settings } => {
                 workspace.transition =
                     TransitionSettings { duration_ms: settings.duration_ms.clamp(50, 5000), ..*settings }
