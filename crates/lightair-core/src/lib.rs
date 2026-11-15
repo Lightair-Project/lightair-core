@@ -17,7 +17,7 @@ pub use diff::{ObjectPatch, Patch, diff, diff_objects};
 pub use document::{Change, Document};
 pub use hierarchy::Frame;
 pub use model::{
-    AudioMix, AudioSetup, Bus, ClipSettings, Crop, Destination, Direction, Effect, Encoding, Fit, Canvas, Id, Source,
+    AudioMix, AudioSetup, Bus, ClipSettings, VirtualCameraSettings, Crop, Destination, Direction, Effect, Encoding, Fit, Canvas, Id, Source,
     Object, Layout, MASTER_ID, Master, MixerStrip, Route, Send, MultitrackFormat, MultitrackPoint, TrackChannels,
     OutputSettings, Workspace, Reconnect, RecordingSettings, Scene, ScreenZoomPointer, Shape, ShapeKind, Stinger, Track, TransitionKind,
     TransitionSettings, VideoEncoder,

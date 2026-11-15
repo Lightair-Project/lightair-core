@@ -7,7 +7,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    ClipSettings, Destination, Effect, Canvas, Id, Source, Object, Layout, Workspace, Reconnect, RecordingSettings, Scene,
+    ClipSettings, VirtualCameraSettings, Destination, Effect, Canvas, Id, Source, Object, Layout, Workspace, Reconnect, RecordingSettings, Scene,
     Stinger, Track, TransitionSettings, AudioMix, Bus, Master, Route, MixerStrip,
 };
 
@@ -299,6 +299,10 @@ pub enum Command {
     SetReconnect {
         reconnect: Reconnect,
     },
+    /// What the virtual camera shows (a scene or the one on air, and the canvas).
+    SetVirtualCamera {
+        settings: VirtualCameraSettings,
+    },
 
     #[serde(alias = "AddInputEffect")]
 
@@ -438,6 +442,7 @@ impl Command {
             Command::SetClipSettings { .. } => "Change clip settings".into(),
             Command::UpdateDestination { .. } => "Change destination".into(),
             Command::SetReconnect { .. } => "Change reconnecting".into(),
+            Command::SetVirtualCamera { .. } => "Change what the virtual camera shows".into(),
             Command::AddSourceEffect { .. } => "Add effect".into(),
             Command::RemoveSourceEffect { .. } => "Remove effect".into(),
             Command::SetSourceEffectEnabled { enabled: true, .. } => "Turn effect on".into(),
@@ -507,6 +512,9 @@ impl Command {
                 if workspace.outputs.clips.canvas == Some(*canvas) {
                     workspace.outputs.clips.canvas = None;
                 }
+                if workspace.outputs.virtual_camera.canvas == Some(*canvas) {
+                    workspace.outputs.virtual_camera.canvas = None;
+                }
                 for scene in &mut workspace.scenes {
                     for object in &mut Arc::make_mut(scene).objects {
                         object.layouts.remove(canvas);
@@ -573,6 +581,10 @@ impl Command {
             Command::RemoveScene { scene } => {
                 let idx = workspace.scene_index(*scene).ok_or(CommandError::NoScene(*scene))?;
                 workspace.scenes.remove(idx);
+                // the virtual camera on that scene: back to the scene on air
+                if workspace.outputs.virtual_camera.scene == Some(*scene) {
+                    workspace.outputs.virtual_camera.scene = None;
+                }
                 if workspace.program == Some(*scene) {
                     workspace.program =
                         workspace.scenes.get(idx.saturating_sub(1)).or(workspace.scenes.first()).map(|s| s.id);
@@ -854,6 +866,15 @@ impl Command {
             Command::SetReconnect { reconnect } => {
                 workspace.outputs.reconnect =
                     Reconnect { retries: reconnect.retries.min(100), delay_s: reconnect.delay_s.clamp(1, 60) }
+            }
+            Command::SetVirtualCamera { settings } => {
+                if let Some(s) = settings.scene {
+                    workspace.scene(s).ok_or(CommandError::NoScene(s))?;
+                }
+                if let Some(f) = settings.canvas {
+                    workspace.canvas(f).ok_or(CommandError::NoCanvas(f))?;
+                }
+                workspace.outputs.virtual_camera = *settings;
             }
             Command::SetStreamBitrate { kbps } => workspace.outputs.stream_bitrate_kbps = (*kbps).clamp(500, 51_000),
             Command::SetClipSettings { settings } => {

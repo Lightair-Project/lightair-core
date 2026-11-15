@@ -798,6 +798,19 @@ pub struct OutputSettings {
     /// When a stream drops: try again this many times, this many seconds apart (0: don't).
     #[serde(default)]
     pub reconnect: Reconnect,
+    /// What the virtual camera shows.
+    #[serde(default)]
+    pub virtual_camera: VirtualCameraSettings,
+}
+
+/// What the virtual camera shows: one scene or whatever is on air, from a canvas.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct VirtualCameraSettings {
+    /// The scene; `None` = the scene on air.
+    pub scene: Option<Id>,
+    /// The canvas; `None` = the primary canvas.
+    pub canvas: Option<Id>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -864,6 +877,7 @@ impl Default for OutputSettings {
             stream_bitrate_kbps: 6000,
             clips: ClipSettings::default(),
             reconnect: Reconnect::default(),
+            virtual_camera: VirtualCameraSettings::default(),
         }
     }
 }

@@ -86,6 +86,30 @@ fn dragging_several_objects_is_one_undo_step() {
 }
 
 #[test]
+fn the_virtual_camera_choice_is_kept_and_follows_removals() {
+    let (mut doc, scene, _, _) = setup();
+    let square = lightair_core::Canvas::square();
+    let sq = square.id;
+    doc.apply(&Command::AddCanvas { canvas: square }).unwrap();
+    let settings = lightair_core::VirtualCameraSettings { scene: Some(scene), canvas: Some(sq) };
+    doc.apply(&Command::SetVirtualCamera { settings }).unwrap();
+    assert_eq!(doc.workspace().outputs.virtual_camera, settings, "kept in the workspace");
+    // saved with the workspace
+    let text = serde_json::to_string(&doc.workspace().outputs).unwrap();
+    let back: lightair_core::OutputSettings = serde_json::from_str(&text).unwrap();
+    assert_eq!(back.virtual_camera, settings);
+    doc.undo();
+    assert_eq!(doc.workspace().outputs.virtual_camera, Default::default(), "undo brings back the scene on air");
+    doc.redo();
+    let ghost = lightair_core::Id::new();
+    assert!(doc.apply(&Command::SetVirtualCamera { settings: lightair_core::VirtualCameraSettings { scene: Some(ghost), canvas: None } }).is_err());
+    doc.apply(&Command::RemoveCanvas { canvas: sq }).unwrap();
+    assert_eq!(doc.workspace().outputs.virtual_camera.canvas, None, "its canvas gone: the primary");
+    doc.apply(&Command::RemoveScene { scene }).unwrap();
+    assert_eq!(doc.workspace().outputs.virtual_camera.scene, None, "its scene gone: the scene on air");
+}
+
+#[test]
 fn removing_a_canvas_retargets_outputs() {
     let (mut doc, scene, object, _) = setup();
     let square = lightair_core::Canvas::square();
