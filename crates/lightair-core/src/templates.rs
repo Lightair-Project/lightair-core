@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use crate::catalog;
 use crate::command::Command;
 use crate::model::{
-    AudioMix, Bus, Effect, Id, Source, Master, Workspace, Route, Send, StemFormat, StemPoint, Track, TrackChannels,
+    AudioMix, Bus, Effect, Id, Source, Master, Workspace, Route, Send, MultitrackFormat, MultitrackPoint, Track, TrackChannels,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -195,7 +195,7 @@ pub fn apply(workspace: &Workspace, template: Template, m: &Mics) -> Command {
             ));
             b.master.push(limiter(-1.0));
             recording.multitrack = true;
-            recording.stem_point = StemPoint::Raw;
+            recording.multitrack_point = MultitrackPoint::Raw;
         }
         Template::Music => {
             // no voice processing: it colours singing and instruments
@@ -223,8 +223,8 @@ pub fn apply(workspace: &Workspace, template: Template, m: &Mics) -> Command {
             b.buses.push(bus);
             b.master.push(limiter(-1.0));
             recording.multitrack = true;
-            recording.stem_format = StemFormat::Pcm24;
-            recording.stem_point = StemPoint::Raw;
+            recording.multitrack_format = MultitrackFormat::Pcm24;
+            recording.multitrack_point = MultitrackPoint::Raw;
         }
         Template::Gaming => {
             let mic = mics(&mut b, m, &["Mic"], || vec![voice()])[0];

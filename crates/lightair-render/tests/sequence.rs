@@ -371,10 +371,10 @@ fn a_take_comes_as_its_parts() {
         r#"{"duration_ms":2000,"video":[{"name":"Camera","file":"camera.mp4"},{"name":"Screen","file":"screen.mp4"}],"audio":["Audio - Mic.wav","Audio - Desktop audio.wav"]}"#,
     )
     .unwrap();
-    let parts = Media::take_parts(&folder);
+    let parts = Media::studio_take_parts(&folder);
     let names: Vec<&str> = parts.iter().map(|m| m.name.as_str()).collect();
     assert_eq!(names[1..], ["Camera", "Mic", "Desktop audio"]);
-    assert!(parts[0].take.is_some() && parts[0].path.ends_with("screen.mp4"), "the screen, with its look");
+    assert!(parts[0].studio_take.is_some() && parts[0].path.ends_with("screen.mp4"), "the screen, with its look");
     assert!(parts[0].audio.is_empty(), "its sound is in the parts, not doubled");
     assert_eq!(parts[1].kind, lightair_render::sequence::MediaKind::Video);
     assert!(parts[2..].iter().all(|m| m.kind == lightair_render::sequence::MediaKind::Audio));
@@ -392,7 +392,7 @@ fn a_take_comes_as_its_parts() {
 #[test]
 fn a_takes_scene_comes_back_as_layers_where_they_were() {
     use lightair_render::sequence::{Content, MediaKind};
-    use lightair_store::take_scene::{SceneObject, TakeScene, What};
+    use lightair_store::studio_take_scene::{SceneObject, StudioTakeScene, What};
     let dir = tempfile::tempdir().unwrap();
     let folder = dir.path().join("Take.lightair-take");
     std::fs::create_dir_all(folder.join("layers")).unwrap();
@@ -410,7 +410,7 @@ fn a_takes_scene_comes_back_as_layers_where_they_were() {
     )
     .unwrap();
     let layer = |name: &str, x, y, w, h, what| SceneObject { name: name.into(), x, y, w, h, rotation: 0.0, opacity: 1.0, what };
-    TakeScene {
+    StudioTakeScene {
         canvas: (1920, 1080),
         objects: vec![
             layer("Background", 0.0, 0.0, 1.0, 1.0, What::Colour { color: 0x00FF00, alpha: 1.0 }),
@@ -423,10 +423,10 @@ fn a_takes_scene_comes_back_as_layers_where_they_were() {
     .write(&folder)
     .unwrap();
 
-    let parts = Media::take_layout(&folder);
+    let parts = Media::studio_take_layout(&folder);
     let names: Vec<&str> = parts.iter().map(|p| p.name.as_str()).collect();
     assert_eq!(names, ["Background", "Camera", "Logo", "Title", "Mic"], "the browser left out; no screen, so no look");
-    assert!(parts[1].media.as_ref().is_some_and(|m| m.take.is_none() && m.kind == MediaKind::Video));
+    assert!(parts[1].media.as_ref().is_some_and(|m| m.studio_take.is_none() && m.kind == MediaKind::Video));
     assert!(matches!(parts[0].content, Some(Content::Shape(_))) && matches!(parts[3].content, Some(Content::Text(_))));
 
     let mut seq = Sequence::new((1920, 1080), 30);
@@ -525,7 +525,7 @@ fn a_clips_waveform_is_what_it_plays() {
         eprintln!("FFmpeg isn't installed; skipping");
         return;
     };
-    // a take's two stems: a quiet voice for the first second, loud desktop sound the next
+    // a studio_take's two stems: a quiet voice for the first second, loud desktop sound the next
     let make = |name: &str, filter: &str| {
         let p = dir.path().join(name);
         assert!(Command::new(&ff).args(["-v", "error", "-y", "-f", "lavfi", "-i", filter]).arg(&p).status().unwrap().success());
@@ -533,7 +533,7 @@ fn a_clips_waveform_is_what_it_plays() {
     };
     let mic = make("Audio - Mic.wav", "sine=frequency=300:duration=2,volume='if(lt(t,1),0.8,0.05)':eval=frame");
     let desktop = make("Audio - Desktop audio.wav", "sine=frequency=700:duration=2,volume='if(lt(t,1),0,1)':eval=frame");
-    // an old-style take clip: one picture playing both stems
+    // an old-style studio_take clip: one picture playing both stems
     let video = lavfi(dir.path(), "camera.mp4", "color=c=gray:s=320x180:r=30:d=2").unwrap();
     let mut m = Media::from_file(&video).unwrap();
     m.audio = vec![mic.clone(), desktop.clone()];
@@ -570,7 +570,7 @@ fn a_takes_zooms_from_the_zoom_track_show() {
         return;
     };
     std::fs::write(folder.join("take.json"), r#"{"duration_ms":3000,"video":[{"name":"Screen","file":"screen.mp4"}],"audio":[]}"#).unwrap();
-    let mut m = Media::take_parts(&folder).into_iter().next().expect("the screen");
+    let mut m = Media::studio_take_parts(&folder).into_iter().next().expect("the screen");
     m.zooms = Some(Vec::new());
     let mut seq = Sequence::new((640, 360), 30);
     let id = seq.add_media(m);

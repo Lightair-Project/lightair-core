@@ -1,8 +1,8 @@
-//! A Studio take's scene (`scene.json` in the take's folder): every object of the program scene
-//! as it was when the take began, in drawing order (bottom first), so the Editor can rebuild it:
+//! A Studio studio_take's scene (`scene.json` in the studio_take's folder): every object of the program scene
+//! as it was when the studio_take began, in drawing order (bottom first), so the Editor can rebuild it:
 //! the recorded screens and cameras where they were, and what wasn't recorded (images, text,
-//! colours, video files) as objects of their own. Images are copied into the take's `objects`
-//! folder, so a take carries what it needs.
+//! colours, video files) as objects of their own. Images are copied into the studio_take's `objects`
+//! folder, so a studio_take carries what it needs.
 
 use std::path::{Path, PathBuf};
 
@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 pub const FILE: &str = "scene.json";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TakeScene {
+pub struct StudioTakeScene {
     /// The canvas's size (pixels).
     pub canvas: (u32, u32),
     #[serde(alias = "layers")]
@@ -43,7 +43,7 @@ fn one() -> f32 {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum What {
-    /// A recorded screen or camera (its source: take.json's video entry of that source).
+    /// A recorded screen or camera (its source: studio_take.json's video entry of that source).
     Recorded {
         #[serde(alias = "input")]
         source: Id,
@@ -66,9 +66,9 @@ fn obs_colour(c: u64) -> (u32, f32) {
     ((c & 0xFF) << 16 | (c & 0xFF00) | ((c >> 16) & 0xFF), ((c >> 24) & 0xFF) as f32 / 255.0)
 }
 
-impl TakeScene {
-    /// The program scene of `workspace` as it is, its pictures copied into `folder` (the take's).
-    pub fn of(workspace: &Workspace, folder: &Path) -> Option<TakeScene> {
+impl StudioTakeScene {
+    /// The program scene of `workspace` as it is, its pictures copied into `folder` (the studio_take's).
+    pub fn of(workspace: &Workspace, folder: &Path) -> Option<StudioTakeScene> {
         let scene = workspace.program.and_then(|p| workspace.scene(p))?.flatten();
         let canvas = workspace.primary_canvas();
         let (cw, ch) = (canvas.width.max(1) as f32, canvas.height.max(1) as f32);
@@ -120,10 +120,10 @@ impl TakeScene {
                 what,
             });
         }
-        Some(TakeScene { canvas: (canvas.width, canvas.height), objects })
+        Some(StudioTakeScene { canvas: (canvas.width, canvas.height), objects })
     }
 
-    pub fn read(folder: &Path) -> Option<TakeScene> {
+    pub fn read(folder: &Path) -> Option<StudioTakeScene> {
         serde_json::from_slice(&std::fs::read(folder.join(FILE)).ok()?).ok()
     }
 
@@ -145,11 +145,11 @@ mod tests {
     #[test]
     fn a_scene_reads_back() {
         let dir = tempfile::tempdir().unwrap();
-        let s = TakeScene {
+        let s = StudioTakeScene {
             canvas: (1920, 1080),
             objects: vec![SceneObject { name: "Logo".into(), x: 0.1, y: 0.1, w: 0.2, h: 0.1, rotation: 0.0, opacity: 1.0, what: What::Text { text: "Hi".into(), size: 64.0, color: 0xFFFFFF, bold: true } }],
         };
         s.write(dir.path()).unwrap();
-        assert_eq!(TakeScene::read(dir.path()), Some(s));
+        assert_eq!(StudioTakeScene::read(dir.path()), Some(s));
     }
 }

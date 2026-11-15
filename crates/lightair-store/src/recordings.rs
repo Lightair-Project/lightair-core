@@ -1,5 +1,5 @@
 //! A workspace's recordings index (docs/plans/screen-studio.md, "Library"): every recording, clip,
-//! multitrack set, take and export the workspace made, at `<workspace>/recordings/index.json`.
+//! multitrack set, studio_take and export the workspace made, at `<workspace>/recordings/index.json`.
 //!
 //! The media stays where it was recorded; the index points at it. A file that has moved shows
 //! as missing until it's located again ([`Index::relink`], [`Index::locate_in`]). Nothing here
@@ -19,7 +19,8 @@ pub enum Kind {
     /// The program, one file per canvas.
     Recording,
     /// A studio take: raw tracks and source data (docs/plans/screen-studio.md, 4.2).
-    Take,
+    #[serde(alias = "take")]
+    StudioTake,
     /// A replay clip.
     Clip,
     /// Multitrack audio files.
@@ -29,12 +30,12 @@ pub enum Kind {
 }
 
 impl Kind {
-    pub const ALL: [Kind; 5] = [Kind::Recording, Kind::Take, Kind::Clip, Kind::Multitrack, Kind::Export];
+    pub const ALL: [Kind; 5] = [Kind::Recording, Kind::StudioTake, Kind::Clip, Kind::Multitrack, Kind::Export];
 
     pub fn label(self) -> &'static str {
         match self {
             Kind::Recording => "Recording",
-            Kind::Take => "Studio take",
+            Kind::StudioTake => "Studio take",
             Kind::Clip => "Clip",
             Kind::Multitrack => "Multitrack audio",
             Kind::Export => "Export",
@@ -50,7 +51,7 @@ pub struct File {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(alias = "format")]
     pub canvas: Option<String>,
-    /// What a take recorded into it: "Screen", "Camera"…
+    /// What a studio_take recorded into it: "Screen", "Camera"…
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub track: Option<String>,
 }
@@ -231,9 +232,9 @@ impl Index {
         let mut out = Vec::new();
         for entry in entries.flatten() {
             let path = entry.path();
-            // a take (or a take package from someone else): all its files, as one item
+            // a take (or a studio_take package from someone else): all its files, as one item
             if path.is_dir() && path.extension().is_some_and(|e| e == "lightair-take") {
-                if let Some(item) = take_item(&path).filter(|i| !i.files.iter().any(|f| self.has_file(&f.path))) {
+                if let Some(item) = studio_take_item(&path).filter(|i| !i.files.iter().any(|f| self.has_file(&f.path))) {
                     out.push(item);
                 }
                 continue;
@@ -307,28 +308,28 @@ impl Index {
     }
 }
 
-/// A take folder as an item: its files, from its take.json.
-pub fn take_item(folder: &Path) -> Option<Item> {
-    let take: serde_json::Value = serde_json::from_slice(&fs::read(folder.join("take.json")).ok()?).ok()?;
-    let mut files: Vec<File> = take["video"]
+/// A studio_take folder as an item: its files, from its studio_take.json.
+pub fn studio_take_item(folder: &Path) -> Option<Item> {
+    let studio_take: serde_json::Value = serde_json::from_slice(&fs::read(folder.join("take.json")).ok()?).ok()?;
+    let mut files: Vec<File> = studio_take["video"]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(|v| Some(File { track: v["name"].as_str().map(String::from), ..File::new(folder.join(v["file"].as_str()?)) }))
         .collect();
-    files.extend(take["audio"].as_array().into_iter().flatten().filter_map(|a| Some(File::new(folder.join(a.as_str()?)))));
+    files.extend(studio_take["audio"].as_array().into_iter().flatten().filter_map(|a| Some(File::new(folder.join(a.as_str()?)))));
     for extra in ["input.bin", "take.json", "edit.json"] {
         if folder.join(extra).exists() {
             files.push(File::new(folder.join(extra)));
         }
     }
     let title = folder.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-    let mut item = Item::new(Kind::Take, title, files, take["started_ms"].as_i64().unwrap_or(0));
-    item.duration_ms = take["duration_ms"].as_u64();
+    let mut item = Item::new(Kind::StudioTake, title, files, studio_take["started_ms"].as_i64().unwrap_or(0));
+    item.duration_ms = studio_take["duration_ms"].as_u64();
     Some(item)
 }
 
-/// Copies a take, with its edit, into `to` as a package (a `.lightair-take` folder) to give to
+/// Copies a studio_take, with its edit, into `to` as a package (a `.lightair-studio_take` folder) to give to
 /// someone else or keep. Returns the package.
 pub fn export_package(item: &Item, edit: Option<&Path>, to: &Path) -> io::Result<PathBuf> {
     let name = format!("{}.lightair-take", item.title.replace(['/', ':', '\\'], "-"));

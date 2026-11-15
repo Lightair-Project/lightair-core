@@ -394,13 +394,15 @@ const QUALITY: Control = Control::Choice {
 };
 
 /// The drawn pointer (docs/plans/screen-studio.md, "Cursor"): the engine's own filter.
-pub const CURSOR_KIND: &str = "lightair_cursor";
+pub const POINTER_KIND: &str = "lightair_pointer";
+/// Its kind before the drawn pointer was called a pointer (still read).
+pub const OLD_POINTER_KIND: &str = "lightair_cursor";
 
 /// Every effect, in catalog order.
 pub const CATALOG: &[EffectDef] = &[
     // ---------------------------------------------------------------- Screen
     EffectDef {
-        kind: CURSOR_KIND,
+        kind: POINTER_KIND,
         name: "Drawn pointer",
         category: Category::Screen,
         description: "Lightair draws the pointer: bigger, smooth, with clicks",
@@ -1133,6 +1135,7 @@ pub const CATALOG: &[EffectDef] = &[
 use Needs::Nothing;
 
 pub fn def(kind: &str) -> Option<&'static EffectDef> {
+    let kind = if kind == OLD_POINTER_KIND { POINTER_KIND } else { kind };
     CATALOG.iter().chain(AUDIO).chain(std::iter::once(&PLUGIN)).find(|d| d.kind == kind)
 }
 
@@ -1501,6 +1504,8 @@ pub fn lower(effects: &[Effect]) -> Vec<Effect> {
             };
             settings.insert("fx".into(), json!(name));
             out.push(Effect { settings: Value::Object(settings), kind: FX_FILTER.into(), ..e.clone() });
+        } else if e.kind == OLD_POINTER_KIND {
+            out.push(Effect { kind: POINTER_KIND.into(), ..e.clone() });
         } else {
             out.push(e.clone());
         }

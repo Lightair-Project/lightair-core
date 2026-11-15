@@ -1,4 +1,4 @@
-//! A take through an edit: cut, sped up, zoomed, with the pointer, into an MP4 of the right
+//! A studio_take through an edit: cut, sped up, zoomed, with the pointer, into an MP4 of the right
 //! length and size. Needs FFmpeg (skipped without it) and a GPU.
 
 use std::path::Path;
@@ -10,7 +10,7 @@ use lightair_render::export::{Renderer, Source};
 use lightair_render::media::{self, Codec};
 use lightair_store::input_log::{Entry, Record, Writer};
 
-fn make_take(dir: &Path) -> bool {
+fn make_studio_take(dir: &Path) -> bool {
     let Ok(ff) = media::ffmpeg() else { return false };
     let ok = |c: &mut Command| c.status().is_ok_and(|s| s.success());
     if !ok(Command::new(&ff).args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x200:rate=30:duration=6"])
@@ -31,23 +31,23 @@ fn make_take(dir: &Path) -> bool {
     ])
     .unwrap();
     w.flush().unwrap();
-    let take = serde_json::json!({
+    let studio_take = serde_json::json!({
         "video": [{"name": "Screen", "file": "screen.mp4", "width": 320, "height": 200}],
         "audio": ["Audio - Mic.wav"],
         "input": "input.bin",
     });
-    std::fs::write(dir.join("take.json"), serde_json::to_vec(&take).unwrap()).unwrap();
+    std::fs::write(dir.join("take.json"), serde_json::to_vec(&studio_take).unwrap()).unwrap();
     true
 }
 
 #[test]
 fn a_take_exports_through_its_edit() {
     let dir = tempfile::tempdir().unwrap();
-    if !make_take(dir.path()) {
+    if !make_studio_take(dir.path()) {
         eprintln!("FFmpeg isn't installed; skipping");
         return;
     }
-    let source = Source::of_take(dir.path()).expect("a take");
+    let source = Source::of_studio_take(dir.path()).expect("a take");
     let mut edit = Edit::new(6_000);
     edit.size = (640, 360);
     edit.split(2_000);

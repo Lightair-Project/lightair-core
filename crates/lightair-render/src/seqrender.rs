@@ -214,7 +214,7 @@ impl SequenceRenderer {
             self.attach();
         }
         self.fps = seq.fps.max(1) as f64;
-        // a take whose zooms changed: its camera made again
+        // a studio_take whose zooms changed: its camera made again
         for m in &seq.media {
             if self.seq.media(m.id).is_some_and(|old| old.zooms != m.zooms) {
                 match (&m.zooms, self.takes.get_mut(&m.id)) {
@@ -232,8 +232,8 @@ impl SequenceRenderer {
         Ok(())
     }
 
-    /// Draws a take with its look again (the look changed).
-    pub fn forget_take(&mut self, media: Id) {
+    /// Draws a studio_take with its look again (the look changed).
+    pub fn forget_studio_take(&mut self, media: Id) {
         self.takes.remove(&media);
     }
 
@@ -248,7 +248,7 @@ impl SequenceRenderer {
         let tr = clip.transform_at(t);
         let (bw, bh) = match (made, media) {
             (Some(s), _) => (s.0 as f32, s.1 as f32),
-            (None, Some(m)) if m.take.is_none() && m.width > 0 => {
+            (None, Some(m)) if m.studio_take.is_none() && m.width > 0 => {
                 let (_, _, bw, bh) = fit(m.width as f32 / m.height.max(1) as f32, 0.0, 0.0, w, h);
                 (bw, bh)
             }
@@ -266,11 +266,11 @@ impl SequenceRenderer {
         }
         let media = self.seq.media(clip.media)?.clone();
         let s = clip.source_held(t);
-        if let Some(folder) = &media.take {
+        if let Some(folder) = &media.studio_take {
             // a preview reads the screen's proxy when there is one
             let proxy = if self.preview.is_some() && self.seq.proxies { self.proxies.entry(media.id).or_insert_with(|| media.proxy()).clone() } else { None };
             if self.takes.get(&media.id).is_none_or(|(_, used)| *used != proxy) {
-                let mut source = Source::of_take(folder)?;
+                let mut source = Source::of_studio_take(folder)?;
                 if let Some(p) = &proxy {
                     source.video = p.clone();
                 }

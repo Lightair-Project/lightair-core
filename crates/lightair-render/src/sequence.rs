@@ -26,16 +26,17 @@ pub struct Media {
     pub duration_ms: u64,
     pub width: u32,
     pub height: u32,
-    /// Its own sound (videos), or the files that play with it (a take's stems).
+    /// Its own sound (videos), or the files that play with it (a studio_take's stems).
     #[serde(default)]
     pub audio: Vec<PathBuf>,
-    /// A Studio take's folder: drawn with its screen recording look.
+    /// A Studio studio_take's folder: drawn with its screen recording look.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub take: Option<PathBuf>,
+    #[serde(alias = "take")]
+    pub studio_take: Option<PathBuf>,
     /// The Library item it came from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub item: Option<Id>,
-    /// A take's look (its `Edit`: zooms, pointer, backdrop), kept in the workspace.
+    /// A studio_take's look (its `Edit`: zooms, pointer, backdrop), kept in the workspace.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub look: Option<PathBuf>,
     /// Its words, when it's been transcribed (source time).
@@ -44,7 +45,7 @@ pub struct Media {
     /// The names of its audio tracks, when the file has several.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tracks: Vec<String>,
-    /// A take's zooms (source time), as edited on the zoom track; `None`: its look's own.
+    /// A studio_take's zooms (source time), as edited on the zoom track; `None`: its look's own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub zooms: Option<Vec<crate::edit::Zoom>>,
 }
@@ -69,7 +70,7 @@ impl Media {
             width: c.width,
             height: c.height,
             audio: if c.audio && kind == MediaKind::Video { vec![path.to_path_buf()] } else { Vec::new() },
-            take: None,
+            studio_take: None,
             item: None,
             look: None,
             transcript: None,
@@ -78,18 +79,18 @@ impl Media {
         })
     }
 
-    /// A Studio take as layers, as its scene was (its `scene.json`): the screen drawn with its
+    /// A Studio studio_take as layers, as its scene was (its `scene.json`): the screen drawn with its
     /// look across the frame (when it has one), then each layer in drawing order where it was
     /// (cameras, pictures, video files, text, colours), then each recorded mixer track's
-    /// sound. A take without a scene: its parts ([`Media::take_parts`]), unplaced.
-    pub fn take_layout(folder: &Path) -> Vec<TakePart> {
-        let parts = Media::take_parts(folder);
-        let Some(scene) = lightair_store::take_scene::TakeScene::read(folder) else {
-            return parts.into_iter().map(TakePart::of).collect();
+    /// sound. A studio_take without a scene: its parts ([`Media::studio_take_parts`]), unplaced.
+    pub fn studio_take_layout(folder: &Path) -> Vec<Part> {
+        let parts = Media::studio_take_parts(folder);
+        let Some(scene) = lightair_store::studio_take_scene::StudioTakeScene::read(folder) else {
+            return parts.into_iter().map(Part::of).collect();
         };
-        let take: serde_json::Value = std::fs::read(folder.join("take.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-        let videos: Vec<&serde_json::Value> = take["video"].as_array().map(|a| a.iter().collect()).unwrap_or_default();
-        let screen = crate::export::take_screen(&videos);
+        let studio_take: serde_json::Value = std::fs::read(folder.join("take.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        let videos: Vec<&serde_json::Value> = studio_take["video"].as_array().map(|a| a.iter().collect()).unwrap_or_default();
+        let screen = crate::export::studio_take_screen(&videos);
         let (canvas_w, canvas_h) = (scene.canvas.0.max(1) as f32, scene.canvas.1.max(1) as f32);
         let mut out = Vec::new();
         // the screen, with its look, across the frame
@@ -98,13 +99,13 @@ impl Media {
         {
             // named as its layer was in the scene
             let named = scene.objects.iter().find_map(|l| match &l.what {
-                lightair_store::take_scene::What::Recorded { source: input } if screen["input"].as_str() == Some(&input.to_string()) => Some(l.name.clone()),
+                lightair_store::studio_take_scene::What::Recorded { source: input } if screen["input"].as_str() == Some(&input.to_string()) => Some(l.name.clone()),
                 _ => None,
             });
-            out.push(TakePart { name: named.unwrap_or_else(|| "Screen".into()), ..TakePart::of(main.clone()) });
+            out.push(Part { name: named.unwrap_or_else(|| "Screen".into()), ..Part::of(main.clone()) });
         }
         for layer in &scene.objects {
-            use lightair_store::take_scene::What;
+            use lightair_store::studio_take_scene::What;
             let place = Some(Placement { x: layer.x, y: layer.y, w: layer.w, h: layer.h, rotation: layer.rotation, opacity: layer.opacity, canvas: scene.canvas });
             let part = match &layer.what {
                 What::Recorded { source: input } => {
@@ -115,19 +116,19 @@ impl Media {
                     let Some(file) = v["file"].as_str() else { continue };
                     let Ok(mut m) = Media::from_file(&folder.join(file)) else { continue };
                     m.name = layer.name.clone();
-                    TakePart { name: layer.name.clone(), media: Some(m), content: None, place, mute_own_sound: false }
+                    Part { name: layer.name.clone(), media: Some(m), content: None, place, mute_own_sound: false }
                 }
                 What::Image { file } => {
                     let Ok(mut m) = Media::from_file(&folder.join(file)) else { continue };
                     m.name = layer.name.clone();
-                    TakePart { name: layer.name.clone(), media: Some(m), content: None, place, mute_own_sound: false }
+                    Part { name: layer.name.clone(), media: Some(m), content: None, place, mute_own_sound: false }
                 }
                 What::Video { path } => {
                     let Ok(mut m) = Media::from_file(path) else { continue };
                     m.name = layer.name.clone();
-                    TakePart { name: layer.name.clone(), media: Some(m), content: None, place, mute_own_sound: false }
+                    Part { name: layer.name.clone(), media: Some(m), content: None, place, mute_own_sound: false }
                 }
-                What::Text { text, size, color, bold } => TakePart {
+                What::Text { text, size, color, bold } => Part {
                     name: layer.name.clone(),
                     media: None,
                     mute_own_sound: false,
@@ -143,7 +144,7 @@ impl Media {
                     })),
                     place,
                 },
-                What::Colour { color, alpha } => TakePart {
+                What::Colour { color, alpha } => Part {
                     name: layer.name.clone(),
                     media: None,
                     mute_own_sound: false,
@@ -162,20 +163,20 @@ impl Media {
             out.push(part);
         }
         // the sounds
-        out.extend(parts.into_iter().filter(|m| m.kind == MediaKind::Audio).map(TakePart::of));
+        out.extend(parts.into_iter().filter(|m| m.kind == MediaKind::Audio).map(Part::of));
         out
     }
 
-    /// A Studio take as the media it's made of: its main picture (the screen, else the first
+    /// A Studio studio_take as the media it's made of: its main picture (the screen, else the first
     /// video) drawn with its look and silent, its other pictures (the camera beside a screen)
     /// as plain videos, and each recorded mixer track's sound as a medium of its own. The main
     /// picture first.
-    pub fn take_parts(folder: &Path) -> Vec<Media> {
-        let Some(mut main) = Media::from_take(folder) else { return Vec::new() };
+    pub fn studio_take_parts(folder: &Path) -> Vec<Media> {
+        let Some(mut main) = Media::from_studio_take(folder) else { return Vec::new() };
         let stems = std::mem::take(&mut main.audio);
         let mut out = vec![main.clone()];
-        let take: serde_json::Value = std::fs::read(folder.join("take.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-        for v in take["video"].as_array().into_iter().flatten() {
+        let studio_take: serde_json::Value = std::fs::read(folder.join("take.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        for v in studio_take["video"].as_array().into_iter().flatten() {
             let Some(file) = v["file"].as_str().map(|f| folder.join(f)) else { continue };
             if file == main.path {
                 continue;
@@ -187,16 +188,16 @@ impl Media {
         }
         for stem in stems {
             if let Ok(mut m) = Media::from_file(&stem) {
-                m.name = crate::export::take_stem_name(&take, &stem);
+                m.name = crate::export::studio_take_track_name(&studio_take, &stem);
                 out.push(m);
             }
         }
         out
     }
 
-    /// A Studio take folder as a medium: its screen, drawn with its look, and its stems.
-    pub fn from_take(folder: &Path) -> Option<Media> {
-        let source = crate::export::Source::of_take(folder)?;
+    /// A Studio studio_take folder as a medium: its screen, drawn with its look, and its stems.
+    pub fn from_studio_take(folder: &Path) -> Option<Media> {
+        let source = crate::export::Source::of_studio_take(folder)?;
         let c = crate::media::contents(&source.video).ok()?;
         Some(Media {
             id: Id::new(),
@@ -207,7 +208,7 @@ impl Media {
             width: c.width,
             height: c.height,
             audio: source.audio,
-            take: Some(folder.to_path_buf()),
+            studio_take: Some(folder.to_path_buf()),
             item: None,
             look: None,
             transcript: None,
@@ -444,7 +445,7 @@ pub struct Clip {
     /// clip whose sound isn't apart).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stream: Option<u32>,
-    /// Clips that go together (a take's parts, a video and its detached sound): picked,
+    /// Clips that go together (a studio_take's parts, a video and its detached sound): picked,
     /// moved and deleted as one while linkage is on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link: Option<Id>,
@@ -494,9 +495,9 @@ pub struct Placement {
 }
 
 /// A part of something added to the Editor: a medium or made content, and where it goes (its
-/// place in a take's scene; `None`: as media go).
+/// place in a studio_take's scene; `None`: as media go).
 #[derive(Debug, Clone, PartialEq)]
-pub struct TakePart {
+pub struct Part {
     pub name: String,
     pub media: Option<Media>,
     pub content: Option<Content>,
@@ -505,12 +506,12 @@ pub struct TakePart {
     pub mute_own_sound: bool,
 }
 
-impl TakePart {
-    pub fn of(m: Media) -> TakePart {
-        TakePart { name: m.name.clone(), media: Some(m), content: None, place: None, mute_own_sound: false }
+impl Part {
+    pub fn of(m: Media) -> Part {
+        Part { name: m.name.clone(), media: Some(m), content: None, place: None, mute_own_sound: false }
     }
 
-    /// The file it is (a take's screen: the screen recording itself); `None` for made layers.
+    /// The file it is (a studio_take's screen: the screen recording itself); `None` for made layers.
     pub fn file(&self) -> Option<&Path> {
         self.media.as_ref().map(|m| m.path.as_path())
     }
@@ -518,7 +519,7 @@ impl TakePart {
     /// What it is.
     pub fn kind(&self) -> Option<PartKind> {
         Some(match (&self.media, &self.content) {
-            (Some(m), _) if m.take.is_some() => PartKind::Screen,
+            (Some(m), _) if m.studio_take.is_some() => PartKind::Screen,
             (Some(m), _) => match m.kind {
                 MediaKind::Video => PartKind::Video,
                 MediaKind::Audio => PartKind::Sound,
@@ -536,7 +537,7 @@ impl TakePart {
     }
 }
 
-/// What a take's part is.
+/// What a studio_take's part is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PartKind {
     /// The screen, drawn with its look.
@@ -564,7 +565,7 @@ impl PartKind {
 impl Sequence {
     /// Places a part at `start` (made content lasting `len`): a medium as [`Sequence::place`]
     /// does, made content over the pictures; in its box when it has one. The clip's id.
-    pub fn place_part(&mut self, part: TakePart, start: u64, len: u64, track: Option<usize>) -> Option<Id> {
+    pub fn place_part(&mut self, part: Part, start: u64, len: u64, track: Option<usize>) -> Option<Id> {
         let (w, h) = (self.size.0 as f32, self.size.1 as f32);
         match (part.media, part.content) {
             (Some(m), _) => {
@@ -879,7 +880,7 @@ fn yes() -> bool {
 }
 
 impl Media {
-    /// Whether it's worth editing through a proxy: a video larger than 1080p (a take's: its
+    /// Whether it's worth editing through a proxy: a video larger than 1080p (a studio_take's: its
     /// screen recording).
     pub fn wants_proxy(&self) -> bool {
         self.kind == MediaKind::Video && (self.width > 1920 || self.height > 1080)
@@ -1552,7 +1553,7 @@ mod tests {
             width: 1920,
             height: 1080,
             audio: vec![PathBuf::from(format!("/m/{name}.mp4"))],
-            take: None,
+            studio_take: None,
             item: None,
             look: None,
             transcript: None,

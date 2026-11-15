@@ -200,15 +200,15 @@ pub struct Scene {
     /// Screen Studio's look, live: how the scene's screen captures zoom, and how the pointer
     /// and clicks are drawn on them (`None`: as captured).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub screen: Option<ScreenLook>,
+    pub screen: Option<ScreenZoomPointer>,
 }
 
 /// How a scene's screen captures zoom and show the pointer, live (docs/plans/screen-studio.md,
 /// "Zoom" and "Cursor"). The engine draws it on every screen capture in the scene.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-pub struct ScreenLook {
-    /// When it zooms: [`ScreenLook::ZOOM_OFF`], `ZOOM_CLICKS` (in to a click, out after
+pub struct ScreenZoomPointer {
+    /// When it zooms: [`ScreenZoomPointer::ZOOM_OFF`], `ZOOM_CLICKS` (in to a click, out after
     /// `zoom_hold_s` without one), `ZOOM_ALWAYS` (always in, following the pointer) or
     /// `ZOOM_TOGGLE` (in, following the pointer, while a shortcut has turned it on).
     pub zoom: i64,
@@ -219,45 +219,53 @@ pub struct ScreenLook {
     /// How it moves: 0 focused (quick) … 1 smooth (slow).
     pub zoom_motion: f32,
     /// Lightair draws the pointer (bigger, smoothed, styled); else the capture's own.
-    pub cursor: bool,
+    #[serde(alias = "cursor")]
+    pub pointer_drawn: bool,
     /// No pointer at all (neither drawn nor the capture's own; no clicks drawn).
-    pub cursor_hidden: bool,
+    #[serde(alias = "cursor_hidden")]
+    pub pointer_hidden: bool,
     /// 0 pointer, 1 dot, 2 ring.
-    pub cursor_style: i64,
-    pub cursor_size: f32,
+    #[serde(alias = "cursor_style")]
+    pub pointer_style: i64,
+    #[serde(alias = "cursor_size")]
+    pub pointer_size: f32,
     /// 0 none … 1 a slow glide.
-    pub cursor_smoothing: f32,
+    #[serde(alias = "cursor_smoothing")]
+    pub pointer_smoothing: f32,
     /// Hidden after this long still (s; 0 never).
-    pub cursor_idle_s: f32,
-    pub cursor_tilt: bool,
+    #[serde(alias = "cursor_idle_s")]
+    pub pointer_idle_s: f32,
+    #[serde(alias = "cursor_tilt")]
+    pub pointer_tilt: bool,
     /// 0xAABBGGRR (the dot, ring and click colour).
-    pub cursor_color: u32,
+    #[serde(alias = "cursor_color")]
+    pub pointer_color: u32,
     /// 0 none, 1 circle, 2 ripple.
     pub clicks: i64,
 }
 
-impl ScreenLook {
+impl ScreenZoomPointer {
     pub const ZOOM_OFF: i64 = 0;
     pub const ZOOM_CLICKS: i64 = 1;
     pub const ZOOM_ALWAYS: i64 = 2;
     pub const ZOOM_TOGGLE: i64 = 3;
 }
 
-impl Default for ScreenLook {
+impl Default for ScreenZoomPointer {
     fn default() -> Self {
-        ScreenLook {
-            zoom: ScreenLook::ZOOM_CLICKS,
+        ScreenZoomPointer {
+            zoom: ScreenZoomPointer::ZOOM_CLICKS,
             zoom_scale: 2.0,
             zoom_hold_s: 2.0,
             zoom_motion: 0.5,
-            cursor: true,
-            cursor_hidden: false,
-            cursor_style: 0,
-            cursor_size: 1.5,
-            cursor_smoothing: 0.5,
-            cursor_idle_s: 3.0,
-            cursor_tilt: true,
-            cursor_color: 0xFFFF_9000,
+            pointer_drawn: true,
+            pointer_hidden: false,
+            pointer_style: 0,
+            pointer_size: 1.5,
+            pointer_smoothing: 0.5,
+            pointer_idle_s: 3.0,
+            pointer_tilt: true,
+            pointer_color: 0xFFFF_9000,
             clicks: 2,
         }
     }
@@ -901,9 +909,11 @@ pub struct RecordingSettings {
     #[serde(default)]
     pub audio_only: bool,
     #[serde(default)]
-    pub stem_format: StemFormat,
+    #[serde(alias = "stem_format")]
+    pub multitrack_format: MultitrackFormat,
     #[serde(default)]
-    pub stem_point: StemPoint,
+    #[serde(alias = "stem_point")]
+    pub multitrack_point: MultitrackPoint,
     /// Mixes recorded as extra audio tracks in the video file (after the program; up to 5).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub file_mixes: Vec<Id>,
@@ -912,7 +922,7 @@ pub struct RecordingSettings {
 /// The sample format of multitrack audio files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum StemFormat {
+pub enum MultitrackFormat {
     /// 24-bit WAV: what editors and DAWs take everywhere.
     #[default]
     Pcm24,
@@ -923,7 +933,7 @@ pub enum StemFormat {
 /// Where in a strip a multitrack file listens.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum StemPoint {
+pub enum MultitrackPoint {
     /// Before its effects (the clean source, to process later).
     Raw,
     /// After its effects, before the fader (as heard, level untouched).
@@ -951,8 +961,8 @@ impl Default for RecordingSettings {
             split_minutes: None,
             multitrack: false,
             audio_only: false,
-            stem_format: StemFormat::Pcm24,
-            stem_point: StemPoint::PreFader,
+            multitrack_format: MultitrackFormat::Pcm24,
+            multitrack_point: MultitrackPoint::PreFader,
             file_mixes: Vec::new(),
         }
     }
