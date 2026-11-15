@@ -597,6 +597,37 @@ impl Session {
                 self.call("source.remove", json!({"source": input_ref(d)?}))?;
                 Value::Null
             }
+            "GetMediaInputStatus" => {
+                let r = self.call("media.status", json!({"source": input_ref(d)?}))?;
+                let state = match r["state"].as_str().unwrap_or("none") {
+                    "playing" => "OBS_MEDIA_STATE_PLAYING",
+                    "opening" => "OBS_MEDIA_STATE_OPENING",
+                    "buffering" => "OBS_MEDIA_STATE_BUFFERING",
+                    "paused" => "OBS_MEDIA_STATE_PAUSED",
+                    "stopped" => "OBS_MEDIA_STATE_STOPPED",
+                    "ended" => "OBS_MEDIA_STATE_ENDED",
+                    "error" => "OBS_MEDIA_STATE_ERROR",
+                    _ => "OBS_MEDIA_STATE_NONE",
+                };
+                let n = |k: &str| r[k].as_i64().filter(|v| *v >= 0);
+                json!({"mediaState": state, "mediaDuration": n("duration_ms"), "mediaCursor": n("time_ms")})
+            }
+            "TriggerMediaInputAction" => {
+                let action = match str_field(d, "mediaAction")? {
+                    "OBS_WEBSOCKET_MEDIA_INPUT_ACTION_PLAY" => "play",
+                    "OBS_WEBSOCKET_MEDIA_INPUT_ACTION_PAUSE" => "pause",
+                    "OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART" => "restart",
+                    "OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP" => "stop",
+                    a => return Err((INVALID_FIELD, format!("Lightair doesn't do `{a}`."))),
+                };
+                self.call("media.action", json!({"source": input_ref(d)?, "action": action}))?;
+                Value::Null
+            }
+            "SetMediaInputCursor" => {
+                let ms = field(d, "mediaCursor")?.as_i64().ok_or((INVALID_FIELD, "`mediaCursor` should be a number.".into()))?;
+                self.call("media.action", json!({"source": input_ref(d)?, "action": "seek", "ms": ms}))?;
+                Value::Null
+            }
             "GetInputMute" => {
                 let s = self.state()?;
                 let (_, t) = self.track(&s, d)?;
@@ -807,5 +838,6 @@ const REQUESTS: &[&str] = &[
     "ToggleStream", "GetVirtualCamStatus", "StartVirtualCam", "StopVirtualCam", "ToggleVirtualCam",
     "GetReplayBufferStatus", "SaveReplayBuffer", "GetLastReplayBufferReplay", "GetSourceScreenshot",
     "SaveSourceScreenshot", "GetSceneCollectionList", "GetProfileList", "GetCurrentSceneTransition",
-    "GetSceneTransitionList", "GetHotkeyList", "GetSourceActive", "GetVideoSettings", "GetRecordDirectory",
+    "GetSceneTransitionList", "GetHotkeyList", "GetSourceActive", "GetVideoSettings", "GetRecordDirectory", "GetMediaInputStatus",
+    "TriggerMediaInputAction", "SetMediaInputCursor",
 ];
