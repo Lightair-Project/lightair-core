@@ -378,7 +378,15 @@ pub const BG_MODEL_SYSTEM: i64 = 2;
 const MODEL_OR_SYSTEM: Control = Control::Choice {
     key: "bg_model",
     label: "Model",
-    options: &[("Apple Vision", Pick::Int(0)), ("MediaPipe", Pick::Int(1)), ("macOS", Pick::Int(BG_MODEL_SYSTEM))],
+    options: &[("Vision", Pick::Int(0)), ("MediaPipe", Pick::Int(1)), ("macOS", Pick::Int(BG_MODEL_SYSTEM))],
+    default: Pick::Int(0),
+};
+/// Background removal on macOS's own effect: the colour macOS paints behind the person, to key
+/// out (blue when the person wears green).
+const KEY_COLOUR: Control = Control::Choice {
+    key: "bg_key",
+    label: "Key colour",
+    options: &[("Green", Pick::Int(0)), ("Blue", Pick::Int(1))],
     default: Pick::Int(0),
 };
 const QUALITY: Control = Control::Choice {
@@ -557,7 +565,7 @@ pub const CATALOG: &[EffectDef] = &[
         description: "Remove the background; the objects below show through",
         icon: "eraser",
         needs: Needs::Person,
-        controls: &[FEATHER, SHIFT, SEGMENTATION, MODEL_OR_SYSTEM, QUALITY],
+        controls: &[FEATHER, SHIFT, SEGMENTATION, MODEL_OR_SYSTEM, KEY_COLOUR, QUALITY],
         fixed: &[("bg_mode", Pick::Int(2))],
     },
     EffectDef {
