@@ -28,6 +28,11 @@ pub fn set_token(service: &str, token: &str) {
     }
 }
 
+/// Ko-fi's settings as kept (`{}` when there are none).
+pub fn kofi_settings() -> Value {
+    TOKENS.get_or_init(Default::default).lock().get("kofi").and_then(|t| serde_json::from_str(t).ok()).unwrap_or_else(|| json!({}))
+}
+
 fn token(service: &str) -> Result<String, String> {
     TOKENS.get_or_init(Default::default).lock().get(service).cloned().ok_or_else(|| format!("no {service} token (Settings › Connections)"))
 }
@@ -142,6 +147,50 @@ pub fn parse_streamelements(d: &Value) -> Option<ChatEvent> {
     Some(tip("streamelements", name, num(&don["amount"]), don["currency"].as_str().unwrap_or("USD"), don["message"].as_str().unwrap_or("")))
 }
 
+/// Ko-fi, through Lightair's relay (relay/: Ko-fi only sends webhooks). The "kofi" token is
+/// `{"relay": address, "key": the inbox's key, "verify": Ko-fi's verification token}`.
+pub fn kofi(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
+    let t: Value = serde_json::from_str(&token("kofi")?).map_err(|_| "Ko-fi isn't set up (Settings › Connections)")?;
+    let (Some(relay), Some(key), Some(verify)) = (t["relay"].as_str(), t["key"].as_str(), t["verify"].as_str()) else {
+        return Err("Ko-fi needs the relay's address and Ko-fi's verification token (Settings › Connections)".into());
+    };
+    let host = relay.trim().trim_end_matches('/').replace("https://", "wss://").replace("http://", "ws://");
+    let mut socket = net::connect(&format!("{host}/ws/{key}?kofi={}", verify.trim()), Duration::from_millis(500))?;
+    sink.status(Status::Connected);
+    let mut last = Instant::now();
+    while !stop.load(Ordering::Acquire) {
+        if last.elapsed() > Duration::from_secs(30) {
+            socket.send(Message::text("ping")).map_err(|e| e.to_string())?;
+            last = Instant::now();
+        }
+        let Some(Message::Text(t)) = net::read(&mut socket)? else { continue };
+        if let Ok(v) = serde_json::from_str::<Value>(t.as_str())
+            && let Some(e) = parse_kofi(&v)
+        {
+            sink.emit(e);
+        }
+    }
+    let _ = socket.close(None);
+    Ok(())
+}
+
+/// A relayed Ko-fi event: a tip, a membership or a shop order.
+pub fn parse_kofi(v: &Value) -> Option<ChatEvent> {
+    let name = v["name"].as_str().unwrap_or("Someone");
+    let mut e = tip("kofi", name, num(&v["amount"]), v["currency"].as_str().unwrap_or("USD"), v["message"].as_str().unwrap_or(""));
+    match v["type"].as_str() {
+        Some("Subscription") => {
+            e.kind = Kind::Membership;
+            let tier = v["tier"].as_str().unwrap_or("");
+            e.headline = Some(if tier.is_empty() { format!("{name} became a member on Ko-fi") } else { format!("{name} joined {tier} on Ko-fi") });
+        }
+        Some("Shop Order") => e.headline = Some(format!("{name} bought from the shop")),
+        _ => {}
+    }
+    e.native_id = v["id"].as_str().map(String::from);
+    Some(e)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,5 +204,7 @@ mod tests {
         assert_eq!(parse_streamelements(&d).unwrap().paid.unwrap().display, "€10.00");
         // {"alg":"none"}.{"channel":"abc"}.
         assert_eq!(jwt_channel("eyJhbGciOiJub25lIn0.eyJjaGFubmVsIjoiYWJjIn0.x").as_deref(), Some("abc"));
+        let k: Value = serde_json::from_str(r#"{"source":"kofi","type":"Donation","name":"Kim","amount":3,"currency":"GBP","message":"ty"}"#).unwrap();
+        assert_eq!(parse_kofi(&k).unwrap().paid.unwrap().display, "£3.00");
     }
 }

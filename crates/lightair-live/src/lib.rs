@@ -47,6 +47,7 @@ pub fn reader_for(platform: &str) -> Option<hub::Reader> {
         "twitcasting" => twitcasting::read,
         "streamlabs" => donations::streamlabs,
         "streamelements" => donations::streamelements,
+        "kofi" => donations::kofi,
         _ => return None,
     })
 }
