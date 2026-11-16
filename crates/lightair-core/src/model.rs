@@ -1049,6 +1049,10 @@ pub struct Destination {
     /// without copyrighted music; `None`: none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vod_mix: Option<Id>,
+    /// The channel whose chat Lightair reads for it (a Twitch login, a YouTube handle or link, a
+    /// CHZZK channel…); `None`: no chat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -336,6 +336,7 @@ fn removing_a_mix_takes_it_off_destinations() {
         encoding: None,
         audio_mix: Some(mix),
         vod_mix: Some(mix),
+        chat: None,
     };
     doc.apply(&Command::AddDestination { destination }).unwrap();
     doc.apply(&Command::RemoveMix { mix }).unwrap();
