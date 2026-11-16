@@ -24,6 +24,7 @@ pub mod donations;
 pub mod douyu;
 pub mod huya;
 pub mod kick;
+pub mod moderate;
 pub mod niconico;
 pub mod send;
 pub mod showroom;

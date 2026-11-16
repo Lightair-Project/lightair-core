@@ -147,7 +147,7 @@ fn reaper() {
     });
 }
 
-fn page_send(platform: &str, url: &str, input: &str, button: &str, text: &str) -> Result<(), String> {
+pub(crate) fn page_send(platform: &str, url: &str, input: &str, button: &str, text: &str) -> Result<(), String> {
     if !accounts::signed_in(platform) {
         return Err(format!("sign in to {platform} first (Outputs › the destination › Sign in)"));
     }
