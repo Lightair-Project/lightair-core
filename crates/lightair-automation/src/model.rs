@@ -85,7 +85,12 @@ pub enum Trigger {
         #[serde(default)]
         min_messages: u64,
     },
-    /// Only when run by hand, by another automation, or through the remote API.
+    /// Streaming or recording started or stopped (`what`: "stream" or "record"; `state`:
+    /// "start" or "stop").
+    Output { what: String, state: String },
+    /// When Lightair starts.
+    Start,
+    /// Only when run by hand, by another automation, through the remote API or its web address.
     Manual,
 }
 
@@ -178,6 +183,12 @@ impl Trigger {
                 (false, false) => format!("Chat containing “{contains}”"),
             },
             Trigger::Timer { minutes, .. } => format!("Every {minutes} min"),
+            Trigger::Output { what, state } => format!(
+                "When {} {}",
+                if what == "record" { "recording" } else { "the stream" },
+                if state == "stop" { "stops" } else { "starts" }
+            ),
+            Trigger::Start => "When Lightair starts".into(),
             Trigger::Manual => "By hand".into(),
         }
     }

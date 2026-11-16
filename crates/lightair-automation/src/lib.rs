@@ -402,7 +402,7 @@ impl Automations {
                     let ok = (contains.is_empty() || e.text.to_lowercase().contains(&contains.to_lowercase())) && (!only_first || first_time);
                     (ok, words.clone(), format!("{}: {}", e.name(), e.text))
                 }
-                Trigger::Timer { .. } | Trigger::Manual => continue,
+                Trigger::Timer { .. } | Trigger::Manual | Trigger::Output { .. } | Trigger::Start => continue,
             };
             if !fires || !self.cooled(&a, e) {
                 continue;
@@ -436,6 +436,30 @@ impl Automations {
             self.inner.user_last.lock().insert(k, now);
         }
         true
+    }
+
+    /// Streaming or recording started or stopped: the automations waiting for it.
+    pub fn output_changed(&self, what: &str, started: bool) {
+        let state = if started { "start" } else { "stop" };
+        for a in self.list().into_iter().filter(|a| a.enabled) {
+            if matches!(&a.trigger, Trigger::Output { what: w, state: s } if w == what && s == state) {
+                let ctx = self.with_state(context(None, &[]), None);
+                if a.conditions.iter().all(|c| check(c, &ctx)) {
+                    let cause = a.trigger.summary();
+                    self.queue(a, ctx, cause);
+                }
+            }
+        }
+    }
+
+    /// Lightair started: the automations waiting for it.
+    pub fn started(&self) {
+        for a in self.list().into_iter().filter(|a| a.enabled && matches!(a.trigger, Trigger::Start)) {
+            let ctx = self.with_state(context(None, &[]), None);
+            if a.conditions.iter().all(|c| check(c, &ctx)) {
+                self.queue(a, ctx, "Lightair started".into());
+            }
+        }
     }
 
     fn tick(&self) {

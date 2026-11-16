@@ -62,7 +62,12 @@ pub(crate) struct Shared {
     files: Mutex<std::collections::HashSet<String>>,
     /// Live data from integrations ("now_playing", …), sent to every page.
     data: Mutex<Map<String, Value>>,
+    /// What `/run/<name>` does (the app runs an automation), and its key.
+    run: Mutex<Option<(String, RunHook)>>,
 }
+
+/// Runs an automation by name or id (the web address's way in).
+pub type RunHook = Box<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
 
 /// The widget server (cheap to clone: one server).
 #[derive(Clone)]
@@ -89,6 +94,7 @@ impl Widgets {
             next_conn: AtomicU64::new(1),
             files: Mutex::new(Default::default()),
             data: Mutex::new(Map::new()),
+            run: Mutex::new(None),
         });
         tracing::info!(port, "widgets served");
         {
@@ -240,6 +246,18 @@ impl Widgets {
 
     pub fn data(&self, key: &str) -> Value {
         self.shared.data.lock().get(key).cloned().unwrap_or(Value::Null)
+    }
+
+    /// Lets `/run/<automation>?key=<key>` run automations (`key`: a secret of this computer's).
+    pub fn set_run_hook(&self, key: String, hook: RunHook) {
+        *self.shared.run.lock() = Some((key, hook));
+    }
+
+    /// The web address that runs `automation` (an id or name).
+    pub fn run_url(&self, automation: &str) -> Option<String> {
+        let run = self.shared.run.lock();
+        let (key, _) = run.as_ref()?;
+        Some(format!("http://127.0.0.1:{}/run/{}?key={key}", self.shared.port, percent_encode(automation)))
     }
 
     /// A widget of `kind` exists (integrations only ask for what one shows).
@@ -415,6 +433,10 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+fn percent_encode(s: &str) -> String {
+    s.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
+}
+
 fn content_type(path: &Path) -> &'static str {
     match path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref() {
         Some("png") => "image/png",
@@ -453,6 +475,18 @@ fn serve(mut stream: TcpStream, shared: &Arc<Shared>) -> io::Result<()> {
             "/lightair.js" => http::respond(&mut stream, 200, "text/javascript; charset=utf-8", page::BRIDGE.as_bytes(), &no_cache)?,
             "/jquery.js" => http::respond(&mut stream, 200, "text/javascript; charset=utf-8", page::JQUERY.as_bytes(), &[])?,
             "/se-shim.js" => http::respond(&mut stream, 200, "text/javascript; charset=utf-8", page::SE_SHIM.as_bytes(), &no_cache)?,
+            p if p.starts_with("/run/") => {
+                let name = percent_decode(&p[5..]);
+                let given = query(&req.path, "key").unwrap_or_default();
+                let answer = match shared.run.lock().as_ref() {
+                    Some((key, hook)) if *key == given => hook(&name).map(|_| "ran".to_string()),
+                    _ => Err("not allowed".to_string()),
+                };
+                match answer {
+                    Ok(t) => http::respond(&mut stream, 200, "text/plain", t.as_bytes(), &[])?,
+                    Err(e) => http::respond(&mut stream, 403, "text/plain", e.as_bytes(), &[])?,
+                }
+            }
             p if p.starts_with("/icons/") => {
                 let platform = p.trim_start_matches("/icons/").trim_end_matches(".svg");
                 let svg = shared.icons.lock().as_ref().and_then(|f| f(platform));
