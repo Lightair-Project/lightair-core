@@ -19,7 +19,8 @@ pub const ACCOUNTS: &[Account] = &[
     Account {
         platform: "youtube",
         sign_in: "https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2F",
-        cookie: ("https://www.youtube.com", "SAPISID"),
+        // a Google sign-in is a YouTube one: youtube.com picks it up when its pages open
+        cookie: ("https://accounts.google.com", "SAPISID"),
     },
     Account { platform: "kick", sign_in: "https://kick.com/", cookie: ("https://kick.com", "session_token") },
     Account { platform: "tiktok", sign_in: "https://www.tiktok.com/login", cookie: ("https://www.tiktok.com", "sessionid") },

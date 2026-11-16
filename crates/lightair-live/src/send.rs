@@ -40,6 +40,26 @@ pub fn send(platform: &str, channel: &str, text: &str, reply_to: Option<&str>) -
     }
 }
 
+/// Signs in to Twitch's chat server as the signed-in person and joins `channel`, sending
+/// nothing: what Twitch answered (a check).
+pub fn check_twitch(channel: &str) -> Result<String, String> {
+    let token = pages::cookie("https://www.twitch.tv", "auth-token").ok_or("no Twitch sign-in")?;
+    let nick = pages::cookie("https://www.twitch.tv", "login").unwrap_or_else(|| "lightair".into());
+    let mut socket = net::connect("wss://irc-ws.chat.twitch.tv:443", Duration::from_millis(500))?;
+    for line in [format!("PASS oauth:{token}"), format!("NICK {nick}"), format!("JOIN #{}", crate::twitch::login(channel))] {
+        socket.send(Message::text(line)).map_err(|e| e.to_string())?;
+    }
+    let mut heard = Vec::new();
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_secs(6) {
+        if let Some(Message::Text(t)) = net::read(&mut socket)? {
+            heard.extend(t.lines().map(|l| l.chars().take(120).collect::<String>()));
+        }
+    }
+    let _ = socket.close(None);
+    Ok(format!("as {nick}: {}", heard.join(" | ")))
+}
+
 fn twitch(channel: &str, text: &str, reply_to: Option<&str>) -> Result<(), String> {
     let token = pages::cookie("https://www.twitch.tv", "auth-token").ok_or("sign in to Twitch first (Outputs › the destination › Sign in)")?;
     let nick = pages::cookie("https://www.twitch.tv", "login").unwrap_or_else(|| "lightair".into());
@@ -61,12 +81,44 @@ fn twitch(channel: &str, text: &str, reply_to: Option<&str>) -> Result<(), Strin
             return Err("Twitch refused the sign-in: sign in again".into());
         }
     }
+    // Twitch drops messages to a channel not joined: join, and wait until it says so
+    let room = crate::twitch::login(channel);
+    socket.send(Message::text("CAP REQ :twitch.tv/commands twitch.tv/tags")).map_err(|e| e.to_string())?;
+    socket.send(Message::text(format!("JOIN #{room}"))).map_err(|e| e.to_string())?;
+    let started = Instant::now();
+    loop {
+        if started.elapsed() > Duration::from_secs(8) {
+            return Err("Twitch didn't let Lightair into the chat".into());
+        }
+        let Some(Message::Text(t)) = net::read(&mut socket)? else { continue };
+        // the end of the names list, or the room's state: joined
+        if t.contains(" 366 ") || t.contains(&format!("ROOMSTATE #{room}")) {
+            break;
+        }
+    }
     let tags = reply_to.map(|id| format!("@reply-parent-msg-id={id} ")).unwrap_or_default();
-    socket.send(Message::text(format!("{tags}PRIVMSG #{} :{text}", crate::twitch::login(channel)))).map_err(|e| e.to_string())?;
+    socket.send(Message::text(format!("{tags}PRIVMSG #{room} :{text}"))).map_err(|e| e.to_string())?;
+    // a refusal comes back as a NOTICE (too fast, followers-only, slow mode, banned…)
+    let started = Instant::now();
+    let mut refused = None;
+    while started.elapsed() < Duration::from_millis(1200) {
+        if let Some(Message::Text(t)) = net::read(&mut socket)? {
+            for line in t.lines().filter(|l| l.contains(" NOTICE #")) {
+                if let Some(msg) = line.rsplit_once(" :").map(|(_, m)| m.to_string()) {
+                    refused = Some(msg);
+                }
+            }
+        }
+        if refused.is_some() {
+            break;
+        }
+    }
     let _ = socket.close(None);
-    // let the close go out
     let _ = net::read(&mut socket);
-    Ok(())
+    match refused {
+        Some(why) => Err(format!("Twitch: {why}")),
+        None => Ok(()),
+    }
 }
 
 struct ChatPage {
