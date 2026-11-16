@@ -11,10 +11,13 @@ pub mod event;
 pub mod hub;
 pub mod images;
 mod net;
+pub mod pages;
 
 pub mod chzzk;
 pub mod douyu;
+pub mod kick;
 pub mod soop;
+pub mod tiktok;
 pub mod twitch;
 pub mod youtube;
 
@@ -23,7 +26,7 @@ pub use hub::{Hub, Sink};
 pub use images::Images;
 
 /// The platforms whose chat Lightair reads (the Outputs list's ids).
-pub const READABLE: &[&str] = &["twitch", "youtube", "chzzk", "douyu", "soop"];
+pub const READABLE: &[&str] = &["twitch", "youtube", "chzzk", "douyu", "soop", "kick", "tiktok"];
 
 /// The reader for a platform, if Lightair has one.
 pub fn reader_for(platform: &str) -> Option<hub::Reader> {
@@ -33,6 +36,8 @@ pub fn reader_for(platform: &str) -> Option<hub::Reader> {
         "chzzk" => chzzk::read,
         "douyu" => douyu::read,
         "soop" => soop::read,
+        "kick" => kick::read,
+        "tiktok" => tiktok::read,
         _ => return None,
     })
 }
@@ -45,6 +50,8 @@ pub fn channel_hint(platform: &str) -> Option<&'static str> {
         "chzzk" => "Channel link or id (chzzk.naver.com/…)",
         "douyu" => "Room link or number (douyu.com/…)",
         "soop" => "Streamer id or link (sooplive.co.kr/…)",
+        "kick" => "Channel name (kick.com/…)",
+        "tiktok" => "@username (tiktok.com/@…)",
         _ => return None,
     })
 }
