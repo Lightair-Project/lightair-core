@@ -31,6 +31,12 @@ pub fn account(platform: &str) -> Option<&'static Account> {
     ACCOUNTS.iter().find(|a| a.platform == platform)
 }
 
+/// The platform's session (its sign-in cookie's value), if signed in: a change means a new
+/// sign-in.
+pub fn session(platform: &str) -> Option<String> {
+    account(platform).and_then(|a| pages::cookie(a.cookie.0, a.cookie.1))
+}
+
 /// Signed in on `platform` (looked up in the browser's cookies: a moment).
 pub fn signed_in(platform: &str) -> bool {
     account(platform).is_some_and(|a| pages::cookie(a.cookie.0, a.cookie.1).is_some())
