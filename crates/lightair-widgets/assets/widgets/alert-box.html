@@ -48,6 +48,14 @@
     setTimeout(function () { box.classList.remove('hide'); box.style.opacity = 0; lightair.done(); }, 550);
   }
   lightair.on('skip', end);
+  // automations' voice and sounds
+  lightair.on('speak', function (text) {
+    if (!window.speechSynthesis || !text) return;
+    var u = new SpeechSynthesisUtterance(text); u.volume = Math.min(1, (+lightair.fields.volume || 60) / 100); speechSynthesis.speak(u);
+  });
+  lightair.on('sound', function (m) {
+    var a = new Audio(lightair.file(m.file)); a.volume = Math.min(1, (+m.volume || 100) / 100); a.play().catch(function () {});
+  });
   lightair.on('alert', function (e) {
     var f = lightair.fields, k = lightair.kindOf(e);
     if (!f[k + 'Enabled'] || (k === 'paid' && e.paid && e.paid.amount < (+f.paidMin || 0)) || (k === 'cheer' && e.paid && e.paid.amount < (+f.cheerMin || 0))) {

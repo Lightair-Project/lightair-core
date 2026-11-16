@@ -58,6 +58,8 @@ pub(crate) struct Shared {
     queues: Mutex<HashMap<String, Queue>>,
     icons: Mutex<Option<Icons>>,
     next_conn: AtomicU64,
+    /// Files pages may load besides their settings' (sounds automations play).
+    files: Mutex<std::collections::HashSet<String>>,
 }
 
 /// The widget server (cheap to clone: one server).
@@ -83,6 +85,7 @@ impl Widgets {
             queues: Mutex::new(HashMap::new()),
             icons: Mutex::new(None),
             next_conn: AtomicU64::new(1),
+            files: Mutex::new(Default::default()),
         });
         tracing::info!(port, "widgets served");
         {
@@ -187,6 +190,39 @@ impl Widgets {
         for id in boxes {
             self.shared.send_to(&id, r#"{"type":"skip"}"#);
         }
+    }
+
+    fn alert_boxes(&self) -> Vec<String> {
+        self.shared.instances.lock().values().filter(|i| catalog::queues_alerts(&i.kind)).map(|i| i.id.clone()).collect()
+    }
+
+    /// Says `text` on stream (through the alert boxes, whose sound is in the mix). False when
+    /// there's no alert box on screen to say it.
+    pub fn speak(&self, text: &str) -> bool {
+        let shown: Vec<String> = self.shared.conns.lock().iter().map(|c| c.instance.clone()).collect();
+        let boxes: Vec<String> = self.alert_boxes().into_iter().filter(|b| shown.contains(b)).collect();
+        for id in &boxes {
+            self.shared.send_to(id, &json!({"type": "speak", "text": text}).to_string());
+        }
+        !boxes.is_empty()
+    }
+
+    /// Plays a sound file (a path on this machine, or an address) on stream, like `speak`.
+    pub fn sound(&self, file: &str, volume: f64) -> bool {
+        if !file.contains("://") {
+            self.shared.files.lock().insert(file.to_string());
+        }
+        let shown: Vec<String> = self.shared.conns.lock().iter().map(|c| c.instance.clone()).collect();
+        let boxes: Vec<String> = self.alert_boxes().into_iter().filter(|b| shown.contains(b)).collect();
+        for id in &boxes {
+            self.shared.send_to(id, &json!({"type": "sound", "file": file, "volume": volume}).to_string());
+        }
+        !boxes.is_empty()
+    }
+
+    /// The widgets there are: (id, kind, name of the kind).
+    pub fn list(&self) -> Vec<(String, String)> {
+        self.shared.instances.lock().values().map(|i| (i.id.clone(), i.kind.clone())).collect()
     }
 
     /// Alerts waiting (all alert boxes).
@@ -416,7 +452,8 @@ fn serve(mut stream: TcpStream, shared: &Arc<Shared>) -> io::Result<()> {
                     "file" => {
                         // only a file one of its settings names
                         let wanted = query(&req.path, "path").unwrap_or_default();
-                        let named = shared.values(&instance.id).is_some_and(|v| v.values().any(|x| x.as_str() == Some(wanted.as_str())));
+                        let named = shared.values(&instance.id).is_some_and(|v| v.values().any(|x| x.as_str() == Some(wanted.as_str())))
+                            || shared.files.lock().contains(&wanted);
                         let path = PathBuf::from(&wanted);
                         match std::fs::read(&path).ok().filter(|_| named && path.is_absolute()) {
                             Some(bytes) => http::respond(&mut stream, 200, content_type(&path), &bytes, &[])?,

@@ -98,6 +98,8 @@
         case 'alert': emit('alert', msg.event); break;
         case 'button': emit('button', msg.name); break;
         case 'skip': emit('skip'); break;
+        case 'speak': emit('speak', msg.text); break;
+        case 'sound': emit('sound', msg); break;
       }
     };
     ws.onclose = function () { setTimeout(connect, 1000); };
