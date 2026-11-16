@@ -64,7 +64,12 @@ pub(crate) struct Shared {
     data: Mutex<Map<String, Value>>,
     /// What `/run/<name>` does (the app runs an automation), and its key.
     run: Mutex<Option<(String, RunHook)>>,
+    /// Changes a viewer's points for pages (a prediction): (platform, id, name, delta) → balance,
+    /// or None when they haven't enough.
+    points: Mutex<Option<PointsHook>>,
 }
+
+pub type PointsHook = Box<dyn Fn(&str, &str, &str, f64) -> Option<f64> + Send + Sync>;
 
 /// Runs an automation by name or id (the web address's way in).
 pub type RunHook = Box<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
@@ -95,6 +100,7 @@ impl Widgets {
             files: Mutex::new(Default::default()),
             data: Mutex::new(Map::new()),
             run: Mutex::new(None),
+            points: Mutex::new(None),
         });
         tracing::info!(port, "widgets served");
         {
@@ -251,6 +257,11 @@ impl Widgets {
     /// Lets `/run/<automation>?key=<key>` run automations (`key`: a secret of this computer's).
     pub fn set_run_hook(&self, key: String, hook: RunHook) {
         *self.shared.run.lock() = Some((key, hook));
+    }
+
+    /// Lets pages change viewers' points (`lightair.points`).
+    pub fn set_points_hook(&self, hook: PointsHook) {
+        *self.shared.points.lock() = Some(hook);
     }
 
     /// The web address that runs `automation` (an id or name).
@@ -550,6 +561,7 @@ fn feed(mut ws: WebSocket<TcpStream>, shared: &Arc<Shared>, instance: &str) -> i
     let (tx, rx): (Sender<String>, Receiver<String>) = unbounded();
     let conn = shared.next_conn.fetch_add(1, Ordering::Relaxed);
     let _ = ws.send(Message::text(shared.load_message(instance)));
+    let me = tx.clone();
     shared.conns.lock().push(Conn { id: conn, instance: instance.to_string(), tx });
     let result = (|| -> io::Result<()> {
         loop {
@@ -558,6 +570,12 @@ fn feed(mut ws: WebSocket<TcpStream>, shared: &Arc<Shared>, instance: &str) -> i
                     let Ok(m) = serde_json::from_str::<Value>(t.as_str()) else { continue };
                     match m["type"].as_str() {
                         Some("done") => shared.done(instance),
+                        Some("points") => {
+                            let s = |k: &str| m[k].as_str().unwrap_or("").to_string();
+                            let delta = m["delta"].as_f64().unwrap_or(0.0);
+                            let balance = shared.points.lock().as_ref().and_then(|hook| hook(&s("platform"), &s("id"), &s("name"), delta));
+                            let _ = me.send(json!({"type": "points", "ref": m["ref"], "ok": balance.is_some(), "balance": balance}).to_string());
+                        }
                         Some("storage.set") => {
                             if let Some(key) = m["key"].as_str() {
                                 store::set(&shared.store_dir, instance, key, m["value"].clone());

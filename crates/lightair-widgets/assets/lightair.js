@@ -7,7 +7,7 @@
   var m = location.pathname.match(/^\/w\/([^/]+)/);
   var id = m ? m[1] : '';
   var key = new URLSearchParams(location.search).get('key') || '';
-  var handlers = {};
+  var handlers = {}, pointsRef = 0, pointsWaiting = {};
   var ws = null;
   var api = (window.lightair = {
     id: id,
@@ -25,6 +25,12 @@
     done: function () { send({ type: 'done' }); },
     // runs this page's handlers as if Lightair had sent it (trying a widget out)
     emit: function (name, data) { emit(name, data); },
+    // gives (delta > 0) or takes a viewer's points; cb(ok, balance): not ok when they haven't
+    // enough to take
+    points: function (platform, id, name, delta, cb) {
+      var ref = ++pointsRef; pointsWaiting[ref] = cb || function () {};
+      send({ type: 'points', platform: platform, id: id, name: name, delta: delta, ref: ref });
+    },
     store: function (k, v) { api.storage[k] = v; send({ type: 'storage.set', key: k, value: v }); },
     escape: function (s) {
       return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -103,6 +109,7 @@
         case 'speak': emit('speak', msg.text); break;
         case 'data': api.data[msg.key] = msg.value; emit('data', { key: msg.key, value: msg.value }); break;
         case 'sound': emit('sound', msg); break;
+        case 'points': var cb = pointsWaiting[msg.ref]; delete pointsWaiting[msg.ref]; if (cb) cb(msg.ok, msg.balance); break;
       }
     };
     ws.onclose = function () { setTimeout(connect, 1000); };

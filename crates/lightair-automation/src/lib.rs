@@ -335,6 +335,23 @@ impl Automations {
         self.inner.viewers.lock().top(n)
     }
 
+    /// Gives (or, negative, takes) a viewer's points: their balance after, or None when they
+    /// haven't enough to take (a prediction's stake).
+    pub fn change_points(&self, platform: &str, id: &str, name: &str, delta: f64) -> Option<f64> {
+        let balance = {
+            let mut viewers = self.inner.viewers.lock();
+            let have = viewers.get(platform, id).map_or(0.0, |v| v.points);
+            if delta < 0.0 && have + delta < -1e-9 {
+                return None;
+            }
+            viewers.add_points(platform, id, name, delta)
+        };
+        *self.inner.viewers_dirty.lock() = true;
+        self.save_viewers();
+        self.changed();
+        Some(balance)
+    }
+
     /// Runs it now (by hand, the remote API), as if `event` had set it off.
     pub fn run(&self, key: &str, event: Option<&ChatEvent>, args: &[String]) -> Result<(), String> {
         let a = self.get(key).ok_or_else(|| format!("no automation “{key}”"))?;
