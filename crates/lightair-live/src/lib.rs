@@ -22,6 +22,7 @@ pub mod bilibili;
 pub mod chzzk;
 pub mod donations;
 pub mod douyu;
+pub mod huya;
 pub mod kick;
 pub mod niconico;
 pub mod send;
@@ -38,7 +39,7 @@ pub use hub::{Hub, Sink};
 pub use images::Images;
 
 /// The platforms whose chat Lightair reads (the Outputs list's ids).
-pub const READABLE: &[&str] = &["twitch", "youtube", "chzzk", "douyu", "soop", "kick", "tiktok", "twitcasting", "showroom", "bilibili", "niconico"];
+pub const READABLE: &[&str] = &["twitch", "youtube", "chzzk", "douyu", "soop", "kick", "tiktok", "twitcasting", "showroom", "bilibili", "niconico", "huya"];
 
 /// The reader for a platform, if Lightair has one.
 pub fn reader_for(platform: &str) -> Option<hub::Reader> {
@@ -54,6 +55,7 @@ pub fn reader_for(platform: &str) -> Option<hub::Reader> {
         "showroom" => showroom::read,
         "bilibili" => bilibili::read,
         "niconico" => niconico::read,
+        "huya" => huya::read,
         "streamlabs" => donations::streamlabs,
         "streamelements" => donations::streamelements,
         "kofi" => donations::kofi,
@@ -75,6 +77,7 @@ pub fn channel_hint(platform: &str) -> Option<&'static str> {
         "showroom" => "Room (showroom-live.com/r/…)",
         "bilibili" => "Room number or link (live.bilibili.com/…)",
         "niconico" => "Program, channel or user link (live.nicovideo.jp/watch/…)",
+        "huya" => "Room number or link (huya.com/…)",
         _ => return None,
     })
 }
