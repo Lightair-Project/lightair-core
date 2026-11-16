@@ -10,6 +10,7 @@ pub mod emotes;
 pub mod event;
 pub mod hub;
 pub mod images;
+pub mod integrations;
 mod net;
 pub mod pages;
 mod proto;
