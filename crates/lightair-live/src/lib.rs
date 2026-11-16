@@ -13,9 +13,11 @@ pub mod images;
 mod net;
 pub mod pages;
 
+pub mod accounts;
 pub mod chzzk;
 pub mod douyu;
 pub mod kick;
+pub mod send;
 pub mod soop;
 pub mod tiktok;
 pub mod twitch;

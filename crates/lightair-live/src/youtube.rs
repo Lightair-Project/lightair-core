@@ -97,6 +97,15 @@ pub fn read(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
     Ok(())
 }
 
+/// The live video of what was typed (a video, or a channel's live page): `None` when the
+/// channel isn't live.
+pub fn video_of(channel: &str) -> Result<Option<String>, String> {
+    match target(channel) {
+        Target::Video(v) => Ok(Some(v)),
+        Target::Page(url) => Ok(live_video(&net::get(&net::agent(), &url, &[COOKIE])?)),
+    }
+}
+
 /// The live video on a channel's /live page (its canonical address is a watch page while live).
 fn live_video(page: &str) -> Option<String> {
     let canonical = between(page, "<link rel=\"canonical\" href=\"", "\"")?;

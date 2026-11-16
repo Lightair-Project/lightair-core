@@ -12,6 +12,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// What a page's script sent back.
 pub type OnMessage = Arc<dyn Fn(String) + Send + Sync>;
 
+/// Gets cookies: (name, value).
+pub type CookiesDone = Box<dyn FnOnce(Vec<(String, String)>) + Send>;
+
 /// An open hidden page; dropping it closes it.
 pub trait Page: Send {
     /// Runs `code` in the page now.
@@ -24,6 +27,25 @@ pub trait Page: Send {
 /// message (given to `on_message`).
 pub trait Host: Send + Sync {
     fn open(&self, url: &str, script: &str, on_message: OnMessage) -> Box<dyn Page>;
+    /// A page in a window for the person to use (signing in); `on_closed` when they close it.
+    fn open_window(&self, url: &str, title: &str, on_closed: Arc<dyn Fn() + Send + Sync>) -> Box<dyn Page>;
+    /// The cookies the browser sends to `url` (name, value).
+    fn cookies(&self, url: &str, done: CookiesDone);
+}
+
+/// The browser's cookies for `url`, waited for (at most a few seconds).
+pub fn cookies(url: &str) -> Vec<(String, String)> {
+    let Ok(host) = host() else { return Vec::new() };
+    let (tx, rx) = mpsc::channel();
+    host.cookies(url, Box::new(move |c| {
+        let _ = tx.send(c);
+    }));
+    rx.recv_timeout(Duration::from_secs(5)).unwrap_or_default()
+}
+
+/// One cookie's value.
+pub fn cookie(url: &str, name: &str) -> Option<String> {
+    cookies(url).into_iter().find(|(n, _)| n == name).map(|(_, v)| v).filter(|v| !v.is_empty())
 }
 
 static HOST: OnceLock<Arc<dyn Host>> = OnceLock::new();
