@@ -60,15 +60,15 @@ const SCRIPT: &str = r#"(function () {
   }
   function scan() {
     document.querySelectorAll('video').forEach(function (v) { if (!v.paused) { v.muted = true; v.pause(); } });
-    var c = document.querySelector('[data-e2e="live-chat-container"]');
+    var c = document.querySelector(RULES.container);
     if (!c) {
       if (Date.now() - since > 30000) { lightair('{"status":"offline"}'); since = Date.now(); live = false; }
       return;
     }
     since = Date.now();
     if (!live) { live = true; lightair('{"status":"live"}'); }
-    c.querySelectorAll('[data-e2e="chat-message"]').forEach(function (row) {
-      var name = row.querySelector('[data-e2e="message-owner-name"]');
+    c.querySelectorAll(RULES.message).forEach(function (row) {
+      var name = row.querySelector(RULES.owner);
       var head = name && name.parentElement && name.parentElement.parentElement;
       var body = head && head.nextElementSibling;
       if (!body) return;
@@ -98,7 +98,13 @@ pub fn read(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
     let host = pages::host()?;
     let (tx, rx) = mpsc::channel::<String>();
     let tx = parking_lot::Mutex::new(tx);
-    let script = format!("{}{SCRIPT}", pages::PRELUDE);
+    // its selectors are reading rules (rules.rs): fixable without a release
+    let rules = serde_json::json!({
+        "container": crate::rules::text("tiktok.chat_container", "[data-e2e=\"live-chat-container\"]"),
+        "message": crate::rules::text("tiktok.chat_message", "[data-e2e=\"chat-message\"]"),
+        "owner": crate::rules::text("tiktok.chat_owner", "[data-e2e=\"message-owner-name\"]"),
+    });
+    let script = format!("{}var RULES = {rules};\n{SCRIPT}", pages::PRELUDE);
     let early = format!("{}{EARLY}", pages::PRELUDE);
     let page = host.open_early(&format!("https://www.tiktok.com/@{name}/live"), &early, &script, Arc::new(move |m| {
         let _ = tx.lock().send(m);

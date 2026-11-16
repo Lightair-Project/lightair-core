@@ -1,8 +1,10 @@
 //! SOOP (숲, formerly AfreecaTV) chat, read without logging in: the broadcast's chat server
 //! (from the live player's API), then SOOP's own framing over a WebSocket: `ESC TAB`, a 4-digit
 //! service code, a 6-digit length, 2 flag digits, and form-feed-separated fields. Anonymous
-//! entry is 0001 (login) then 0002 (join the chat number); 0000 keeps it alive. Chat (0005) and
-//! star balloons (0018).
+//! entry is 0001 (login) then 0002 (join the chat number); 0000 keeps it alive. Chat (0005), star
+//! balloons (0018, 0033 in a sub-broadcast), ad balloons (0087), video balloons (0105),
+//! subscriptions (0091 new, 0093 renewed, 0108 gifted), Quick View and OGQ gifts (0045, 0118) and
+//! mission gifts (0121). Field layouts from joyfuI/soop-chat and wei756/soop-chat-client.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -129,24 +131,74 @@ pub fn read(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
     Ok(())
 }
 
-/// A chat message (0005) or star balloons (0018).
+/// A chat message, balloons, a subscription or a gift. `f` keeps the empty field before the
+/// first separator, so indices are one more than in the libraries cited above.
 pub fn parse(service: u16, f: &[String], channel: &str) -> Option<ChatEvent> {
     let at = |i: usize| f.get(i).map(String::as_str).unwrap_or("");
+    // a user id with "(2)" and the like is the same person on another device
+    let user = |id: usize, nick: usize| {
+        let id = at(id).split('(').next().unwrap_or("").to_string();
+        User { id: id.clone(), login: id, display_name: at(nick).into(), ..Default::default() }
+    };
+    let paid = |u: User, count: &str, what: &str, currency: &str| -> Option<ChatEvent> {
+        let count: f64 = count.trim().parse().ok()?;
+        let mut e = ChatEvent::new("soop", channel, Kind::Paid);
+        e.headline = Some(format!("{} sent {what} ×{count}", u.display_name));
+        e.user = Some(u);
+        e.paid = Some(Paid { display: format!("{what} {count}개"), amount: count, currency: currency.into() });
+        Some(e)
+    };
+    let membership = |u: User, headline: String| {
+        let mut e = ChatEvent::new("soop", channel, Kind::Membership);
+        e.headline = Some(headline);
+        e.user = Some(u);
+        e
+    };
     match service {
         5 => {
             let mut e = ChatEvent::new("soop", channel, Kind::Message);
-            // a user id with "(2)" and the like is the same person on another device
-            let id = at(2).split('(').next().unwrap_or("").to_string();
-            e.user = Some(User { id: id.clone(), login: id, display_name: at(6).into(), ..Default::default() });
+            e.user = Some(user(2, 6));
             Some(e.with_fragments(text_fragments(at(1))))
         }
-        18 => {
-            let count: f64 = at(4).parse().ok()?;
-            let mut e = ChatEvent::new("soop", channel, Kind::Paid);
-            let id = at(2).split('(').next().unwrap_or("").to_string();
-            e.user = Some(User { id: id.clone(), login: id, display_name: at(3).into(), ..Default::default() });
-            e.paid = Some(Paid { display: format!("별풍선 {count}개"), amount: count, currency: "SOOP_BALLOON".into() });
+        18 => paid(user(2, 3), at(4), "별풍선", "SOOP_BALLOON"),
+        33 => paid(user(4, 5), at(6), "별풍선", "SOOP_BALLOON"),
+        87 => paid(user(3, 4), at(10), "애드벌룬", "SOOP_ADBALLOON"),
+        105 => paid(user(3, 4), at(5), "영상풍선", "SOOP_VIDEOBALLOON"),
+        91 => {
+            let u = user(3, 4);
+            let plus = !matches!(at(8), "" | "1");
+            Some(membership(u.clone(), format!("{} subscribed{}", u.display_name, if plus { " (Plus)" } else { "" })))
+        }
+        93 => {
+            let u = user(2, 3);
+            let months = at(4).parse::<u32>().unwrap_or(0);
+            Some(membership(u.clone(), format!("{} subscribed for {months} months in a row", u.display_name)))
+        }
+        108 | 144 => {
+            let u = user(2, 3);
+            let to = at(5);
+            Some(membership(u.clone(), format!("{} gave {to} a subscription", u.display_name)))
+        }
+        45 => {
+            let u = user(2, 3);
+            Some(membership(u.clone(), format!("{} gave {} Quick View", u.display_name, at(5))))
+        }
+        118 => {
+            let u = user(2, 3);
+            let mut e = ChatEvent::new("soop", channel, Kind::Notice);
+            e.headline = Some(format!("{} gave {} an emoticon: {}", u.display_name, at(5), at(6)));
+            e.user = Some(u);
             Some(e)
+        }
+        121 => {
+            let v: serde_json::Value = serde_json::from_str(at(1)).ok()?;
+            if !matches!(v["type"].as_str(), Some("GIFT" | "CHALLENGE_GIFT")) {
+                return None;
+            }
+            let id = v["user_id"].as_str().unwrap_or("").to_string();
+            let u = User { id: id.clone(), login: id, display_name: v["user_nick"].as_str().unwrap_or("").into(), ..Default::default() };
+            let count = v["gift_count"].as_u64().map(|n| n.to_string()).or_else(|| v["gift_count"].as_str().map(String::from)).unwrap_or_default();
+            paid(u, &count, "미션 별풍선", "SOOP_BALLOON")
         }
         _ => None,
     }
@@ -171,6 +223,23 @@ mod tests {
         assert_eq!(chat.user.unwrap().id, "viewer");
         let balloon = parse(packets[1].0, &packets[1].1, "x").unwrap();
         assert_eq!(balloon.paid.unwrap().amount, 100.0);
+    }
+
+    #[test]
+    fn subscriptions_and_other_gifts() {
+        let f = |p: &str| p.split(FF).map(String::from).collect::<Vec<_>>();
+        let sub = parse(91, &f(&format!("{FF}12{FF}bj{FF}fan{FF}팬{FF}SUB{FF}{FF}{FF}2")), "x").unwrap();
+        assert_eq!(sub.kind, Kind::Membership);
+        assert_eq!(sub.headline.as_deref(), Some("팬 subscribed (Plus)"));
+        let renew = parse(93, &f(&format!("{FF}bj{FF}fan{FF}팬{FF}7{FF}12")), "x").unwrap();
+        assert_eq!(renew.headline.as_deref(), Some("팬 subscribed for 7 months in a row"));
+        let ad = parse(87, &f(&format!("{FF}12{FF}bj{FF}fan(2){FF}팬{FF}hi{FF}{FF}title{FF}{FF}{FF}500")), "x").unwrap();
+        assert_eq!((ad.paid.as_ref().unwrap().amount, ad.user.unwrap().id.as_str()), (500.0, "fan"));
+        let sub_balloon = parse(33, &f(&format!("{FF}x{FF}bj{FF}y{FF}fan{FF}팬{FF}30")), "x").unwrap();
+        assert_eq!(sub_balloon.paid.unwrap().amount, 30.0);
+        let mission = parse(121, &f(&format!("{FF}{{\"type\":\"GIFT\",\"user_id\":\"fan\",\"user_nick\":\"팬\",\"gift_count\":40}}")), "x").unwrap();
+        assert_eq!(mission.paid.unwrap().amount, 40.0);
+        assert!(parse(121, &f(&format!("{FF}{{\"type\":\"NOTICE\"}}")), "x").is_none());
     }
 
     #[test]

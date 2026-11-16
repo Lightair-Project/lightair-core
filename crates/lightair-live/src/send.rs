@@ -22,18 +22,22 @@ pub fn send(platform: &str, channel: &str, text: &str, reply_to: Option<&str>) -
     if text.trim().is_empty() {
         return Err("nothing to send".into());
     }
+    if !crate::rules::enabled(platform) {
+        return Err(format!("Lightair turned {platform} off while it's fixed; it comes back on its own"));
+    }
+    let rule = crate::rules::text;
     match platform {
         "twitch" => twitch(channel, &text, reply_to),
         "youtube" | "youtube-shorts" => {
             let video = crate::youtube::video_of(channel)?.ok_or("the channel isn't live")?;
-            page_send(platform, &format!("https://www.youtube.com/live_chat?is_popout=1&v={video}"), "#input[contenteditable]", "#send-button button", &text)
+            page_send(platform, &format!("https://www.youtube.com/live_chat?is_popout=1&v={video}"), &rule("youtube.send_input", "#input[contenteditable]"), &rule("youtube.send_button", "#send-button button"), &text)
         }
-        "kick" => page_send(platform, &format!("https://kick.com/{}", crate::kick::slug(channel)), "[data-testid=\"chat-input\"]", "#send-message-button", &text),
+        "kick" => page_send(platform, &format!("https://kick.com/{}", crate::kick::slug(channel)), &rule("kick.send_input", "[data-testid=\"chat-input\"]"), &rule("kick.send_button", "#send-message-button"), &text),
         "tiktok" => page_send(
             platform,
             &format!("https://www.tiktok.com/@{}/live", crate::tiktok::handle(channel)),
-            "[data-e2e=\"room-chat-input-field\"]",
-            "[data-e2e=\"room-chat-send-btn\"]",
+            &rule("tiktok.send_input", "[data-e2e=\"room-chat-input-field\"]"),
+            &rule("tiktok.send_button", "[data-e2e=\"room-chat-send-btn\"]"),
             &text,
         ),
         other => Err(format!("sending to {other} chat isn't supported yet")),

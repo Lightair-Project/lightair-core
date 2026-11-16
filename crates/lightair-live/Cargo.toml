@@ -10,6 +10,8 @@ publish.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 base64 = "0.22"
+# verifies reading rules (rules.rs); pure Rust, so the Windows build still checks from a Mac
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 flate2 = "1"
 tracing.workspace = true
 parking_lot.workspace = true

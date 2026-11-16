@@ -159,6 +159,11 @@ impl Drop for Inner {
 fn run(reader: Reader, sink: Sink, stop: Arc<AtomicBool>) {
     let mut wait = Duration::from_secs(1);
     while !stop.load(Ordering::Acquire) {
+        if !crate::rules::enabled(&sink.channel.platform) {
+            sink.status(Status::Error { message: "Lightair turned reading this platform off while it's fixed; it comes back on its own".into() });
+            sleep_unless(&stop, Duration::from_secs(600));
+            continue;
+        }
         sink.status(Status::Connecting);
         match reader(&sink, &stop) {
             Ok(()) => wait = Duration::from_secs(1),
