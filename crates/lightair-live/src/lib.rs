@@ -6,12 +6,15 @@
 //! YouTube's own chat page uses, CHZZK's chat socket. Logged-in features (sending, moderation)
 //! and the platforms read through their own web pages come next.
 
+pub mod emotes;
 pub mod event;
 pub mod hub;
 pub mod images;
 mod net;
 
 pub mod chzzk;
+pub mod douyu;
+pub mod soop;
 pub mod twitch;
 pub mod youtube;
 
@@ -20,7 +23,7 @@ pub use hub::{Hub, Sink};
 pub use images::Images;
 
 /// The platforms whose chat Lightair reads (the Outputs list's ids).
-pub const READABLE: &[&str] = &["twitch", "youtube", "chzzk"];
+pub const READABLE: &[&str] = &["twitch", "youtube", "chzzk", "douyu", "soop"];
 
 /// The reader for a platform, if Lightair has one.
 pub fn reader_for(platform: &str) -> Option<hub::Reader> {
@@ -28,6 +31,8 @@ pub fn reader_for(platform: &str) -> Option<hub::Reader> {
         "twitch" => twitch::read,
         "youtube" | "youtube-shorts" => youtube::read,
         "chzzk" => chzzk::read,
+        "douyu" => douyu::read,
+        "soop" => soop::read,
         _ => return None,
     })
 }
@@ -38,6 +43,8 @@ pub fn channel_hint(platform: &str) -> Option<&'static str> {
         "twitch" => "Channel name (twitch.tv/…)",
         "youtube" | "youtube-shorts" => "@handle, channel or video link",
         "chzzk" => "Channel link or id (chzzk.naver.com/…)",
+        "douyu" => "Room link or number (douyu.com/…)",
+        "soop" => "Streamer id or link (sooplive.co.kr/…)",
         _ => return None,
     })
 }

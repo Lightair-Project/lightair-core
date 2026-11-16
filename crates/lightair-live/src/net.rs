@@ -59,8 +59,16 @@ pub type Socket = WebSocket<MaybeTlsStream<TcpStream>>;
 
 /// Opens a WebSocket whose reads give up after `tick`, so the caller can look at its stop flag.
 pub fn connect(url: &str, tick: Duration) -> Result<Socket, String> {
+    connect_with(url, &[], tick)
+}
+
+/// `connect`, with headers of its own (a subprotocol, an origin).
+pub fn connect_with(url: &str, headers: &[(&'static str, &str)], tick: Duration) -> Result<Socket, String> {
     let mut request = tungstenite::client::IntoClientRequest::into_client_request(url).map_err(|e| e.to_string())?;
     request.headers_mut().insert("User-Agent", USER_AGENT.parse().unwrap());
+    for (k, v) in headers {
+        request.headers_mut().insert(*k, v.parse().map_err(|_| format!("bad header {k}"))?);
+    }
     let (socket, _) = tungstenite::connect(request).map_err(|e| format!("{url}: {e}"))?;
     let tcp = match socket.get_ref() {
         MaybeTlsStream::Plain(s) => s,

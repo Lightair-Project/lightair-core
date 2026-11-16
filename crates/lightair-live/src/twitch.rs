@@ -38,6 +38,8 @@ pub fn read(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
         socket.send(Message::text(line)).map_err(|e| e.to_string())?;
     }
     let mut heard = Instant::now();
+    // the channel's 7TV, FFZ and BTTV emotes, loaded once Twitch says which room this is
+    let emotes: std::sync::Arc<parking_lot::Mutex<crate::emotes::Emotes>> = Default::default();
     while !stop.load(Ordering::Acquire) {
         let Some(message) = net::read(&mut socket)? else {
             // Twitch pings every ~5 minutes; nothing at all for 7 means the connection is gone
@@ -54,8 +56,25 @@ pub fn read(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
                 continue;
             }
             match parse(line, &sink.channel().channel) {
-                Parsed::Event(e) => sink.emit(*e),
-                Parsed::Joined => sink.status(crate::event::Status::Connected),
+                Parsed::Event(mut e) => {
+                    let third = emotes.lock();
+                    if !third.is_empty() {
+                        e.fragments = third.apply(std::mem::take(&mut e.fragments));
+                    }
+                    drop(third);
+                    sink.emit(*e)
+                }
+                Parsed::Joined(room) => {
+                    sink.status(crate::event::Status::Connected);
+                    if let Some(room) = room
+                        && emotes.lock().is_empty()
+                    {
+                        let emotes = emotes.clone();
+                        let _ = std::thread::Builder::new()
+                            .name("lightair-emotes".into())
+                            .spawn(move || *emotes.lock() = crate::emotes::Emotes::load(&room));
+                    }
+                }
                 Parsed::Reconnect => return Ok(()),
                 Parsed::Nothing => {}
             }
@@ -67,7 +86,8 @@ pub fn read(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
 
 pub enum Parsed {
     Event(Box<ChatEvent>),
-    Joined,
+    /// In the channel; its Twitch id, when given.
+    Joined(Option<String>),
     Reconnect,
     Nothing,
 }
@@ -85,7 +105,7 @@ pub fn parse(line: &str, channel: &str) -> Parsed {
     let tag = |k: &str| tags.get(k).map(String::as_str).filter(|v| !v.is_empty());
     let event = |kind: Kind| ChatEvent::new("twitch", channel, kind);
     match command {
-        "ROOMSTATE" => Parsed::Joined,
+        "ROOMSTATE" => Parsed::Joined(tag("room-id").map(String::from)),
         "RECONNECT" => Parsed::Reconnect,
         "PRIVMSG" => {
             let bits = tag("bits").and_then(|b| b.parse::<f64>().ok());
