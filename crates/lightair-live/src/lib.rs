@@ -25,6 +25,7 @@ pub mod kick;
 pub mod send;
 pub mod showroom;
 pub mod soop;
+pub mod stream_info;
 pub mod tiktok;
 pub mod twitcasting;
 pub mod twitch;
