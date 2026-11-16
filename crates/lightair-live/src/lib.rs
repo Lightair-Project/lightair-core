@@ -12,6 +12,7 @@ pub mod hub;
 pub mod images;
 mod net;
 pub mod pages;
+mod proto;
 
 pub mod accounts;
 pub mod chzzk;

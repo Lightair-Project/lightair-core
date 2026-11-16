@@ -10,6 +10,7 @@ publish.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 base64 = "0.22"
+flate2 = "1"
 tracing.workspace = true
 parking_lot.workspace = true
 # the system's own TLS (Security.framework, SChannel): no C to build, so the Windows build checks

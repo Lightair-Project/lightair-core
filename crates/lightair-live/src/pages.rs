@@ -27,6 +27,11 @@ pub trait Page: Send {
 /// message (given to `on_message`).
 pub trait Host: Send + Sync {
     fn open(&self, url: &str, script: &str, on_message: OnMessage) -> Box<dyn Page>;
+    /// `open`, with `early` run as each load starts (before the page's own scripts get far).
+    fn open_early(&self, url: &str, early: &str, script: &str, on_message: OnMessage) -> Box<dyn Page> {
+        let _ = early;
+        self.open(url, script, on_message)
+    }
     /// A page in a window for the person to use (signing in); `on_closed` when they close it.
     fn open_window(&self, url: &str, title: &str, on_closed: Arc<dyn Fn() + Send + Sync>) -> Box<dyn Page>;
     /// The cookies the browser sends to `url` (name, value).
