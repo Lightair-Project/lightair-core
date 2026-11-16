@@ -102,6 +102,60 @@ pub fn info(platform: &str, channel: &str) -> Result<StreamInfo, String> {
     }
 }
 
+fn twitch_gql(query: &str) -> Result<Value, String> {
+    let agent = net::agent();
+    let mut res = agent
+        .post("https://gql.twitch.tv/gql")
+        .header("Client-Id", "kimne78kx3ncx6brgo4mv6wki5h1ko")
+        .send(serde_json::json!({"query": query}).to_string())
+        .map_err(|e| e.to_string())?;
+    serde_json::from_str(&res.body_mut().read_to_string().map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+}
+
+/// Whether Lightair can change the stream's title and category itself on `platform`.
+pub fn can_edit(platform: &str) -> bool {
+    platform == "twitch"
+}
+
+/// Changes the stream's title and/or category (by name: the closest the platform finds), as
+/// the person signed in to the platform in Lightair.
+pub fn edit(platform: &str, channel: &str, title: Option<&str>, category: Option<&str>) -> Result<String, String> {
+    if platform != "twitch" {
+        return Err(format!("change it in {platform}'s dashboard"));
+    }
+    let token = crate::pages::cookie("https://www.twitch.tv", "auth-token").ok_or("sign in to Twitch first (Outputs › the destination › Sending)")?;
+    let login = crate::twitch::login(channel);
+    let id = twitch_gql(&format!("query{{user(login:\"{login}\"){{id}}}}"))?["data"]["user"]["id"].as_str().ok_or("no such Twitch channel")?.to_string();
+    let mut body = serde_json::json!({});
+    if let Some(t) = title.map(str::trim).filter(|t| !t.is_empty()) {
+        body["title"] = serde_json::json!(t);
+    }
+    let mut found = String::new();
+    if let Some(c) = category.map(str::trim).filter(|c| !c.is_empty()) {
+        let q = format!("query{{searchCategories(query:{},first:1){{edges{{node{{id name}}}}}}}}", serde_json::to_string(c).unwrap_or_default());
+        let v = twitch_gql(&q)?;
+        let node = &v["data"]["searchCategories"]["edges"][0]["node"];
+        let gid = node["id"].as_str().ok_or_else(|| format!("Twitch has no category like “{c}”"))?;
+        found = node["name"].as_str().unwrap_or("").to_string();
+        body["game_id"] = serde_json::json!(gid);
+    }
+    let agent = net::agent();
+    let mut res = agent
+        .patch(&format!("https://api.twitch.tv/helix/channels?broadcaster_id={id}"))
+        .header("Client-Id", "kimne78kx3ncx6brgo4mv6wki5h1ko")
+        .header("Authorization", &format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .send(body.to_string())
+        .map_err(|e| e.to_string())?;
+    let status = res.status().as_u16();
+    if status >= 300 {
+        let text = res.body_mut().read_to_string().unwrap_or_default();
+        let why = serde_json::from_str::<Value>(&text).ok().and_then(|v| v["message"].as_str().map(String::from)).unwrap_or(text);
+        return Err(format!("Twitch said no ({status}): {why}"));
+    }
+    Ok(if found.is_empty() { "Saved".into() } else { format!("Saved (category: {found})") })
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
