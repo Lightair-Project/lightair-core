@@ -90,6 +90,8 @@ pub enum Trigger {
     Output { what: String, state: String },
     /// When Lightair starts.
     Start,
+    /// A global hotkey ("cmd-alt-1"), working in any app.
+    Hotkey { keys: String },
     /// Only when run by hand, by another automation, through the remote API or its web address.
     Manual,
 }
@@ -189,6 +191,7 @@ impl Trigger {
                 if state == "stop" { "stops" } else { "starts" }
             ),
             Trigger::Start => "When Lightair starts".into(),
+            Trigger::Hotkey { keys } => format!("Hotkey {keys}"),
             Trigger::Manual => "By hand".into(),
         }
     }

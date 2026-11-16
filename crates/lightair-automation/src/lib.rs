@@ -402,7 +402,7 @@ impl Automations {
                     let ok = (contains.is_empty() || e.text.to_lowercase().contains(&contains.to_lowercase())) && (!only_first || first_time);
                     (ok, words.clone(), format!("{}: {}", e.name(), e.text))
                 }
-                Trigger::Timer { .. } | Trigger::Manual | Trigger::Output { .. } | Trigger::Start => continue,
+                Trigger::Timer { .. } | Trigger::Manual | Trigger::Output { .. } | Trigger::Start | Trigger::Hotkey { .. } => continue,
             };
             if !fires || !self.cooled(&a, e) {
                 continue;
