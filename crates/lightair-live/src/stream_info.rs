@@ -15,6 +15,9 @@ pub struct StreamInfo {
     pub viewers: Option<u64>,
     /// When it went live (ms since the epoch).
     pub started_ms: Option<i64>,
+    /// Its description, where the platform has one per stream and it's known (YouTube, signed
+    /// in officially).
+    pub description: Option<String>,
 }
 
 /// The platform's own page for managing the stream (opened signed in, in a Lightair window).
@@ -31,7 +34,7 @@ pub fn dashboard(platform: &str, channel: &str) -> Option<String> {
     })
 }
 
-fn iso_ms(s: &str) -> Option<i64> {
+pub(crate) fn iso_ms(s: &str) -> Option<i64> {
     // "2026-11-17T08:30:00Z" (seconds precision is enough)
     let d: Vec<i64> = s.split(|c: char| !c.is_ascii_digit()).filter(|x| !x.is_empty()).take(6).filter_map(|x| x.parse().ok()).collect();
     let [y, m, day, h, mi, sec] = d.as_slice().try_into().ok()?;
@@ -52,6 +55,9 @@ fn between(s: &str, a: &str, b: &str) -> Option<String> {
 
 /// Looks the stream up (a network request or a hidden page: not on the main thread).
 pub fn info(platform: &str, channel: &str) -> Result<StreamInfo, String> {
+    if let Some(r) = crate::official::info(platform) {
+        return r;
+    }
     match platform {
         "twitch" => {
             let login = crate::twitch::login(channel);
@@ -73,6 +79,7 @@ pub fn info(platform: &str, channel: &str) -> Result<StreamInfo, String> {
                 category: text(&s["game"]["displayName"], &u["broadcastSettings"]["game"]["displayName"]),
                 viewers: s["viewersCount"].as_u64(),
                 started_ms: s["createdAt"].as_str().and_then(iso_ms),
+                description: None,
             })
         }
         "youtube" | "youtube-shorts" => {
@@ -84,6 +91,7 @@ pub fn info(platform: &str, channel: &str) -> Result<StreamInfo, String> {
                 category: between(&page, "\"category\":\"", "\"").unwrap_or_default(),
                 viewers: between(&page, "\"originalViewCount\":\"", "\"").and_then(|n| n.parse().ok()),
                 started_ms: between(&page, "\"startTimestamp\":\"", "\"").as_deref().and_then(iso_ms),
+                description: None,
             })
         }
         "kick" => {
@@ -96,6 +104,7 @@ pub fn info(platform: &str, channel: &str) -> Result<StreamInfo, String> {
                 category: l["categories"][0]["name"].as_str().unwrap_or("").into(),
                 viewers: l["viewer_count"].as_u64(),
                 started_ms: l["start_time"].as_str().or(l["created_at"].as_str()).and_then(iso_ms),
+                description: None,
             })
         }
         other => Err(format!("{other}'s stream details aren't read yet")),
@@ -128,14 +137,24 @@ fn twitch_gql_as(token: &str, body: Value) -> Result<Value, String> {
 /// Whether Lightair can change the stream's title and category itself on `platform`. (YouTube
 /// Studio's own edit asks for Google's anti-bot attestation: its dashboard does it.)
 pub fn can_edit(platform: &str) -> bool {
-    matches!(platform, "twitch" | "kick")
+    matches!(platform, "twitch" | "kick") || crate::official::signed_in(platform)
+}
+
+/// Whether the stream's description can be changed from Lightair (YouTube, signed in
+/// officially).
+pub fn can_describe(platform: &str) -> bool {
+    matches!(platform, "youtube" | "youtube-shorts") && crate::official::signed_in(platform)
 }
 
 /// Changes the stream's title and/or category (by name: the closest the platform finds), as
 /// the person signed in to the platform in Lightair.
-pub fn edit(platform: &str, channel: &str, title: Option<&str>, category: Option<&str>) -> Result<String, String> {
+pub fn edit(platform: &str, channel: &str, title: Option<&str>, description: Option<&str>, category: Option<&str>) -> Result<String, String> {
     let title = title.map(str::trim).filter(|t| !t.is_empty());
     let category = category.map(str::trim).filter(|c| !c.is_empty());
+    // the official API where signed in that way
+    if crate::official::signed_in(platform) {
+        return crate::official::edit(platform, channel, title, description, category);
+    }
     match platform {
         "twitch" => edit_twitch(channel, title, category),
         "kick" => edit_kick(channel, title, category),

@@ -21,7 +21,7 @@ const TWITCH_CLIENT: &str = "kimne78kx3ncx6brgo4mv6wki5h1ko";
 
 /// What can be done on `platform` from Lightair.
 pub fn can(platform: &str) -> bool {
-    matches!(platform, "twitch" | "kick")
+    matches!(platform, "twitch" | "kick") || crate::official::signed_in(platform)
 }
 
 pub enum Action<'a> {
@@ -34,6 +34,9 @@ pub enum Action<'a> {
 /// Does `action` in `channel`'s chat on `platform`, as the signed-in account (a moderator
 /// there, or its owner).
 pub fn act(platform: &str, channel: &str, action: Action) -> Result<(), String> {
+    if crate::official::signed_in(platform) {
+        return crate::official::moderate(platform, channel, action);
+    }
     match platform {
         "twitch" => twitch(channel, action),
         "kick" => kick(channel, action),

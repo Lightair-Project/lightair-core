@@ -10,6 +10,9 @@ publish.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 base64 = "0.22"
+# official sign-in (oauth.rs): PKCE
+sha2 = "0.10"
+getrandom = "0.3"
 # verifies reading rules (rules.rs); pure Rust, so the Windows build still checks from a Mac
 ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 flate2 = "1"

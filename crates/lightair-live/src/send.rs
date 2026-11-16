@@ -22,6 +22,9 @@ pub fn send(platform: &str, channel: &str, text: &str, reply_to: Option<&str>) -
     if text.trim().is_empty() {
         return Err("nothing to send".into());
     }
+    if crate::official::signed_in(platform) {
+        return crate::official::send(platform, channel, &text, reply_to);
+    }
     if !crate::rules::enabled(platform) {
         return Err(format!("Lightair turned {platform} off while it's fixed; it comes back on its own"));
     }
