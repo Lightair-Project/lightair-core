@@ -6,6 +6,10 @@
 //! - Twitch Helix (`channels`, `search/categories`, `chat/messages`, `moderation/*`).
 //! - Kick's public API (`api.kick.com/public/v1`: `channels`, `categories`, `chat`,
 //!   `moderation/bans`).
+//! - X's Livestream API (`api.x.com/2`: `sources`, `broadcasts`, `broadcasts/:id/chat`; needs
+//!   X's approval for the app). X takes a title only when a broadcast starts: Lightair goes live
+//!   on X itself once X sees the video, with the title set for it, and ends it when the stream
+//!   stops. X sends chat to a public webhook, so reading it waits for the relay.
 
 use serde_json::{Value, json};
 
@@ -212,12 +216,79 @@ fn kick_edit(channel: &str, title: Option<&str>, category: Option<&str>) -> Resu
     Ok(if found.is_empty() { "Saved".into() } else { format!("Saved (category: {found})") })
 }
 
+// ---- X ----
+
+const XAPI: &str = "https://api.x.com/2";
+/// The X broadcast Lightair started (its id), while it runs.
+static X_LIVE: parking_lot::Mutex<Option<String>> = parking_lot::Mutex::new(None);
+
+fn x_title() -> Option<String> {
+    oauth::kept("x-next-title")
+}
+
+/// Goes live on X once its source sees the video (waits up to 90 s; nothing when Lightair isn't
+/// streaming to X): the broadcast's address.
+pub fn x_go_live() -> Result<Option<String>, String> {
+    if !signed_in("x") || X_LIVE.lock().is_some() {
+        return Ok(None);
+    }
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(90);
+    let source = loop {
+        let v = call("x", "GET", &format!("{XAPI}/sources"), None)?;
+        if let Some(s) = v["data"].as_array().into_iter().flatten().find(|s| s["is_stream_active"].as_bool() == Some(true)) {
+            break s["id"].as_str().unwrap_or("").to_string();
+        }
+        if std::time::Instant::now() > until {
+            return Ok(None);
+        }
+        std::thread::sleep(std::time::Duration::from_secs(5));
+    };
+    let mut body = json!({"source_id": source});
+    if let Some(t) = x_title() {
+        body["title"] = json!(t);
+    }
+    let v = call("x", "POST", &format!("{XAPI}/broadcasts"), Some(body))?;
+    let d = &v["data"];
+    let id = d["id"].as_str().or(d["broadcast_id"].as_str()).ok_or("X didn't start the broadcast")?.to_string();
+    *X_LIVE.lock() = Some(id);
+    Ok(d["share_url"].as_str().map(String::from))
+}
+
+/// Ends the X broadcast Lightair started.
+pub fn x_end() -> Result<(), String> {
+    let Some(id) = X_LIVE.lock().take() else { return Ok(()) };
+    call("x", "PUT", &format!("{XAPI}/broadcasts/{id}/state"), Some(json!({"state": "END"}))).map(|_| ())
+}
+
+fn x_info() -> Result<StreamInfo, String> {
+    let Some(id) = X_LIVE.lock().clone() else {
+        return Ok(StreamInfo { title: x_title().unwrap_or_default(), ..Default::default() });
+    };
+    let v = call("x", "GET", &format!("{XAPI}/broadcasts/{id}?broadcast.fields=title,state,total_watching,start_ms"), None)?;
+    let d = &v["data"];
+    Ok(StreamInfo {
+        live: d["state"].as_str() == Some("RUNNING"),
+        title: d["title"].as_str().unwrap_or("").to_string(),
+        category: String::new(),
+        viewers: d["total_watching"].as_str().and_then(|n| n.parse().ok()).or(d["total_watching"].as_u64()),
+        started_ms: d["start_ms"].as_str().and_then(|n| n.parse().ok()).or(d["start_ms"].as_i64()),
+        description: None,
+    })
+}
+
 // ---- what the rest of Lightair calls ----
 
 /// The stream's details through the API (YouTube: the signed-in channel's own broadcast, so
 /// Private and Unlisted streams are found too). None: not signed in officially, or not needed.
 pub fn info(platform: &str) -> Option<Result<StreamInfo, String>> {
-    (provider(platform) == "youtube" && signed_in(platform)).then(yt_info)
+    if !signed_in(platform) {
+        return None;
+    }
+    match provider(platform) {
+        "youtube" => Some(yt_info()),
+        "x" => Some(x_info()),
+        _ => None,
+    }
 }
 
 /// Changes what's set (title, description: YouTube only, category by name).
@@ -226,6 +297,11 @@ pub fn edit(platform: &str, channel: &str, title: Option<&str>, description: Opt
         "youtube" => yt_edit(title, description, category),
         "twitch" => twitch_edit(channel, title, category),
         "kick" => kick_edit(channel, title, category),
+        "x" => {
+            let Some(t) = title else { return Ok("Nothing to change (X has no category)".into()) };
+            oauth::keep("x-next-title", t);
+            Ok(if X_LIVE.lock().is_some() { "Kept for the next time you go live (X can't rename a live broadcast)".into() } else { "Kept: X uses it when you go live".into() })
+        }
         other => Err(format!("no official API for {other}")),
     }
 }
@@ -255,6 +331,15 @@ pub fn send(platform: &str, channel: &str, text: &str, reply_to: Option<&str>) -
                 body["reply_to_message_id"] = json!(r);
             }
             call("kick", "POST", &format!("{KICK}/chat"), Some(body)).map(|_| ())
+        }
+        "x" => {
+            let id = X_LIVE.lock().clone().ok_or("Lightair isn't live on X")?;
+            let text: String = text.chars().take(140).collect();
+            let mut body = json!({"text": text});
+            if let Some(r) = reply_to {
+                body["reply_to"] = json!(r);
+            }
+            call("x", "POST", &format!("{XAPI}/broadcasts/{id}/chat"), Some(body)).map(|_| ())
         }
         other => Err(format!("no official API for {other}")),
     }

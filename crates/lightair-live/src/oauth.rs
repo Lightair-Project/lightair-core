@@ -9,6 +9,9 @@
 //!   twitch.tv/activate with the code filled in; no secret in the app.
 //! - **Kick**: authorization code with PKCE to a fixed loopback address (Kick wants the exact
 //!   redirect registered: `http://127.0.0.1:47801/callback` unless set otherwise).
+//! - **X**: authorization code with PKCE (its Livestream API), to
+//!   `http://127.0.0.1:47802/callback`; a public ("Native App") client, or with its secret as
+//!   HTTP Basic for a confidential one.
 //!
 //! Each app's ids come from the build (`LIGHTAIR_YOUTUBE_CLIENT_ID`, … set when building) or
 //! the environment at run time; docs/official-apis.md says how to register them. Tokens are kept
@@ -25,7 +28,7 @@ use serde_json::{Value, json};
 use crate::net;
 
 /// The platforms with an official sign-in Lightair supports.
-pub const PROVIDERS: &[&str] = &["youtube", "twitch", "kick"];
+pub const PROVIDERS: &[&str] = &["youtube", "twitch", "kick", "x"];
 
 struct App {
     client_id: String,
@@ -37,6 +40,7 @@ fn app(provider: &str) -> Option<App> {
         "youtube" => (option_env!("LIGHTAIR_YOUTUBE_CLIENT_ID"), option_env!("LIGHTAIR_YOUTUBE_CLIENT_SECRET")),
         "twitch" => (option_env!("LIGHTAIR_TWITCH_CLIENT_ID"), None),
         "kick" => (option_env!("LIGHTAIR_KICK_CLIENT_ID"), option_env!("LIGHTAIR_KICK_CLIENT_SECRET")),
+        "x" => (option_env!("LIGHTAIR_X_CLIENT_ID"), option_env!("LIGHTAIR_X_CLIENT_SECRET")),
         _ => return None,
     };
     let var = |k: &str| std::env::var(format!("LIGHTAIR_{}_{k}", provider.to_uppercase())).ok().filter(|v| !v.is_empty());
@@ -66,6 +70,18 @@ fn load(provider: &str) -> Option<Value> {
 fn save(provider: &str, v: &Value) {
     if let Some((_, set)) = STORE.get() {
         set(&format!("oauth-{provider}"), &v.to_string());
+    }
+}
+
+/// Something else kept with the sign-ins (X's title for the next broadcast).
+pub fn kept(name: &str) -> Option<String> {
+    let (get, _) = STORE.get()?;
+    get(name).filter(|v| !v.is_empty())
+}
+
+pub fn keep(name: &str, value: &str) {
+    if let Some((_, set)) = STORE.get() {
+        set(name, value);
     }
 }
 
@@ -112,12 +128,18 @@ pub(crate) fn encode(s: &str) -> String {
 }
 
 fn post_form(url: &str, fields: &[(&str, &str)]) -> Result<Value, String> {
-    let mut res = net::agent()
-        .post(url)
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .header("Accept", "application/json")
-        .send(form(fields))
-        .map_err(|e| e.to_string())?;
+    post_form_as(url, fields, None)
+}
+
+/// With `basic` (client id, secret): HTTP Basic, as X wants from confidential clients.
+fn post_form_as(url: &str, fields: &[(&str, &str)], basic: Option<(&str, &str)>) -> Result<Value, String> {
+    let mut req = net::agent().post(url).header("Content-Type", "application/x-www-form-urlencoded").header("Accept", "application/json");
+    let auth;
+    if let Some((id, secret)) = basic {
+        auth = format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(format!("{}:{}", encode(id), encode(secret))));
+        req = req.header("Authorization", &auth);
+    }
+    let mut res = req.send(form(fields)).map_err(|e| e.to_string())?;
     let text = res.body_mut().read_to_string().unwrap_or_default();
     serde_json::from_str(&text).map_err(|_| format!("{url}: {}", text.chars().take(200).collect::<String>()))
 }
@@ -199,7 +221,7 @@ pub fn sign_in(provider: &str, prompt: Prompt) -> Result<String, String> {
     let app = app(provider).ok_or_else(|| format!("this copy of Lightair has no {provider} app to sign in with (docs/official-apis.md)"))?;
     let token = match provider {
         "twitch" => twitch_device(&app, &prompt)?,
-        "youtube" | "kick" => code_flow(provider, &app, &prompt)?,
+        "youtube" | "kick" | "x" => code_flow(provider, &app, &prompt)?,
         other => return Err(format!("no official sign-in for {other}")),
     };
     let mut record = token;
@@ -212,10 +234,18 @@ pub fn sign_in(provider: &str, prompt: Prompt) -> Result<String, String> {
 }
 
 fn code_flow(provider: &str, app: &App, prompt: &Prompt) -> Result<Value, String> {
-    let port: u16 = if provider == "kick" { std::env::var("LIGHTAIR_KICK_REDIRECT_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(47801) } else { 0 };
+    let fixed = match provider {
+        "kick" => Some(47801),
+        "x" => Some(47802),
+        _ => None,
+    };
+    let port: u16 = match fixed {
+        Some(default) => std::env::var(format!("LIGHTAIR_{}_REDIRECT_PORT", provider.to_uppercase())).ok().and_then(|p| p.parse().ok()).unwrap_or(default),
+        None => 0,
+    };
     let listener = TcpListener::bind(("127.0.0.1", port)).map_err(|e| format!("couldn't wait for the browser: {e}"))?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
-    let redirect = if provider == "kick" { format!("http://127.0.0.1:{port}/callback") } else { format!("http://127.0.0.1:{port}") };
+    let redirect = if fixed.is_some() { format!("http://127.0.0.1:{port}/callback") } else { format!("http://127.0.0.1:{port}") };
     let verifier = b64url(&random(48));
     let challenge = {
         use sha2::Digest;
@@ -224,6 +254,7 @@ fn code_flow(provider: &str, app: &App, prompt: &Prompt) -> Result<Value, String
     let state = b64url(&random(16));
     let (auth, scope) = match provider {
         "youtube" => ("https://accounts.google.com/o/oauth2/v2/auth", "https://www.googleapis.com/auth/youtube"),
+        "x" => ("https://x.com/i/oauth2/authorize", "broadcast.read broadcast.write tweet.read users.read offline.access"),
         _ => ("https://id.kick.com/oauth/authorize", "user:read channel:read channel:write chat:write moderation:ban"),
     };
     let mut url = format!(
@@ -238,18 +269,15 @@ fn code_flow(provider: &str, app: &App, prompt: &Prompt) -> Result<Value, String
     prompt("Finish signing in in your browser…");
     open_browser(&url);
     let code = wait_for_code(&listener, &state, Duration::from_secs(300))?;
-    let token_url = if provider == "youtube" { "https://oauth2.googleapis.com/token" } else { "https://id.kick.com/oauth/token" };
-    let mut fields = vec![
+    let token_url = token_url(provider);
+    let fields = vec![
         ("grant_type", "authorization_code"),
         ("client_id", app.client_id.as_str()),
         ("code", code.as_str()),
         ("code_verifier", verifier.as_str()),
         ("redirect_uri", redirect.as_str()),
     ];
-    if let Some(s) = &app.secret {
-        fields.push(("client_secret", s.as_str()));
-    }
-    let v = post_form(token_url, &fields)?;
+    let v = exchange(provider, app, token_url, fields)?;
     if v["access_token"].as_str().is_none() {
         return Err(format!("{provider} didn't give a token: {}", v["error_description"].as_str().or(v["error"].as_str()).unwrap_or("")));
     }
@@ -283,6 +311,27 @@ fn twitch_device(app: &App, prompt: &Prompt) -> Result<Value, String> {
     Err("the sign-in wasn't finished in time".into())
 }
 
+fn token_url(provider: &str) -> &'static str {
+    match provider {
+        "youtube" => "https://oauth2.googleapis.com/token",
+        "twitch" => "https://id.twitch.tv/oauth2/token",
+        "x" => "https://api.x.com/2/oauth2/token",
+        _ => "https://id.kick.com/oauth/token",
+    }
+}
+
+/// A token request: the secret in the form, or (X) as HTTP Basic.
+fn exchange<'a>(provider: &str, app: &'a App, url: &str, mut fields: Vec<(&'a str, &'a str)>) -> Result<Value, String> {
+    match (&app.secret, provider) {
+        (Some(s), "x") => post_form_as(url, &fields, Some((&app.client_id, s))),
+        (Some(s), _) => {
+            fields.push(("client_secret", s.as_str()));
+            post_form(url, &fields)
+        }
+        (None, _) => post_form(url, &fields),
+    }
+}
+
 /// The signed-in account: (id, name).
 fn whoami(provider: &str, token: &str) -> Result<(String, String), String> {
     let agent = net::agent();
@@ -307,6 +356,11 @@ fn whoami(provider: &str, token: &str) -> Result<(String, String), String> {
             let u = &v["data"][0];
             Ok((u["id"].as_str().ok_or("Twitch didn't say who signed in")?.to_string(), u["login"].as_str().unwrap_or("").to_string()))
         }
+        "x" => {
+            let v = get("https://api.x.com/2/users/me", None)?;
+            let u = &v["data"];
+            Ok((u["id"].as_str().ok_or("X didn't say who signed in")?.to_string(), u["username"].as_str().unwrap_or("").to_string()))
+        }
         _ => {
             let v = get("https://api.kick.com/public/v1/users", None)?;
             let u = &v["data"][0];
@@ -325,16 +379,8 @@ pub fn token(provider: &str) -> Option<String> {
     }
     let app = app(provider)?;
     let refresh = v["refresh_token"].as_str()?.to_string();
-    let url = match provider {
-        "youtube" => "https://oauth2.googleapis.com/token",
-        "twitch" => "https://id.twitch.tv/oauth2/token",
-        _ => "https://id.kick.com/oauth/token",
-    };
-    let mut fields = vec![("grant_type", "refresh_token"), ("client_id", app.client_id.as_str()), ("refresh_token", refresh.as_str())];
-    if let Some(s) = &app.secret {
-        fields.push(("client_secret", s.as_str()));
-    }
-    let t = post_form(url, &fields).ok()?;
+    let fields = vec![("grant_type", "refresh_token"), ("client_id", app.client_id.as_str()), ("refresh_token", refresh.as_str())];
+    let t = exchange(provider, &app, token_url(provider), fields).ok()?;
     let access = t["access_token"].as_str()?.to_string();
     v["access_token"] = json!(access);
     if let Some(r) = t["refresh_token"].as_str() {
