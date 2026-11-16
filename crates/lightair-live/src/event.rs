@@ -16,6 +16,8 @@ pub enum Kind {
     Membership,
     /// Another channel sent its viewers here.
     Raid { viewers: u64 },
+    /// Someone followed the channel.
+    Follow,
     /// A message (`native_id`) or everything one user said (`user_id`) was removed.
     Deletion {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -58,6 +60,9 @@ pub struct ChatEvent {
     /// Removed since (a moderator deleted it).
     #[serde(default)]
     pub deleted: bool,
+    /// Made up to try a widget or an automation (the Inspector's test buttons), not read.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub test: bool,
 }
 
 impl ChatEvent {
@@ -76,6 +81,7 @@ impl ChatEvent {
             paid: None,
             headline: None,
             deleted: false,
+            test: false,
         }
     }
 
@@ -84,6 +90,24 @@ impl ChatEvent {
         self.text = plain_text(&fragments);
         self.fragments = fragments;
         self
+    }
+
+    /// What an alert calls it: "follow", "sub", "paid" (a donation, Super Chat, gift), "cheer"
+    /// (Twitch bits), "raid"; `None` for chat and the rest.
+    pub fn alert_kind(&self) -> Option<&'static str> {
+        match &self.kind {
+            Kind::Follow => Some("follow"),
+            Kind::Membership => Some("sub"),
+            Kind::Raid { .. } => Some("raid"),
+            Kind::Paid if self.paid.as_ref().is_some_and(|p| p.currency == "BITS") => Some("cheer"),
+            Kind::Paid => Some("paid"),
+            _ => None,
+        }
+    }
+
+    /// Who it's from, as shown.
+    pub fn name(&self) -> &str {
+        self.user.as_ref().map_or("", |u| u.display_name.as_str())
     }
 }
 
