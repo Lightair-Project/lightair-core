@@ -486,6 +486,7 @@ fn serve(mut stream: TcpStream, shared: &Arc<Shared>) -> io::Result<()> {
             "/lightair.js" => http::respond(&mut stream, 200, "text/javascript; charset=utf-8", page::BRIDGE.as_bytes(), &no_cache)?,
             "/jquery.js" => http::respond(&mut stream, 200, "text/javascript; charset=utf-8", page::JQUERY.as_bytes(), &[])?,
             "/se-shim.js" => http::respond(&mut stream, 200, "text/javascript; charset=utf-8", page::SE_SHIM.as_bytes(), &no_cache)?,
+            "/sl-shim.js" => http::respond(&mut stream, 200, "text/javascript; charset=utf-8", page::SL_SHIM.as_bytes(), &no_cache)?,
             p if p.starts_with("/run/") => {
                 let name = percent_decode(&p[5..]);
                 let given = query(&req.path, "key").unwrap_or_default();

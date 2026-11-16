@@ -112,48 +112,114 @@ fn twitch_gql(query: &str) -> Result<Value, String> {
     serde_json::from_str(&res.body_mut().read_to_string().map_err(|e| e.to_string())?).map_err(|e| e.to_string())
 }
 
-/// Whether Lightair can change the stream's title and category itself on `platform`.
+/// A GraphQL request as the signed-in account (`Authorization: OAuth <the site's token>`).
+fn twitch_gql_as(token: &str, body: Value) -> Result<Value, String> {
+    let agent = net::agent();
+    let mut res = agent
+        .post("https://gql.twitch.tv/gql")
+        .header("Client-Id", "kimne78kx3ncx6brgo4mv6wki5h1ko")
+        .header("Authorization", &format!("OAuth {token}"))
+        .header("User-Agent", net::USER_AGENT)
+        .send(body.to_string())
+        .map_err(|e| e.to_string())?;
+    serde_json::from_str(&res.body_mut().read_to_string().map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+}
+
+/// Whether Lightair can change the stream's title and category itself on `platform`. (YouTube
+/// Studio's own edit asks for Google's anti-bot attestation: its dashboard does it.)
 pub fn can_edit(platform: &str) -> bool {
-    platform == "twitch"
+    matches!(platform, "twitch" | "kick")
 }
 
 /// Changes the stream's title and/or category (by name: the closest the platform finds), as
 /// the person signed in to the platform in Lightair.
 pub fn edit(platform: &str, channel: &str, title: Option<&str>, category: Option<&str>) -> Result<String, String> {
-    if platform != "twitch" {
-        return Err(format!("change it in {platform}'s dashboard"));
+    let title = title.map(str::trim).filter(|t| !t.is_empty());
+    let category = category.map(str::trim).filter(|c| !c.is_empty());
+    match platform {
+        "twitch" => edit_twitch(channel, title, category),
+        "kick" => edit_kick(channel, title, category),
+        other => Err(format!("change it in {other}'s dashboard")),
     }
+}
+
+/// Twitch: the dashboard's own GraphQL mutation (`updateBroadcastSettings`; the title is
+/// `status`). Twitch's Helix API doesn't take the site's session.
+fn edit_twitch(channel: &str, title: Option<&str>, category: Option<&str>) -> Result<String, String> {
     let token = crate::pages::cookie("https://www.twitch.tv", "auth-token").ok_or("sign in to Twitch first (Outputs › the destination › Sending)")?;
     let login = crate::twitch::login(channel);
     let id = twitch_gql(&format!("query{{user(login:\"{login}\"){{id}}}}"))?["data"]["user"]["id"].as_str().ok_or("no such Twitch channel")?.to_string();
-    let mut body = serde_json::json!({});
-    if let Some(t) = title.map(str::trim).filter(|t| !t.is_empty()) {
-        body["title"] = serde_json::json!(t);
+    let mut input = serde_json::json!({"userID": id});
+    if let Some(t) = title {
+        input["status"] = serde_json::json!(t);
     }
     let mut found = String::new();
-    if let Some(c) = category.map(str::trim).filter(|c| !c.is_empty()) {
-        let q = format!("query{{searchCategories(query:{},first:1){{edges{{node{{id name}}}}}}}}", serde_json::to_string(c).unwrap_or_default());
-        let v = twitch_gql(&q)?;
+    if let Some(c) = category {
+        let v = twitch_gql_as(&token, serde_json::json!({
+            "query": "query($q:String!){searchCategories(query:$q,first:1){edges{node{id name displayName}}}}",
+            "variables": {"q": c},
+        }))?;
         let node = &v["data"]["searchCategories"]["edges"][0]["node"];
         let gid = node["id"].as_str().ok_or_else(|| format!("Twitch has no category like “{c}”"))?;
-        found = node["name"].as_str().unwrap_or("").to_string();
-        body["game_id"] = serde_json::json!(gid);
+        found = node["displayName"].as_str().or(node["name"].as_str()).unwrap_or("").to_string();
+        input["categoryID"] = serde_json::json!(gid);
+        input["game"] = serde_json::json!(node["name"].as_str().unwrap_or(&found));
     }
-    let agent = net::agent();
-    let mut res = agent
-        .patch(&format!("https://api.twitch.tv/helix/channels?broadcaster_id={id}"))
-        .header("Client-Id", "kimne78kx3ncx6brgo4mv6wki5h1ko")
-        .header("Authorization", &format!("Bearer {token}"))
-        .header("Content-Type", "application/json")
-        .send(body.to_string())
-        .map_err(|e| e.to_string())?;
-    let status = res.status().as_u16();
-    if status >= 300 {
-        let text = res.body_mut().read_to_string().unwrap_or_default();
-        let why = serde_json::from_str::<Value>(&text).ok().and_then(|v| v["message"].as_str().map(String::from)).unwrap_or(text);
-        return Err(format!("Twitch said no ({status}): {why}"));
+    let v = twitch_gql_as(&token, serde_json::json!({
+        "operationName": "EditBroadcastContext_BroadcastSettingsMutation",
+        "query": "mutation EditBroadcastContext_BroadcastSettingsMutation($input: UpdateBroadcastSettingsInput!) { updateBroadcastSettings(input: $input) { broadcastSettings { id title game { id name displayName } } error } }",
+        "variables": {"input": input},
+    }))?;
+    if let Some(e) = v["errors"][0]["message"].as_str() {
+        return Err(format!("Twitch said no: {e}"));
+    }
+    let r = &v["data"]["updateBroadcastSettings"];
+    if let Some(e) = r["error"].as_str().filter(|e| !e.is_empty()) {
+        return Err(format!("Twitch said no: {e}"));
+    }
+    if r.is_null() {
+        return Err("Twitch didn't answer the change".into());
     }
     Ok(if found.is_empty() { "Saved".into() } else { format!("Saved (category: {found})") })
+}
+
+/// Kick: its site's own request (`PATCH /api/v2/channels/<slug>/stream-info`), from a
+/// signed-in hidden page; the category found through Kick's own search. Kick changes the title
+/// only while live.
+fn edit_kick(channel: &str, title: Option<&str>, category: Option<&str>) -> Result<String, String> {
+    if !crate::accounts::signed_in("kick") {
+        return Err("sign in to Kick first (Outputs › the destination › Sending)".into());
+    }
+    let slug = crate::kick::slug(channel);
+    let script = format!(
+        r#"(async function () {{
+  function cookie(n) {{ var m = document.cookie.match(new RegExp('(?:^|; )' + n + '=([^;]*)')); return m ? decodeURIComponent(m[1]) : ''; }}
+  try {{
+    var title = {title}, category = {category}, body = {{}}, found = '';
+    if (title) body.stream_title = title;
+    if (category) {{
+      var r = await fetch('https://search.kick.com/collections/subcategory_index/documents/search?q=' + encodeURIComponent(category) + '&query_by=name', {{ headers: {{ 'X-Typesense-Api-Key': 'nXIMW0iEN6sMujFYjFuhdrSwVow3pDQu' }} }});
+      var hit = ((await r.json()).hits || [])[0];
+      if (!hit) return lightair('no:Kick has no category like “' + category + '”');
+      body.category_id = +hit.document.id; found = hit.document.name || '';
+    }}
+    var headers = {{ 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-XSRF-TOKEN': cookie('XSRF-TOKEN') }};
+    var session = cookie('session_token');
+    if (session) headers['Authorization'] = 'Bearer ' + session;
+    var res = await fetch('/api/v2/channels/{slug}/stream-info', {{ method: 'PATCH', credentials: 'include', headers: headers, body: JSON.stringify(body) }});
+    lightair(res.ok ? 'ok:' + found : 'no:' + res.status + ' ' + (await res.text()).slice(0, 200));
+  }} catch (e) {{ lightair('no:' + e); }}
+}})();"#,
+        title = serde_json::to_string(&title).unwrap_or_default(),
+        category = serde_json::to_string(&category).unwrap_or_default(),
+    );
+    let answer = crate::pages::run(&format!("https://kick.com/{slug}"), &script, std::time::Duration::from_secs(30), &std::sync::atomic::AtomicBool::new(false))?;
+    match (answer.strip_prefix("ok:"), answer.strip_prefix("no:")) {
+        (Some(""), _) => Ok("Saved".into()),
+        (Some(found), _) => Ok(format!("Saved (category: {found})")),
+        (_, Some(why)) => Err(format!("Kick said no: {why}")),
+        _ => Err("Kick didn't answer".into()),
+    }
 }
 
 #[cfg(test)]
