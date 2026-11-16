@@ -96,6 +96,57 @@ pub fn resolve(url: &str, port: u16) -> String {
     }
 }
 
+/// A widget from a folder, or a `.lwidget` (or `.zip`) package of the same files.
+pub fn import(path: &std::path::Path) -> Result<Custom, String> {
+    if path.is_dir() {
+        return import_folder(path);
+    }
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|_| "that isn't a .lwidget (zip) package".to_string())?;
+    let mut c = Custom { html: String::new(), css: String::new(), js: String::new(), fields: String::new() };
+    for i in 0..zip.len() {
+        let mut f = zip.by_index(i).map_err(|e| e.to_string())?;
+        let name = f.name().rsplit('/').next().unwrap_or("").to_ascii_lowercase();
+        let mut text = String::new();
+        if std::io::Read::read_to_string(&mut f, &mut text).is_err() {
+            continue;
+        }
+        if name.ends_with(".html") || name.ends_with(".htm") {
+            c.html = text;
+        } else if name.ends_with(".css") {
+            c.css = text;
+        } else if name.ends_with(".js") {
+            c.js = text;
+        } else if name.contains("field") && name.ends_with(".json") {
+            c.fields = text;
+        }
+    }
+    if c.html.is_empty() && c.js.is_empty() {
+        return Err("no HTML or JS in that package".into());
+    }
+    Ok(c)
+}
+
+/// Writes `c` as a `.lwidget` package (its manifest names it `name`, `size`).
+pub fn export(c: &Custom, name: &str, size: (u32, u32), path: &std::path::Path) -> Result<(), String> {
+    let file = std::fs::File::create(path).map_err(|e| e.to_string())?;
+    let mut zip = zip::ZipWriter::new(file);
+    let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let manifest = serde_json::json!({"name": name, "version": "1.0.0", "size": [size.0, size.1], "format": "lightair-widget/1"});
+    for (file, text) in [
+        ("manifest.json", serde_json::to_string_pretty(&manifest).unwrap_or_default()),
+        ("index.html", c.html.clone()),
+        ("style.css", c.css.clone()),
+        ("main.js", c.js.clone()),
+        ("fields.json", c.fields.clone()),
+    ] {
+        zip.start_file(file, opts).map_err(|e| e.to_string())?;
+        std::io::Write::write_all(&mut zip, text.as_bytes()).map_err(|e| e.to_string())?;
+    }
+    zip.finish().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// An imported StreamElements widget from its folder's files (`html`, `css`, `js`, `fields`:
 /// whichever exist, by extension or name).
 pub fn import_folder(dir: &std::path::Path) -> Result<Custom, String> {
@@ -124,6 +175,15 @@ pub fn import_folder(dir: &std::path::Path) -> Result<Custom, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn packages_round_trip() {
+        let c = Custom { html: "<div>{{title}}</div>".into(), css: "div{}".into(), js: "1".into(), fields: r#"{"title":{"type":"text","value":"x"}}"#.into() };
+        let path = std::env::temp_dir().join(format!("lightair-{}.lwidget", std::process::id()));
+        export(&c, "Test", (400, 200), &path).unwrap();
+        assert_eq!(import(&path).unwrap(), c);
+        let _ = std::fs::remove_file(path);
+    }
 
     #[test]
     fn addresses_resolve_and_settings_round_trip() {

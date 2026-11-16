@@ -18,3 +18,4 @@ sha1_smol = "1"
 base64 = "0.22"
 getrandom = "0.3"
 tungstenite = { version = "0.30.0", default-features = false }
+zip = { version = "2", default-features = false, features = ["deflate"] }
