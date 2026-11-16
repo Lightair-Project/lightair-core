@@ -38,6 +38,14 @@ pub fn read(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
         socket.send(Message::text(line)).map_err(|e| e.to_string())?;
     }
     let mut heard = Instant::now();
+    // follows: Twitch's chat doesn't carry them; its site's public count does (checked now and
+    // then on a thread of its own, so a slow answer never holds up chat)
+    let _watching = {
+        let (sink, login, stop_flag) = (sink.clone(), login.clone(), std::sync::Arc::new(AtomicBool::new(false)));
+        let watch = stop_flag.clone();
+        let _ = std::thread::Builder::new().name("lightair-twitch-follows".into()).spawn(move || follows(&sink, &login, &watch));
+        StopOnDrop(stop_flag)
+    };
     // the channel's 7TV, FFZ and BTTV emotes, loaded once Twitch says which room this is
     let emotes: std::sync::Arc<parking_lot::Mutex<crate::emotes::Emotes>> = Default::default();
     while !stop.load(Ordering::Acquire) {
@@ -82,6 +90,77 @@ pub fn read(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
     }
     let _ = socket.close(None);
     Ok(())
+}
+
+/// Stops the follow watcher however its reader ends.
+struct StopOnDrop(std::sync::Arc<AtomicBool>);
+
+impl Drop for StopOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
+    }
+}
+
+/// Twitch's own site's client: public questions (counts) need nothing else.
+const GQL_CLIENT: &str = "kimne78kx3ncx6brgo4mv6wki5h1ko";
+
+fn gql(query: &str, token: Option<&str>) -> Result<serde_json::Value, String> {
+    let agent = net::agent();
+    let mut req = agent.post("https://gql.twitch.tv/gql").header("Client-Id", GQL_CLIENT).header("Content-Type", "application/json");
+    if let Some(t) = token {
+        req = req.header("Authorization", &format!("OAuth {t}"));
+    }
+    let mut res = req.send(serde_json::json!({"query": query}).to_string()).map_err(|e| e.to_string())?;
+    serde_json::from_str(&res.body_mut().read_to_string().map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+}
+
+/// New followers: the public count, checked every 20 s; names when the channel's own session
+/// (signed in to Twitch in Lightair) may see them, else "Someone".
+fn follows(sink: &Sink, login: &str, stop: &AtomicBool) {
+    let count_q = format!("query{{user(login:\"{login}\"){{followers(first:1){{totalCount}}}}}}");
+    let names_q = format!("query{{user(login:\"{login}\"){{followers(first:20){{edges{{node{{id login displayName}}}}}}}}}}");
+    let count = |v: &serde_json::Value| v["data"]["user"]["followers"]["totalCount"].as_u64();
+    let mut last = gql(&count_q, None).ok().and_then(|v| count(&v));
+    let token = || crate::pages::cookie("https://www.twitch.tv", "auth-token");
+    let mut known: std::collections::HashSet<String> = std::collections::HashSet::new();
+    if let Some(t) = token()
+        && let Ok(v) = gql(&names_q, Some(&t))
+    {
+        known.extend(v["data"]["user"]["followers"]["edges"].as_array().into_iter().flatten().filter_map(|e| e["node"]["id"].as_str().map(String::from)));
+    }
+    let channel = sink.channel().channel.clone();
+    while !stop.load(Ordering::Acquire) && crate::hub::sleep_unless(stop, Duration::from_secs(20)) {
+        let Some(now) = gql(&count_q, None).ok().and_then(|v| count(&v)) else { continue };
+        let Some(before) = last.replace(now) else { continue };
+        if now <= before {
+            continue;
+        }
+        let mut named = Vec::new();
+        if let Some(t) = token()
+            && let Ok(v) = gql(&names_q, Some(&t))
+        {
+            for e in v["data"]["user"]["followers"]["edges"].as_array().into_iter().flatten() {
+                let n = &e["node"];
+                if let Some(id) = n["id"].as_str()
+                    && known.insert(id.to_string())
+                {
+                    named.push(User { id: id.into(), login: n["login"].as_str().unwrap_or("").into(), display_name: n["displayName"].as_str().unwrap_or("").into(), ..Default::default() });
+                }
+            }
+        }
+        let new = (now - before) as usize;
+        let people: Vec<User> = if named.is_empty() {
+            // nameless, and not a flood of them (a bot wave, a recount)
+            (0..new.min(5)).map(|_| User { display_name: "Someone".into(), ..Default::default() }).collect()
+        } else {
+            named.into_iter().rev().collect()
+        };
+        for u in people {
+            let mut e = ChatEvent::new("twitch", &channel, crate::event::Kind::Follow);
+            e.user = Some(u);
+            sink.emit(e);
+        }
+    }
 }
 
 pub enum Parsed {
