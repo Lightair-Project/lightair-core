@@ -668,6 +668,14 @@ impl Automations {
                 }
                 Ok(Some(format!("HTTP {status}")))
             }
+            Step::Script { code } => {
+                let out = self.call("script.run", json!({"code": code, "ctx": ctx.clone()}))?;
+                ctx["script"] = out.clone();
+                if out["stop"].as_bool() == Some(true) {
+                    return Err(StepError::Stop);
+                }
+                Ok(Some(text_of(&out).chars().take(200).collect()))
+            }
             Step::Stop => Err(StepError::Stop),
         }
     }

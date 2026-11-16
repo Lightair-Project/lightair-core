@@ -98,3 +98,59 @@ pub fn fetch_json(url: &str, timeout: Duration, stop: &AtomicBool) -> Result<ser
     let text = run(url, script, timeout, stop)?;
     serde_json::from_str(&text).map_err(|e| format!("{url}: {e}"))
 }
+
+/// The page scripts run in (blank, kept while used), its answers by run number.
+struct Scripts {
+    page: Box<dyn Page>,
+    answers: Arc<parking_lot::Mutex<std::collections::HashMap<u64, String>>>,
+    used: Instant,
+}
+
+static SCRIPTS: parking_lot::Mutex<Option<Scripts>> = parking_lot::Mutex::new(None);
+static RUNS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// Runs `code` (a JavaScript function body: `ctx` is given, `return` an object; `await` works)
+/// in a blank hidden page, within `timeout`: what it returned.
+pub fn run_script(code: &str, ctx: &serde_json::Value, timeout: Duration) -> Result<serde_json::Value, String> {
+    let n = RUNS.fetch_add(1, Ordering::Relaxed);
+    let answers = {
+        let mut s = SCRIPTS.lock();
+        if s.as_ref().is_none_or(|s| s.used.elapsed() > Duration::from_secs(600)) {
+            let answers: Arc<parking_lot::Mutex<std::collections::HashMap<u64, String>>> = Default::default();
+            let store = answers.clone();
+            let page = host()?.open("data:text/html,<title>Lightair scripts</title>", &format!("{PRELUDE}lightair('0:ready');"), Arc::new(move |m: String| {
+                if let Some((id, rest)) = m.split_once(':')
+                    && let Ok(id) = id.parse::<u64>()
+                {
+                    store.lock().insert(id, rest.to_string());
+                }
+            }));
+            // the page says when it's loaded and can run something
+            let started = Instant::now();
+            while answers.lock().remove(&0).is_none() {
+                if started.elapsed() > Duration::from_secs(10) {
+                    return Err("the script page didn't load".into());
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            *s = Some(Scripts { page, answers, used: Instant::now() });
+        }
+        let s = s.as_mut().unwrap();
+        s.used = Instant::now();
+        let wrapped = format!(
+            "{PRELUDE}(async function (ctx) {{\n{code}\n}})({ctx}).then(function (r) {{ lightair('{n}:' + JSON.stringify({{ ok: true, result: r === undefined ? null : r }})); }}, function (e) {{ lightair('{n}:' + JSON.stringify({{ ok: false, error: String(e && e.message || e) }})); }});",
+            ctx = serde_json::to_string(ctx).unwrap_or_else(|_| "{}".into())
+        );
+        s.page.eval(&wrapped);
+        s.answers.clone()
+    };
+    let started = Instant::now();
+    while started.elapsed() < timeout {
+        if let Some(a) = answers.lock().remove(&n) {
+            let v: serde_json::Value = serde_json::from_str(&a).map_err(|e| e.to_string())?;
+            return if v["ok"].as_bool() == Some(true) { Ok(v["result"].clone()) } else { Err(v["error"].as_str().unwrap_or("the script failed").to_string()) };
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    Err("the script didn't finish in time".into())
+}

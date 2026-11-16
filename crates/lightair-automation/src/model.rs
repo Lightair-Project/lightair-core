@@ -125,6 +125,9 @@ pub enum Step {
     Run { automation: String },
     /// A web request (`method` GET or POST); its answer is `{{ http }}` after.
     Http { url: String, #[serde(default = "get")] method: String, #[serde(default)] body: String },
+    /// JavaScript (a function body): `ctx` is the run's context; what it returns is
+    /// `{{ script.… }}` after, and `{stop: true}` ends the run. Ten seconds at most.
+    Script { code: String },
     /// Ends the run here.
     Stop,
 }
@@ -155,6 +158,7 @@ impl Step {
             Step::Random { choices } => format!("One of {}", choices.len()),
             Step::Run { automation } => format!("Run {automation}"),
             Step::Http { method, url, .. } => format!("{method} {url}"),
+            Step::Script { code } => format!("Script: {}", code.lines().next().unwrap_or("")),
             Step::Stop => "Stop".into(),
         }
     }
