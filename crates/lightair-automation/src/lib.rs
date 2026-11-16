@@ -419,7 +419,14 @@ impl Automations {
                     let ok = (contains.is_empty() || e.text.to_lowercase().contains(&contains.to_lowercase())) && (!only_first || first_time);
                     (ok, words.clone(), format!("{}: {}", e.name(), e.text))
                 }
-                Trigger::Timer { .. } | Trigger::Manual | Trigger::Output { .. } | Trigger::Start | Trigger::Hotkey { .. } => continue,
+                Trigger::Timer { .. }
+                | Trigger::Manual
+                | Trigger::Output { .. }
+                | Trigger::Start
+                | Trigger::Hotkey { .. }
+                | Trigger::File { .. }
+                | Trigger::Midi { .. }
+                | Trigger::Controller { .. } => continue,
             };
             if !fires || !self.cooled(&a, e) {
                 continue;
@@ -467,6 +474,57 @@ impl Automations {
                 }
             }
         }
+    }
+
+    /// Runs the enabled automations whose trigger `hit` accepts, with `extra` merged into what
+    /// their steps see.
+    fn signal(&self, hit: impl Fn(&Trigger) -> bool, extra: Value, cause: &str) {
+        for a in self.list().into_iter().filter(|a| a.enabled && hit(&a.trigger)) {
+            let mut ctx = self.with_state(context(None, &[]), None);
+            if let (Some(c), Value::Object(e)) = (ctx.as_object_mut(), &extra) {
+                c.extend(e.clone());
+            }
+            if a.conditions.iter().all(|c| check(c, &ctx)) {
+                self.queue(a, ctx, cause.to_string());
+            }
+        }
+    }
+
+    /// The files automations watch.
+    pub fn watched_files(&self) -> Vec<String> {
+        self.list().into_iter().filter(|a| a.enabled).filter_map(|a| match a.trigger {
+            Trigger::File { path } if !path.trim().is_empty() => Some(path),
+            _ => None,
+        }).collect()
+    }
+
+    /// Whether any automation listens to MIDI / game controllers (devices are opened only then).
+    pub fn wants(&self, what: &str) -> bool {
+        self.list().iter().any(|a| a.enabled && matches!((&a.trigger, what), (Trigger::Midi { .. }, "midi") | (Trigger::Controller { .. }, "controller")))
+    }
+
+    /// `path` changed; `text`: what it holds now (the start of it).
+    pub fn file_changed(&self, path: &str, text: &str) {
+        let name = std::path::Path::new(path).file_name().and_then(|n| n.to_str()).unwrap_or(path).to_string();
+        self.signal(|t| matches!(t, Trigger::File { path: p } if p == path), json!({"file": {"path": path, "name": name, "text": text}}), &format!("{name} changed"));
+    }
+
+    /// A MIDI message: `kind` "note" (pressed) or "cc", `channel` 1–16.
+    pub fn midi(&self, kind: &str, channel: u8, number: u8, value: u8, device: &str) {
+        self.signal(
+            |t| matches!(t, Trigger::Midi { message, number: n, channel: c } if message == kind && (*n < 0 || *n == number as i32) && (*c == 0 || *c == channel)),
+            json!({"midi": {"kind": kind, "channel": channel, "number": number, "value": value, "device": device}}),
+            &format!("MIDI {kind} {number}"),
+        );
+    }
+
+    /// A game controller's button was pressed.
+    pub fn controller(&self, button: &str, device: &str) {
+        self.signal(
+            |t| matches!(t, Trigger::Controller { button: b } if b.is_empty() || b.eq_ignore_ascii_case(button)),
+            json!({"controller": {"button": button, "device": device}}),
+            &format!("Controller {button}"),
+        );
     }
 
     /// Lightair started: the automations waiting for it.
@@ -782,6 +840,42 @@ mod tests {
         assert_eq!(calls[0].0, "chat.send");
         assert_eq!(calls[0].1["text"], "Go follow pal!");
         assert_eq!(a.vars()["shoutouts"], json!(1.0));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn files_midi_and_controllers_set_automations_off() {
+        let dir = std::env::temp_dir().join(format!("lightair-automation-test-{}", new_id()));
+        let host: Host = Arc::new(|_, _| Ok(json!({})));
+        let a = Automations::start(Hub::new(), dir.clone(), host);
+        let make = |id: &str, trigger: Trigger, value: &str| Automation {
+            id: id.into(),
+            name: id.into(),
+            enabled: true,
+            trigger,
+            conditions: vec![],
+            steps: vec![Step::Var { name: id.into(), op: "set".into(), value: value.into(), user: false }],
+            queue: String::new(),
+            cooldown: 0.0,
+            user_cooldown: 0.0,
+        };
+        a.set(make("file", Trigger::File { path: "/tmp/deaths.txt".into() }, "{{ file.text }}"));
+        a.set(make("pad", Trigger::Midi { message: "note".into(), number: 36, channel: 0 }, "{{ midi.value }}"));
+        a.set(make("fader", Trigger::Midi { message: "cc".into(), number: -1, channel: 2 }, "{{ midi.number }}"));
+        a.set(make("start", Trigger::Controller { button: "Start".into() }, "{{ controller.device }}"));
+        assert_eq!(a.watched_files(), vec!["/tmp/deaths.txt".to_string()]);
+        assert!(a.wants("midi") && a.wants("controller"));
+        a.file_changed("/tmp/other.txt", "x");
+        a.file_changed("/tmp/deaths.txt", "7");
+        a.midi("note", 10, 37, 100, "Pads");
+        a.midi("note", 10, 36, 90, "Pads");
+        a.midi("cc", 1, 7, 50, "Faders");
+        a.midi("cc", 2, 7, 50, "Faders");
+        a.controller("South", "Pad");
+        a.controller("start", "Pad");
+        wait_for(|| ["file", "pad", "fader", "start"].iter().all(|k| a.vars().contains_key(*k)));
+        let v = a.vars();
+        assert_eq!((v["file"].clone(), v["pad"].clone(), v["fader"].clone(), v["start"].clone()), (json!(7.0), json!(90.0), json!(7.0), json!("Pad")));
         let _ = std::fs::remove_dir_all(dir);
     }
 

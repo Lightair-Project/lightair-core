@@ -92,6 +92,24 @@ pub enum Trigger {
     Start,
     /// A global hotkey ("cmd-alt-1"), working in any app.
     Hotkey { keys: String },
+    /// A file changed (saved by another app: a game's stats, a bot's output). `{{ file.text }}`
+    /// is what it holds now.
+    File { path: String },
+    /// A MIDI controller: a note pressed or a knob or fader moved (`message`: "note" or "cc";
+    /// `number`: which one, -1 any; `channel` 1–16, 0 any).
+    Midi {
+        #[serde(default = "note")]
+        message: String,
+        #[serde(default = "any")]
+        number: i32,
+        #[serde(default)]
+        channel: u8,
+    },
+    /// A game controller's button ("South", "Start", "DPadUp", …; empty: any).
+    Controller {
+        #[serde(default)]
+        button: String,
+    },
     /// Only when run by hand, by another automation, through the remote API or its web address.
     Manual,
 }
@@ -192,7 +210,27 @@ impl Trigger {
             ),
             Trigger::Start => "When Lightair starts".into(),
             Trigger::Hotkey { keys } => format!("Hotkey {keys}"),
+            Trigger::File { path } => {
+                let name = std::path::Path::new(path).file_name().map_or(path.as_str(), |n| n.to_str().unwrap_or(path));
+                format!("When {name} changes")
+            }
+            Trigger::Midi { message, number, channel } => {
+                let what = if message == "cc" { "MIDI control" } else { "MIDI note" };
+                let which = if *number < 0 { "any".to_string() } else { number.to_string() };
+                if *channel == 0 { format!("{what} {which}") } else { format!("{what} {which} (channel {channel})") }
+            }
+            Trigger::Controller { button } => {
+                if button.is_empty() { "Any controller button".into() } else { format!("Controller {button}") }
+            }
             Trigger::Manual => "By hand".into(),
         }
     }
+}
+
+fn note() -> String {
+    "note".into()
+}
+
+fn any() -> i32 {
+    -1
 }
