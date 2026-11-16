@@ -11,6 +11,7 @@ pub mod event;
 pub mod hub;
 pub mod images;
 pub mod integrations;
+pub mod log;
 mod net;
 pub mod pages;
 mod proto;

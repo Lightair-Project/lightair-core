@@ -13,6 +13,7 @@ base64 = "0.22"
 flate2 = "1"
 tracing.workspace = true
 parking_lot.workspace = true
+crossbeam-channel.workspace = true
 # the system's own TLS (Security.framework, SChannel): no C to build, so the Windows build checks
 # from a Mac
 tungstenite = { version = "0.30.0", default-features = false, features = ["handshake", "native-tls"] }

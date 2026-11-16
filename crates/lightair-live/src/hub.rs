@@ -129,6 +129,18 @@ impl Hub {
         self.inner.status.lock().clone()
     }
 
+    /// Puts back events kept from before (numbered anew; nobody is told: they aren't new).
+    pub fn restore(&self, events: Vec<ChatEvent>) {
+        let mut history = self.inner.history.lock();
+        for mut e in events {
+            e.id = self.inner.seq.fetch_add(1, Ordering::Relaxed) + 1;
+            history.push_back(e);
+        }
+        while history.len() > HISTORY {
+            history.pop_front();
+        }
+    }
+
     /// Adds an event as if a reader had (tests and test events).
     pub fn inject(&self, channel: Channel, event: ChatEvent) {
         Sink { inner: self.inner.clone(), channel }.emit(event);
