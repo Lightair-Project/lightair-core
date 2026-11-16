@@ -14,4 +14,7 @@ tracing.workspace = true
 parking_lot.workspace = true
 crossbeam-channel.workspace = true
 getrandom = "0.3"
+# Streamer.bot import (streamerbot.rs)
+base64 = "0.22"
+flate2 = "1"
 ureq = { version = "3", default-features = false, features = ["native-tls-no-default", "gzip"] }

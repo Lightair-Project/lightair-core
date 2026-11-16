@@ -8,6 +8,7 @@
 
 pub mod model;
 pub mod recipes;
+pub mod streamerbot;
 pub mod template;
 pub mod viewers;
 
