@@ -135,6 +135,32 @@ pub fn call(method: &str, p: &Value) -> Option<Result<Value, String>> {
     })
 }
 
+/// Heart rate from Pulsoid (the person's own token from pulsoid.net › Keys): `on_bpm` with each
+/// reading, until `stop`. Reconnects with a pause after a failure.
+pub fn pulsoid(token: String, on_bpm: impl Fn(u32) + Send + 'static, stop: std::sync::Arc<std::sync::atomic::AtomicBool>) {
+    use std::sync::atomic::Ordering;
+    let _ = std::thread::Builder::new().name("lightair-heart-rate".into()).spawn(move || {
+        while !stop.load(Ordering::Acquire) {
+            let result = (|| -> Result<(), String> {
+                let mut socket = net::connect(&format!("wss://dev.pulsoid.net/api/v1/data/real_time?access_token={token}"), Duration::from_millis(500))?;
+                while !stop.load(Ordering::Acquire) {
+                    let Some(Message::Text(t)) = net::read(&mut socket)? else { continue };
+                    if let Ok(v) = serde_json::from_str::<Value>(t.as_str())
+                        && let Some(bpm) = v["data"]["heart_rate"].as_u64()
+                    {
+                        on_bpm(bpm as u32);
+                    }
+                }
+                Ok(())
+            })();
+            if let Err(e) = result {
+                tracing::info!(%e, "heart rate");
+                crate::hub::sleep_unless(&stop, Duration::from_secs(15));
+            }
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

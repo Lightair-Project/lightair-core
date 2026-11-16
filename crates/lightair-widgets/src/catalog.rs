@@ -176,6 +176,17 @@ pub const BUILTIN: &[Builtin] = &[
         fields: include_str!("../assets/widgets/leaderboard.json"),
         page: include_str!("../assets/widgets/leaderboard.html"),
     },
+    Builtin {
+        kind: "heart-rate",
+        name: "Heart rate",
+        icon: "heart-pulse",
+        about: "Your heart rate from Pulsoid (Settings › Connections)",
+        size: (360, 120),
+        place: (0.98, 0.03),
+        sound: false,
+        fields: include_str!("../assets/widgets/heart-rate.json"),
+        page: include_str!("../assets/widgets/heart-rate.html"),
+    },
 ];
 
 pub fn by_kind(kind: &str) -> Option<&'static Builtin> {
