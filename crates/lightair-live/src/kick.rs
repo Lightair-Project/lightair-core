@@ -40,6 +40,8 @@ const SCRIPT: &str = r#"(async function () {
 #[derive(Clone)]
 struct Room {
     id: u64,
+    /// The channel's own number (its `channel_<id>` events: Kicks gifts, gifted subs).
+    channel: u64,
     key: String,
     cluster: String,
 }
@@ -76,7 +78,7 @@ fn room(slug: &str, stop: &AtomicBool) -> Result<Room, String> {
         tracing::info!("Kick's realtime endpoint didn't answer; using the known Pusher app");
         (FALLBACK.0.into(), FALLBACK.1.into())
     });
-    let r = Room { id, key, cluster };
+    let r = Room { id, channel: v["channel"]["id"].as_u64().unwrap_or(0), key, cluster };
     ROOMS.lock().get_or_insert_with(HashMap::new).insert(slug.to_string(), r.clone());
     Ok(r)
 }
@@ -86,8 +88,14 @@ pub fn read(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
     let room = room(&slug, stop)?;
     let url = format!("wss://ws-{}.pusher.com/app/{}?protocol=7&client=js&version=8.4.0&flash=false", room.cluster, room.key);
     let mut socket = net::connect(&url, Duration::from_millis(500))?;
-    let subscribe = json!({ "event": "pusher:subscribe", "data": { "auth": "", "channel": format!("chatrooms.{}.v2", room.id) } });
-    socket.send(Message::text(subscribe.to_string())).map_err(|e| e.to_string())?;
+    let mut channels = vec![format!("chatrooms.{}.v2", room.id)];
+    if room.channel > 0 {
+        channels.push(format!("channel_{}", room.channel));
+    }
+    for c in channels {
+        let subscribe = json!({ "event": "pusher:subscribe", "data": { "auth": "", "channel": c } });
+        socket.send(Message::text(subscribe.to_string())).map_err(|e| e.to_string())?;
+    }
     let mut ping = Instant::now();
     let channel = sink.channel().channel.clone();
     while !stop.load(Ordering::Acquire) {
@@ -179,6 +187,10 @@ fn user(sender: &Value) -> User {
     }
 }
 
+fn lightair_live_paid(amount: f64, gift: &str) -> crate::event::Paid {
+    crate::event::Paid { display: format!("{gift} · {amount} Kicks"), amount, currency: "KICKS".into() }
+}
+
 /// One of the chatroom's events.
 pub fn parse(event: &str, d: &Value, channel: &str) -> Option<ChatEvent> {
     let name = event.rsplit('\\').next().unwrap_or(event);
@@ -219,6 +231,19 @@ pub fn parse(event: &str, d: &Value, channel: &str) -> Option<ChatEvent> {
             e.user = Some(User { login: who.to_lowercase(), display_name: who, ..Default::default() });
             Some(e.with_fragments(fragments(d["optional_message"].as_str().unwrap_or(""))))
         }
+        // Kick's paid gifts ("Kicks"): who, which gift, how many Kicks
+        "KicksGifted" => {
+            let mut e = ChatEvent::new("kick", channel, Kind::Paid);
+            let sender = if d["sender"].is_object() { &d["sender"] } else { &d["user"] };
+            let who = sender["username"].as_str().or(d["username"].as_str()).unwrap_or("Someone").to_string();
+            e.user = Some(User { id: sender["id"].as_u64().map(|i| i.to_string()).unwrap_or_default(), login: who.to_lowercase(), display_name: who, ..Default::default() });
+            let gift = &d["gift"];
+            let amount = gift["amount"].as_f64().or(d["amount"].as_f64()).unwrap_or(0.0);
+            let name = gift["name"].as_str().or(d["gift_name"].as_str()).unwrap_or("Kicks");
+            e.paid = Some(lightair_live_paid(amount, name));
+            let message = gift["message"].as_str().or(d["message"].as_str()).unwrap_or("");
+            Some(e.with_fragments(fragments(message)))
+        }
         "MessageDeletedEvent" => Some(ChatEvent::new(
             "kick",
             channel,
@@ -257,6 +282,9 @@ mod tests {
     fn subs_gifts_hosts_and_deletions() {
         let gift: Value = serde_json::from_str(r#"{"gifted_usernames":["a","b"],"gifter_username":"fan"}"#).unwrap();
         assert_eq!(parse("App\\Events\\GiftedSubscriptionsEvent", &gift, "x").unwrap().headline.as_deref(), Some("fan gifted 2 subs"));
+        let kicks: Value = serde_json::from_str(r#"{"sender":{"id":5,"username":"Fan"},"gift":{"name":"Rage Quit","amount":100,"message":"gg"}}"#).unwrap();
+        let k = parse("KicksGifted", &kicks, "x").unwrap();
+        assert_eq!((k.kind, k.paid.unwrap().amount, k.text.as_str()), (Kind::Paid, 100.0, "gg"));
         let host: Value = serde_json::from_str(r#"{"number_viewers":12,"host_username":"pal","optional_message":""}"#).unwrap();
         assert_eq!(parse("App\\Events\\StreamHostEvent", &host, "x").unwrap().kind, Kind::Raid { viewers: 12 });
         let del: Value = serde_json::from_str(r#"{"id":"d","message":{"id":"m1"}}"#).unwrap();

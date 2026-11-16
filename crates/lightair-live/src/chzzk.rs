@@ -75,7 +75,16 @@ pub fn parse(m: &Value, channel: &str) -> Option<ChatEvent> {
     let profile = nested("profile");
     let extras = nested("extras");
     let pay = extras["payAmount"].as_f64().filter(|a| *a > 0.0);
-    let mut e = ChatEvent::new("chzzk", channel, if pay.is_some() { Kind::Paid } else { Kind::Message });
+    // 11: a subscription (its month and tier in `extras`)
+    let subscription = m["msgTypeCode"].as_i64().or(m["messageTypeCode"].as_i64()) == Some(11);
+    let kind = if subscription {
+        Kind::Membership
+    } else if pay.is_some() {
+        Kind::Paid
+    } else {
+        Kind::Message
+    };
+    let mut e = ChatEvent::new("chzzk", channel, kind);
     e.ts_ms = m["msgTime"].as_i64().unwrap_or(e.ts_ms);
     e.native_id = Some(format!("{}:{}", m["uid"].as_str().unwrap_or(""), e.ts_ms));
     let mut roles = Vec::new();
@@ -102,7 +111,18 @@ pub fn parse(m: &Value, channel: &str) -> Option<ChatEvent> {
         roles,
         badges,
     });
-    e.paid = pay.map(|a| Paid { display: format!("{} 치즈", a as i64), amount: a, currency: "CHEESE".into() });
+    if subscription {
+        let months = extras["month"].as_u64().unwrap_or(1);
+        let tier = extras["tierName"].as_str().unwrap_or("");
+        let who = e.name().to_string();
+        e.headline = Some(match (months, tier.is_empty()) {
+            (1, true) => format!("{who} subscribed"),
+            (1, false) => format!("{who} subscribed ({tier})"),
+            (n, _) => format!("{who} subscribed for {n} months"),
+        });
+    } else {
+        e.paid = pay.map(|a| Paid { display: format!("{} 치즈", a as i64), amount: a, currency: "CHEESE".into() });
+    }
     let text = m["msg"].as_str().or(m["content"].as_str()).unwrap_or("");
     Some(e.with_fragments(emojis(text, &extras["emojis"])))
 }

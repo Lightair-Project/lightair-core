@@ -20,6 +20,7 @@ pub mod kick;
 pub mod send;
 pub mod soop;
 pub mod tiktok;
+pub mod twitcasting;
 pub mod twitch;
 pub mod youtube;
 
@@ -28,7 +29,7 @@ pub use hub::{Hub, Sink};
 pub use images::Images;
 
 /// The platforms whose chat Lightair reads (the Outputs list's ids).
-pub const READABLE: &[&str] = &["twitch", "youtube", "chzzk", "douyu", "soop", "kick", "tiktok"];
+pub const READABLE: &[&str] = &["twitch", "youtube", "chzzk", "douyu", "soop", "kick", "tiktok", "twitcasting"];
 
 /// The reader for a platform, if Lightair has one.
 pub fn reader_for(platform: &str) -> Option<hub::Reader> {
@@ -40,6 +41,7 @@ pub fn reader_for(platform: &str) -> Option<hub::Reader> {
         "soop" => soop::read,
         "kick" => kick::read,
         "tiktok" => tiktok::read,
+        "twitcasting" => twitcasting::read,
         _ => return None,
     })
 }
@@ -54,6 +56,7 @@ pub fn channel_hint(platform: &str) -> Option<&'static str> {
         "soop" => "Streamer id or link (sooplive.co.kr/…)",
         "kick" => "Channel name (kick.com/…)",
         "tiktok" => "@username (tiktok.com/@…)",
+        "twitcasting" => "User id (twitcasting.tv/…)",
         _ => return None,
     })
 }
