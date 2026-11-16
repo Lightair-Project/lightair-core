@@ -17,6 +17,7 @@ pub mod pages;
 mod proto;
 
 pub mod accounts;
+pub mod bilibili;
 pub mod chzzk;
 pub mod donations;
 pub mod douyu;
@@ -34,7 +35,7 @@ pub use hub::{Hub, Sink};
 pub use images::Images;
 
 /// The platforms whose chat Lightair reads (the Outputs list's ids).
-pub const READABLE: &[&str] = &["twitch", "youtube", "chzzk", "douyu", "soop", "kick", "tiktok", "twitcasting", "showroom"];
+pub const READABLE: &[&str] = &["twitch", "youtube", "chzzk", "douyu", "soop", "kick", "tiktok", "twitcasting", "showroom", "bilibili"];
 
 /// The reader for a platform, if Lightair has one.
 pub fn reader_for(platform: &str) -> Option<hub::Reader> {
@@ -48,6 +49,7 @@ pub fn reader_for(platform: &str) -> Option<hub::Reader> {
         "tiktok" => tiktok::read,
         "twitcasting" => twitcasting::read,
         "showroom" => showroom::read,
+        "bilibili" => bilibili::read,
         "streamlabs" => donations::streamlabs,
         "streamelements" => donations::streamelements,
         "kofi" => donations::kofi,
@@ -67,6 +69,7 @@ pub fn channel_hint(platform: &str) -> Option<&'static str> {
         "tiktok" => "@username (tiktok.com/@…)",
         "twitcasting" => "User id (twitcasting.tv/…)",
         "showroom" => "Room (showroom-live.com/r/…)",
+        "bilibili" => "Room number or link (live.bilibili.com/…)",
         _ => return None,
     })
 }
