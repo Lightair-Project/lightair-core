@@ -15,6 +15,7 @@ pub mod pages;
 
 pub mod accounts;
 pub mod chzzk;
+pub mod donations;
 pub mod douyu;
 pub mod kick;
 pub mod send;
@@ -42,6 +43,8 @@ pub fn reader_for(platform: &str) -> Option<hub::Reader> {
         "kick" => kick::read,
         "tiktok" => tiktok::read,
         "twitcasting" => twitcasting::read,
+        "streamlabs" => donations::streamlabs,
+        "streamelements" => donations::streamelements,
         _ => return None,
     })
 }

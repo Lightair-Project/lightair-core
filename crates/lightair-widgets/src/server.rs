@@ -60,6 +60,8 @@ pub(crate) struct Shared {
     next_conn: AtomicU64,
     /// Files pages may load besides their settings' (sounds automations play).
     files: Mutex<std::collections::HashSet<String>>,
+    /// Live data from integrations ("now_playing", …), sent to every page.
+    data: Mutex<Map<String, Value>>,
 }
 
 /// The widget server (cheap to clone: one server).
@@ -86,6 +88,7 @@ impl Widgets {
             icons: Mutex::new(None),
             next_conn: AtomicU64::new(1),
             files: Mutex::new(Default::default()),
+            data: Mutex::new(Map::new()),
         });
         tracing::info!(port, "widgets served");
         {
@@ -220,6 +223,30 @@ impl Widgets {
         !boxes.is_empty()
     }
 
+    /// Live data for pages (`key`: "now_playing", …): sent when it changes.
+    pub fn set_data(&self, key: &str, value: Value) {
+        {
+            let mut data = self.shared.data.lock();
+            if data.get(key) == Some(&value) {
+                return;
+            }
+            data.insert(key.into(), value.clone());
+        }
+        let m = json!({"type": "data", "key": key, "value": value}).to_string();
+        for c in self.shared.conns.lock().iter() {
+            let _ = c.tx.send(m.clone());
+        }
+    }
+
+    pub fn data(&self, key: &str) -> Value {
+        self.shared.data.lock().get(key).cloned().unwrap_or(Value::Null)
+    }
+
+    /// A widget of `kind` exists (integrations only ask for what one shows).
+    pub fn has_kind(&self, kind: &str) -> bool {
+        self.shared.instances.lock().values().any(|i| i.kind == kind)
+    }
+
     /// The widgets there are: (id, kind, name of the kind).
     pub fn list(&self) -> Vec<(String, String)> {
         self.shared.instances.lock().values().map(|i| (i.id.clone(), i.kind.clone())).collect()
@@ -349,6 +376,7 @@ impl Shared {
             "session": self.session.lock().to_json(),
             "recents": recents,
             "storage": store::load(&self.store_dir, id),
+            "data": self.data.lock().clone(),
         })
         .to_string()
     }

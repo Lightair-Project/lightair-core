@@ -99,6 +99,17 @@ pub const BUILTIN: &[Builtin] = &[
         fields: include_str!("../assets/widgets/subathon.json"),
         page: include_str!("../assets/widgets/subathon.html"),
     },
+    Builtin {
+        kind: "now-playing",
+        name: "Now playing",
+        icon: "music",
+        about: "The song playing in Spotify or Apple Music",
+        size: (620, 120),
+        place: (0.02, 0.97),
+        sound: false,
+        fields: include_str!("../assets/widgets/now-playing.json"),
+        page: include_str!("../assets/widgets/now-playing.html"),
+    },
 ];
 
 pub fn by_kind(kind: &str) -> Option<&'static Builtin> {

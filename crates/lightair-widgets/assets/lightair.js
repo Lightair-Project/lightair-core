@@ -15,6 +15,7 @@
     session: {},
     storage: {},
     recents: [],
+    data: {},
     loaded: false,
     on: function (name, fn) {
       (handlers[name] = handlers[name] || []).push(fn);
@@ -87,6 +88,7 @@
           api.session = msg.session || {};
           api.storage = msg.storage || {};
           api.recents = msg.recents || [];
+          api.data = msg.data || {};
           var first = !api.loaded;
           api.loaded = true;
           emit(first ? 'load' : 'reload', api);
@@ -99,6 +101,7 @@
         case 'button': emit('button', msg.name); break;
         case 'skip': emit('skip'); break;
         case 'speak': emit('speak', msg.text); break;
+        case 'data': api.data[msg.key] = msg.value; emit('data', { key: msg.key, value: msg.value }); break;
         case 'sound': emit('sound', msg); break;
       }
     };
