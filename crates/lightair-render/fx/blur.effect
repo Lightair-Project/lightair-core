@@ -1,0 +1,43 @@
+// Gaussian blur: two separable passes.
+uniform float amount = 0.5;
+
+float4 PSH(VertData v_in) : TARGET { return gauss9(v_in.uv, float2(0.5 + amount * 9.0, 0.0)); }
+float4 PSV(VertData v_in) : TARGET { return gauss9(v_in.uv, float2(0.0, 0.5 + amount * 9.0)); }
+float4 PSH2(VertData v_in) : TARGET { return gauss9(v_in.uv, float2(0.3 + amount * 5.0, 0.0)); }
+float4 PSV2(VertData v_in) : TARGET { return gauss9(v_in.uv, float2(0.0, 0.3 + amount * 5.0)); }
+
+technique Pass0
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSH(v_in);
+	}
+}
+
+technique Pass1
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSV(v_in);
+	}
+}
+
+technique Pass2
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSH2(v_in);
+	}
+}
+
+technique Pass3
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSV2(v_in);
+	}
+}

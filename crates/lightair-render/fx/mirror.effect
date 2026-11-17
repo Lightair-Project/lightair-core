@@ -1,0 +1,25 @@
+// Mirror half the picture onto the other.
+uniform int axis = 0; // 0 left onto right, 1 right onto left, 2 top onto bottom, 3 bottom onto top
+
+float4 PSMain(VertData v_in) : TARGET
+{
+	float2 uv = v_in.uv;
+	if (axis == 0)
+		uv.x = uv.x > 0.5 ? 1.0 - uv.x : uv.x;
+	else if (axis == 1)
+		uv.x = uv.x < 0.5 ? 1.0 - uv.x : uv.x;
+	else if (axis == 2)
+		uv.y = uv.y > 0.5 ? 1.0 - uv.y : uv.y;
+	else
+		uv.y = uv.y < 0.5 ? 1.0 - uv.y : uv.y;
+	return image.Sample(linearClamp, uv);
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSMain(v_in);
+	}
+}

@@ -1,0 +1,58 @@
+// Bloom: bright parts glow.
+uniform float amount = 0.6;
+uniform float threshold = 0.6;
+uniform float glow_size = 1.0;
+
+float4 PSBright(VertData v_in) : TARGET
+{
+	float2 o = float2(glow_size * 4.0, 0.0);
+	float4 s = gauss9(v_in.uv, o);
+	float l = luma(s.rgb);
+	float k = smoothstep(threshold, min(threshold + 0.25, 1.0), l);
+	return float4(s.rgb * k, 1.0);
+}
+float4 PSV(VertData v_in) : TARGET { return gauss9(v_in.uv, float2(0.0, glow_size * 4.0)); }
+float4 PSH(VertData v_in) : TARGET { return gauss9(v_in.uv, float2(glow_size * 8.0, 0.0)); }
+float4 PSCombine(VertData v_in) : TARGET
+{
+	float4 g = gauss9(v_in.uv, float2(0.0, glow_size * 8.0));
+	float4 c = source.Sample(linearClamp, v_in.uv);
+	float3 s = 1.0 - (1.0 - c.rgb) * (1.0 - saturate(g.rgb * amount * 1.6) * c.a); // screen
+	return float4(s, c.a);
+}
+
+technique Pass0
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSBright(v_in);
+	}
+}
+
+technique Pass1
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSV(v_in);
+	}
+}
+
+technique Pass2
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSH(v_in);
+	}
+}
+
+technique Pass3
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSCombine(v_in);
+	}
+}

@@ -1,0 +1,23 @@
+// Kaleidoscope.
+uniform float segments = 6.0;
+uniform float rotation = 0.0;
+
+float4 PSMain(VertData v_in) : TARGET
+{
+	float2 p = to_square(v_in.uv);
+	float r = length(p);
+	float a = atan2(p.y, p.x) + rotation;
+	float seg = 6.2831853 / max(floor(segments), 2.0);
+	a = abs(fmod(a + 62.831853, seg) - seg * 0.5);
+	float2 q = float2(cos(a), sin(a)) * r;
+	return image.Sample(linearClamp, from_square(q));
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSMain(v_in);
+	}
+}

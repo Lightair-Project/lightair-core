@@ -1,0 +1,32 @@
+// Glowing outlines.
+uniform float amount = 1.0;
+uniform float4 glow_color = {0.1, 1.0, 0.9, 1.0};
+uniform float keep = 0.2;
+
+float l_at(float2 uv)
+{
+	return luma(image.Sample(linearClamp, uv).rgb);
+}
+
+float4 PSMain(VertData v_in) : TARGET
+{
+	float2 t = texel * 1.5;
+	float2 uv = v_in.uv;
+	float gx = -l_at(uv + float2(-t.x, -t.y)) - 2.0 * l_at(uv + float2(-t.x, 0.0)) - l_at(uv + float2(-t.x, t.y)) +
+		   l_at(uv + float2(t.x, -t.y)) + 2.0 * l_at(uv + float2(t.x, 0.0)) + l_at(uv + float2(t.x, t.y));
+	float gy = -l_at(uv + float2(-t.x, -t.y)) - 2.0 * l_at(uv + float2(0.0, -t.y)) - l_at(uv + float2(t.x, -t.y)) +
+		   l_at(uv + float2(-t.x, t.y)) + 2.0 * l_at(uv + float2(0.0, t.y)) + l_at(uv + float2(t.x, t.y));
+	float e = saturate(length(float2(gx, gy)) * 2.0);
+	float4 c = image.Sample(linearClamp, uv);
+	float3 s = c.rgb * keep + glow_color.rgb * e * amount * 1.6;
+	return float4(saturate(s), c.a);
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSMain(v_in);
+	}
+}

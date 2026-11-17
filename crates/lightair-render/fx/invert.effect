@@ -1,0 +1,18 @@
+// Negative.
+uniform float amount = 1.0;
+
+float4 PSMain(VertData v_in) : TARGET
+{
+	float4 c = image.Sample(linearClamp, v_in.uv);
+	float3 s = unpremul(c);
+	return float4(lerp(s, 1.0 - s, amount) * c.a, c.a);
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSMain(v_in);
+	}
+}

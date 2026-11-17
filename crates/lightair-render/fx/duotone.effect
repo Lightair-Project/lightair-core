@@ -1,0 +1,21 @@
+// Two colours: shadows to highlights.
+uniform float4 shadow_color = {0.11, 0.05, 0.32, 1.0};
+uniform float4 highlight_color = {1.0, 0.62, 0.42, 1.0};
+uniform float amount = 1.0;
+
+float4 PSMain(VertData v_in) : TARGET
+{
+	float4 c = image.Sample(linearClamp, v_in.uv);
+	float3 s = unpremul(c);
+	float l = smoothstep(0.0, 1.0, luma(s));
+	return float4(lerp(s, lerp(shadow_color.rgb, highlight_color.rgb, l), amount) * c.a, c.a);
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSMain(v_in);
+	}
+}

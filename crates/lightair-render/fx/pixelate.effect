@@ -1,0 +1,18 @@
+// Blocks.
+uniform float block_size = 16.0;
+
+float4 PSMain(VertData v_in) : TARGET
+{
+	float2 b = max(block_size, 1.0) * texel;
+	float2 uv = (floor(v_in.uv / b) + 0.5) * b;
+	return image.Sample(linearClamp, uv);
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSMain(v_in);
+	}
+}

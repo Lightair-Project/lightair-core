@@ -1,0 +1,27 @@
+// Film grain, strongest in the midtones, new every frame.
+uniform float amount = 0.3;
+uniform float grain_size = 1.5;
+uniform float colored = 0.0;
+
+float4 PSMain(VertData v_in) : TARGET
+{
+	float4 c = image.Sample(linearClamp, v_in.uv);
+	float3 s = unpremul(c);
+	float2 cell = floor(v_in.uv * size / max(grain_size, 0.5));
+	float seed = floor(time * 24.0);
+	float n = hash12(cell + seed * 17.13) - 0.5;
+	float3 nc = float3(n, hash12(cell + seed * 9.71 + 3.1) - 0.5, hash12(cell + seed * 5.37 + 7.7) - 0.5);
+	float3 noise = lerp(float3(n, n, n), nc, colored);
+	float l = luma(s);
+	float w = 0.35 + 0.65 * (1.0 - abs(l * 2.0 - 1.0));
+	return float4(saturate(s + noise * amount * 0.35 * w) * c.a, c.a);
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSMain(v_in);
+	}
+}

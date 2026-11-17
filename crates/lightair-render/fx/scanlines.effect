@@ -1,0 +1,27 @@
+// CRT: scanlines and a curved screen.
+uniform float amount = 0.5;
+uniform float line_size = 3.0;
+uniform float curvature = 0.2;
+
+float4 PSMain(VertData v_in) : TARGET
+{
+	float2 p = v_in.uv * 2.0 - 1.0;
+	p *= 1.0 + curvature * 0.25 * dot(p.yx, p.yx);
+	float2 uv = p * 0.5 + 0.5;
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
+		return float4(0.0, 0.0, 0.0, 1.0);
+	float4 c = image.Sample(linearClamp, uv);
+	float line = 0.5 + 0.5 * sin(uv.y * size.y * 3.14159265 / max(line_size, 1.0));
+	float edge = smoothstep(0.0, 0.04 * curvature + 0.001, min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y)));
+	float3 s = c.rgb * lerp(1.0, 0.55 + 0.6 * line, amount) * edge;
+	return float4(s, c.a);
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSMain(v_in);
+	}
+}

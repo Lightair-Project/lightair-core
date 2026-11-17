@@ -1,0 +1,18 @@
+// Fewer colour levels.
+uniform float levels = 5.0;
+
+float4 PSMain(VertData v_in) : TARGET
+{
+	float4 c = image.Sample(linearClamp, v_in.uv);
+	float n = max(levels - 1.0, 1.0);
+	return float4(floor(unpremul(c) * n + 0.5) / n * c.a, c.a);
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSMain(v_in);
+	}
+}

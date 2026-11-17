@@ -1,0 +1,22 @@
+// Black & white, optionally tinted.
+uniform float amount = 1.0;
+uniform float4 tint_color = {1.0, 0.86, 0.66, 1.0};
+uniform float tint = 0.0;
+
+float4 PSMain(VertData v_in) : TARGET
+{
+	float4 c = image.Sample(linearClamp, v_in.uv);
+	float3 s = unpremul(c);
+	float l = luma(s);
+	float3 m = lerp(float3(l, l, l), saturate(l * tint_color.rgb * 1.25), tint);
+	return float4(lerp(s, m, amount) * c.a, c.a);
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSMain(v_in);
+	}
+}

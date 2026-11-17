@@ -1,0 +1,21 @@
+// Emboss.
+uniform float amount = 1.0;
+uniform float angle = 0.8;
+
+float4 PSMain(VertData v_in) : TARGET
+{
+	float2 d = float2(cos(angle), sin(angle)) * texel * 1.5;
+	float4 c = image.Sample(linearClamp, v_in.uv);
+	float e = luma(image.Sample(linearClamp, v_in.uv + d).rgb) - luma(image.Sample(linearClamp, v_in.uv - d).rgb);
+	float g = saturate(0.5 + e * 3.0);
+	return float4(lerp(unpremul(c), float3(g, g, g), amount) * c.a, c.a);
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSMain(v_in);
+	}
+}

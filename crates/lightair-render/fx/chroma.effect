@@ -1,0 +1,22 @@
+// Colour fringes, stronger towards the edges.
+uniform float amount = 0.5;
+uniform float angle = 0.0;
+
+float4 PSMain(VertData v_in) : TARGET
+{
+	float2 d = float2(cos(angle), sin(angle)) * texel * amount * 14.0;
+	float k = 0.4 + length(v_in.uv - 0.5) * 1.6;
+	float4 c = image.Sample(linearClamp, v_in.uv);
+	float r = image.Sample(linearClamp, v_in.uv + d * k).r;
+	float b = image.Sample(linearClamp, v_in.uv - d * k).b;
+	return float4(r, c.g, b, c.a);
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSMain(v_in);
+	}
+}

@@ -1,0 +1,23 @@
+// Bulge (positive) or pinch (negative) at the centre.
+uniform float amount = 0.5;
+uniform float radius = 0.5;
+
+float4 PSMain(VertData v_in) : TARGET
+{
+	float2 p = to_square(v_in.uv);
+	float r = length(p) / max(radius, 0.01);
+	if (r < 1.0) {
+		float k = amount * (1.0 - r * r);
+		p *= 1.0 - k * 0.5;
+	}
+	return image.Sample(linearClamp, from_square(p));
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSMain(v_in);
+	}
+}

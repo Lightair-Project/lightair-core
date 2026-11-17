@@ -1,0 +1,23 @@
+// Moving waves.
+uniform float amount = 0.3;
+uniform float frequency = 0.5;
+uniform float speed = 0.5;
+
+float4 PSMain(VertData v_in) : TARGET
+{
+	float2 uv = v_in.uv;
+	float f = 4.0 + frequency * 40.0;
+	float t = time * (0.5 + speed * 6.0);
+	uv.x += sin(uv.y * f + t) * amount * 0.02;
+	uv.y += sin(uv.x * f * 0.7 + t * 0.8) * amount * 0.012;
+	return image.Sample(linearClamp, uv);
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSMain(v_in);
+	}
+}
