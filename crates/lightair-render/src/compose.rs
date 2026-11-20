@@ -890,7 +890,9 @@ impl Compositor {
             view_formats: vec![],
             color_space: wgpu::SurfaceColorSpace::Auto,
         };
-        surface.configure(&self.device, &config);
+        if !configure(&surface, &self.device, &config) {
+            return false;
+        }
         self.layer = Some(surface);
         self.layer_config = Some(config);
         true
@@ -950,7 +952,9 @@ impl Compositor {
             alpha_mode: if caps.alpha_modes.contains(&config.alpha_mode) { config.alpha_mode } else { caps.alpha_modes[0] },
             ..config
         };
-        surface.configure(&self.device, &config);
+        if !configure(&surface, &self.device, &config) {
+            return false;
+        }
         tracing::info!(size = ?self.size, mode = ?config.present_mode, "the Editor's frames are presented under the UI");
         self.visual = Some(surface);
         self.visual_config = Some(config);
@@ -1107,6 +1111,21 @@ impl Compositor {
     }
 }
 
+/// Configures `surface`, false when it can't be now (the GPU too busy to wait for, a layer
+/// gone): an error caught here, not wgpu's panic.
+#[cfg(any(target_os = "ios", target_os = "macos", windows))]
+fn configure(surface: &wgpu::Surface<'static>, device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> bool {
+    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    surface.configure(device, config);
+    match pollster::block_on(scope.pop()) {
+        None => true,
+        Some(e) => {
+            tracing::warn!(%e, "the player's surface couldn't be configured");
+            false
+        }
+    }
+}
+
 /// A texture to draw a frame into from a layer's or visual's surface. A frame mustn't be lost
 /// quietly: the screen would keep the one before (as when a clip's first effect is added, its
 /// passes built while the layer waits). So it asks again after a timeout, and reconfigures and
@@ -1123,7 +1142,11 @@ fn acquire(
             C::Success(t) => return Some(t),
             C::Suboptimal(t) => return Some(t),
             C::Timeout => continue,
-            C::Outdated => surface.configure(device, config),
+            C::Outdated => {
+                if !configure(surface, device, config) {
+                    return None;
+                }
+            }
             other => {
                 tracing::warn!(?other, "no texture to present the frame into");
                 return None;
