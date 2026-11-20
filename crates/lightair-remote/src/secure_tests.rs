@@ -258,6 +258,7 @@ struct Layer {
     channel: parking_lot::Mutex<Option<crate::CameraChannel>>,
     heard: parking_lot::Mutex<Vec<Value>>,
     gone: std::sync::atomic::AtomicUsize,
+    clocks: parking_lot::Mutex<Vec<(u64, u64)>>,
 }
 
 impl crate::CameraHost for Layer {
@@ -276,6 +277,9 @@ impl crate::CameraHost for Layer {
     }
     fn now_us(&self) -> u64 {
         5_000_000
+    }
+    fn clock(&self, _: &str, phone_us: u64, host_us: u64) {
+        self.clocks.lock().push((phone_us, host_us));
     }
 }
 
@@ -348,6 +352,8 @@ fn a_phone_pairs_as_a_camera_and_talks_to_its_layer() {
     cam.send(Message::text(json!({"type": "time", "t1": 42}).to_string())).unwrap();
     let m: Value = serde_json::from_str(cam.read().unwrap().to_text().unwrap()).unwrap();
     assert_eq!((m["t1"].as_u64(), m["t2"].as_u64(), m["t3"].as_u64()), (Some(42), Some(5_000_000), Some(5_000_000)));
+    // and the sample reaches the layer, to place the phone's timestamps on its clock
+    assert_eq!(layer.clocks.lock().as_slice(), &[(42, 5_000_000)]);
 
     // a camera device can't watch the program or control the show
     assert_eq!(signed("/preview").unwrap_err().0, 403);

@@ -31,6 +31,12 @@ pub trait CameraHost: Send + Sync {
     fn message(&self, source: &str, message: &Value);
     /// The phone went away (or another took its place).
     fn disconnected(&self, source: &str);
+    /// A clock sync sample from the phone: its capture clock read `phone_us` when it sent the
+    /// sample, and this host's clock ([`CameraHost::now_us`]) read `host_us` when it arrived.
+    /// Their difference is the clocks' offset plus the trip one way: the smallest of recent
+    /// samples is the offset, near enough, so the host can place the media's timestamps (the
+    /// phone's capture clock) on its own clock, to time each stage of a frame's way.
+    fn clock(&self, _source: &str, _phone_us: u64, _host_us: u64) {}
     /// The host's clock for time sync, in microseconds: the clock the media's timestamps are
     /// mapped to. By default, time since the remote API started.
     fn now_us(&self) -> u64 {
@@ -173,6 +179,9 @@ fn talk<T: Read + Write>(
                 let Ok(v) = serde_json::from_str::<Value>(t.as_str()) else { continue };
                 if v.get("type").and_then(Value::as_str) == Some("time") {
                     let t2 = host.now_us();
+                    if let Some(t1) = v.get("t1").and_then(Value::as_u64) {
+                        host.clock(source, t1, t2);
+                    }
                     send(&mut ws, json!({"type": "time", "t1": v.get("t1"), "t2": t2, "t3": host.now_us()}))?;
                 } else {
                     host.message(source, &v);
