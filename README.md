@@ -38,5 +38,10 @@ cargo xtask check
 
 ## Licence
 
-GPL-3.0-or-later (`LICENSE`). The fonts used by tests are Inter, under the SIL Open Font License
+Copyright © 2026 Bregas S. Wicaksono (MoonGoblin).
+
+Dual-licensed: **GPL-3.0-or-later** (`LICENSE`) for everyone, or a **commercial licence** from
+the copyright holder, which Lightair's mobile apps use. Details in `LICENSING.md`; contributions
+need the contributor licence agreement (`CONTRIBUTING.md`). The licence audit is
+`docs/licence-audit.md`. The font used by tests is Inter, under the SIL Open Font License
 (`crates/lightair-fonts/tests/data/Inter-OFL.txt`).
