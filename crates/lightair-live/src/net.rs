@@ -2,6 +2,7 @@
 //! up now and then so a reader can notice it's been stopped.
 
 use std::net::TcpStream;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use tungstenite::stream::MaybeTlsStream;
@@ -11,10 +12,38 @@ use tungstenite::{Message, WebSocket};
 pub const USER_AGENT: &str =
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
-pub fn agent() -> ureq::Agent {
+/// The TLS every HTTP client here uses: rustls with ring, certificates checked by the system's
+/// verifier.
+pub fn tls_config() -> ureq::tls::TlsConfig {
     use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
+    TlsConfig::builder()
+        .provider(TlsProvider::Rustls)
+        .root_certs(RootCerts::PlatformVerifier)
+        .unversioned_rustls_crypto_provider(Arc::new(rustls::crypto::ring::default_provider()))
+        .build()
+}
+
+/// The same TLS for WebSockets.
+fn rustls_client() -> Result<Arc<rustls::ClientConfig>, String> {
+    static CONFIG: OnceLock<Result<Arc<rustls::ClientConfig>, String>> = OnceLock::new();
+    CONFIG
+        .get_or_init(|| {
+            let provider = Arc::new(rustls::crypto::ring::default_provider());
+            let verifier = rustls_platform_verifier::Verifier::new(provider.clone()).map_err(|e| e.to_string())?;
+            let config = rustls::ClientConfig::builder_with_provider(provider)
+                .with_safe_default_protocol_versions()
+                .map_err(|e| e.to_string())?
+                .dangerous()
+                .with_custom_certificate_verifier(Arc::new(verifier))
+                .with_no_client_auth();
+            Ok(Arc::new(config))
+        })
+        .clone()
+}
+
+pub fn agent() -> ureq::Agent {
     ureq::Agent::config_builder()
-        .tls_config(TlsConfig::builder().provider(TlsProvider::NativeTls).root_certs(RootCerts::PlatformVerifier).build())
+        .tls_config(tls_config())
         .timeout_global(Some(Duration::from_secs(20)))
         .http_status_as_error(false)
         .build()
@@ -69,10 +98,15 @@ pub fn connect_with(url: &str, headers: &[(&'static str, &str)], tick: Duration)
     for (k, v) in headers {
         request.headers_mut().insert(*k, v.parse().map_err(|_| format!("bad header {k}"))?);
     }
-    let (socket, _) = tungstenite::connect(request).map_err(|e| format!("{url}: {e}"))?;
+    let uri = request.uri();
+    let host = uri.host().ok_or_else(|| format!("{url}: no host"))?.trim_start_matches('[').trim_end_matches(']').to_string();
+    let port = uri.port_u16().unwrap_or(if uri.scheme_str() == Some("wss") { 443 } else { 80 });
+    let stream = TcpStream::connect((host.as_str(), port)).map_err(|e| format!("{url}: {e}"))?;
+    let connector = tungstenite::Connector::Rustls(rustls_client()?);
+    let (socket, _) = tungstenite::client_tls_with_config(request, stream, None, Some(connector)).map_err(|e| format!("{url}: {e}"))?;
     let tcp = match socket.get_ref() {
         MaybeTlsStream::Plain(s) => s,
-        MaybeTlsStream::NativeTls(s) => s.get_ref(),
+        MaybeTlsStream::Rustls(s) => s.get_ref(),
         _ => return Err("unexpected stream".into()),
     };
     tcp.set_read_timeout(Some(tick)).map_err(|e| e.to_string())?;
@@ -107,7 +141,7 @@ pub fn yt_text(v: &serde_json::Value) -> String {
 /// The bytes at `url` (redirects followed; GitHub's release downloads), up to `limit` bytes.
 pub fn download(url: &str, limit: u64) -> Result<Vec<u8>, String> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
-        .tls_config(ureq::tls::TlsConfig::builder().provider(ureq::tls::TlsProvider::NativeTls).root_certs(ureq::tls::RootCerts::PlatformVerifier).build())
+        .tls_config(tls_config())
         .timeout_global(Some(Duration::from_secs(600)))
         .http_status_as_error(false)
         .build()
@@ -117,4 +151,25 @@ pub fn download(url: &str, limit: u64) -> Result<Vec<u8>, String> {
         return Err(format!("{url}: HTTP {}", res.status().as_u16()));
     }
     res.body_mut().with_config().limit(limit).read_to_vec().map_err(|e| format!("{url}: {e}"))
+}
+
+#[cfg(test)]
+mod tls_tests {
+    /// Over the network: `cargo test -p lightair-live -- --ignored tls`.
+    #[test]
+    #[ignore]
+    fn https_and_wss_through_rustls_and_the_system_verifier() {
+        let body = super::get(&super::agent(), "https://www.example.com/", &[]).unwrap();
+        assert!(body.contains("Example Domain"));
+        let mut socket = super::connect("wss://ws.postman-echo.com/raw", std::time::Duration::from_secs(5)).unwrap();
+        socket.send(tungstenite::Message::text("lightair")).unwrap();
+        let reply = loop {
+            if let Some(m) = super::read(&mut socket).unwrap() {
+                break m;
+            }
+        };
+        assert_eq!(reply.to_text().unwrap(), "lightair");
+        // a certificate the system doesn't trust is refused
+        assert!(super::get(&super::agent(), "https://self-signed.badssl.com/", &[]).is_err());
+    }
 }

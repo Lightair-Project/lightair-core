@@ -19,7 +19,11 @@ flate2 = "1"
 tracing.workspace = true
 parking_lot.workspace = true
 crossbeam-channel.workspace = true
-# the system's own TLS (Security.framework, SChannel): no C to build, so the Windows build checks
-# from a Mac
-tungstenite = { version = "0.30.0", default-features = false, features = ["handshake", "native-tls"] }
-ureq = { version = "3", default-features = false, features = ["native-tls-no-default", "gzip"] }
+# One TLS stack everywhere: rustls with ring (its C and assembly cross-compile with clang alone;
+# aws-lc-rs would need CMake per target), certificates checked by the system's own verifier
+# (rustls-platform-verifier: Security.framework, CryptoAPI, Android's), so trust settings,
+# corporate roots and revocation are the system's (net.rs).
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-platform-verifier = "0.7"
+tungstenite = { version = "0.30.0", default-features = false, features = ["handshake", "__rustls-tls"] }
+ureq = { version = "3", default-features = false, features = ["rustls-no-provider", "platform-verifier", "gzip"] }

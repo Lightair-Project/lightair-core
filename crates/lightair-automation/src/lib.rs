@@ -776,7 +776,7 @@ impl Automations {
             Step::Http { url, method, body } => {
                 let url = render(url, ctx);
                 let agent: ureq::Agent = ureq::Agent::config_builder()
-                    .tls_config(ureq::tls::TlsConfig::builder().provider(ureq::tls::TlsProvider::NativeTls).root_certs(ureq::tls::RootCerts::PlatformVerifier).build())
+                    .tls_config(lightair_live::net::tls_config())
                     .timeout_global(Some(Duration::from_secs(15)))
                     .http_status_as_error(false)
                     .build()

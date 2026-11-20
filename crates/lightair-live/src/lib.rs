@@ -12,7 +12,7 @@ pub mod hub;
 pub mod images;
 pub mod integrations;
 pub mod log;
-mod net;
+pub mod net;
 pub mod pages;
 pub mod rules;
 mod proto;

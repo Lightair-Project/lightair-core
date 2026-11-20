@@ -58,9 +58,8 @@ pub fn embedded_data(html: &str) -> Option<Value> {
 /// Streams last longer than `net::agent`'s 20 seconds (a view response up to ~32 s, a segment
 /// ~24 s).
 fn stream_agent() -> ureq::Agent {
-    use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
     ureq::Agent::config_builder()
-        .tls_config(TlsConfig::builder().provider(TlsProvider::NativeTls).root_certs(RootCerts::PlatformVerifier).build())
+        .tls_config(net::tls_config())
         .timeout_global(Some(Duration::from_secs(60)))
         .http_status_as_error(false)
         .build()
