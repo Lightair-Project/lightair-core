@@ -3,10 +3,15 @@
 //! (VideoToolbox; NVENC, AMF, Quick Sync) when FFmpeg has them.
 //!
 //! The helpers are found in `LIGHTAIR_FFMPEG_DIR`, next to Lightair, or on the PATH.
+//!
+//! Reading media goes through a [`Backend`]: FFmpeg's ([`Ffmpeg`]) unless the app sets another
+//! with [`set_backend`] (a phone's, over its platform's decoders; a test's, with made frames).
+//! Encoding is FFmpeg's here for now.
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::{Arc, RwLock};
 
 use crate::edit::Clip;
 
@@ -20,6 +25,87 @@ pub enum MediaError {
     Io(#[from] std::io::Error),
     #[error("FFmpeg stopped: {0}")]
     Failed(String),
+}
+
+/// Where media are read from: what a file holds, its frames in time order, its sound.
+pub trait Backend: Send + Sync {
+    /// What a file holds (video, sound, a still), its size and length.
+    fn contents(&self, path: &Path) -> Result<Contents, MediaError>;
+    /// A video's size, frame rate and length.
+    fn probe(&self, path: &Path) -> Result<Probe, MediaError>;
+    /// The names of a file's audio tracks (none known: empty).
+    fn audio_tracks(&self, _path: &Path) -> Vec<String> {
+        Vec::new()
+    }
+    /// A video's frames from `start_ms`, one every `1000 / fps` ms (a frame held or skipped where
+    /// the file's own rate differs), RGBA at `size`.
+    fn video(&self, path: &Path, start_ms: u64, fps: f64, size: (u32, u32))
+    -> Result<Box<dyn VideoReader>, MediaError>;
+    /// One frame at `t_ms`, RGBA at `size` (a still's only frame at 0).
+    fn frame_at(&self, path: &Path, t_ms: u64, size: (u32, u32)) -> Result<Vec<u8>, MediaError> {
+        let mut v = self.video(path, t_ms, 30.0, size)?;
+        let mut buf = Vec::new();
+        if v.next(&mut buf) { Ok(buf) } else { Err(MediaError::Unreadable(path.to_path_buf())) }
+    }
+    /// One of a file's audio tracks (`None`: its first), decoded: interleaved f32 with `channels`
+    /// at `rate`.
+    fn audio(&self, path: &Path, track: Option<u32>, rate: u32, channels: u32) -> Result<Vec<f32>, MediaError>;
+}
+
+/// A video's frames in time order, from a [`Backend`].
+pub trait VideoReader: Send {
+    /// The source time of the next frame.
+    fn next_ms(&self) -> u64;
+    /// The next frame into `buf` (RGBA, the size asked for); false at the end.
+    fn next(&mut self, buf: &mut Vec<u8>) -> bool;
+}
+
+/// The backend set with [`set_backend`]; FFmpeg's until then.
+static BACKEND: RwLock<Option<Arc<dyn Backend>>> = RwLock::new(None);
+
+/// Reads media through `backend` from now on, for the whole process (one app, one platform).
+pub fn set_backend(backend: Arc<dyn Backend>) {
+    *BACKEND.write().unwrap_or_else(|e| e.into_inner()) = Some(backend);
+}
+
+/// The backend media are read through.
+pub fn backend() -> Arc<dyn Backend> {
+    BACKEND.read().unwrap_or_else(|e| e.into_inner()).clone().unwrap_or_else(|| Arc::new(Ffmpeg))
+}
+
+/// FFmpeg, run as a helper program: the desktop's backend.
+pub struct Ffmpeg;
+
+impl Backend for Ffmpeg {
+    fn contents(&self, path: &Path) -> Result<Contents, MediaError> {
+        ffmpeg_contents(path)
+    }
+
+    fn probe(&self, path: &Path) -> Result<Probe, MediaError> {
+        ffmpeg_probe(path)
+    }
+
+    fn audio_tracks(&self, path: &Path) -> Vec<String> {
+        ffmpeg_audio_tracks(path)
+    }
+
+    fn video(
+        &self,
+        path: &Path,
+        start_ms: u64,
+        fps: f64,
+        size: (u32, u32),
+    ) -> Result<Box<dyn VideoReader>, MediaError> {
+        Ok(Box::new(FfmpegDecoder::open(path, start_ms, fps, size)?))
+    }
+
+    fn frame_at(&self, path: &Path, t_ms: u64, size: (u32, u32)) -> Result<Vec<u8>, MediaError> {
+        ffmpeg_frame_at(path, t_ms, size)
+    }
+
+    fn audio(&self, path: &Path, track: Option<u32>, rate: u32, channels: u32) -> Result<Vec<f32>, MediaError> {
+        crate::sound::ffmpeg_decode_track(path, track, rate, channels)
+    }
 }
 
 fn find(tool: &str) -> Option<PathBuf> {
@@ -53,7 +139,12 @@ pub struct Probe {
     pub duration_ms: u64,
 }
 
+/// A video's size, frame rate and length (through the [`backend`]).
 pub fn probe(path: &Path) -> Result<Probe, MediaError> {
+    backend().probe(path)
+}
+
+fn ffmpeg_probe(path: &Path) -> Result<Probe, MediaError> {
     let ffprobe = find("ffprobe").ok_or(MediaError::NoFfmpeg)?;
     let out = command(ffprobe)
         .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,avg_frame_rate:format=duration"])
@@ -150,8 +241,13 @@ pub struct Contents {
     pub duration_ms: u64,
 }
 
-/// A file's audio tracks, by name (their title, else "Track 1", "Track 2"…).
+/// A file's audio tracks, by name (their title, else "Track 1", "Track 2"…; through the
+/// [`backend`]).
 pub fn audio_tracks(path: &Path) -> Vec<String> {
+    backend().audio_tracks(path)
+}
+
+fn ffmpeg_audio_tracks(path: &Path) -> Vec<String> {
     let Some(ffprobe) = find("ffprobe") else { return Vec::new() };
     let Ok(out) = command(ffprobe).args(["-v", "error", "-select_streams", "a", "-show_entries", "stream=index:stream_tags=title,handler_name", "-of", "json"]).arg(path).output() else {
         return Vec::new();
@@ -176,7 +272,12 @@ pub fn audio_tracks(path: &Path) -> Vec<String> {
 /// The track names muxers write when the track has none of its own.
 const DEFAULT_TRACK_NAMES: [&str; 8] = ["SoundHandler", "VideoHandler", "Core Media Audio", "Core Media Video", "Apple Sound Media Handler", "Apple Video Media Handler", "ISO Media file produced by Google Inc.", "Mainconcept MP4 Sound Media Handler"];
 
+/// What a file holds (through the [`backend`]).
 pub fn contents(path: &Path) -> Result<Contents, MediaError> {
+    backend().contents(path)
+}
+
+fn ffmpeg_contents(path: &Path) -> Result<Contents, MediaError> {
     let ffprobe = find("ffprobe").ok_or(MediaError::NoFfmpeg)?;
     let out = command(ffprobe)
         .args(["-v", "error", "-show_entries", "stream=codec_type,width,height,nb_frames:format=duration,format_name", "-of", "json"])
@@ -208,8 +309,12 @@ fn scale_filter(fps: f64, size: (u32, u32)) -> String {
     format!("fps={fps},scale={}:{}:flags=bicubic", size.0, size.1)
 }
 
-/// One frame at `t_ms`, as RGBA at `size` (scrubbing).
+/// One frame at `t_ms`, as RGBA at `size` (scrubbing; through the [`backend`]).
 pub fn frame_at(path: &Path, t_ms: u64, size: (u32, u32)) -> Result<Vec<u8>, MediaError> {
+    backend().frame_at(path, t_ms, size)
+}
+
+fn ffmpeg_frame_at(path: &Path, t_ms: u64, size: (u32, u32)) -> Result<Vec<u8>, MediaError> {
     let out = command(ffmpeg()?)
         .args(["-v", "error", "-ss", &format!("{:.3}", t_ms as f64 / 1000.0), "-i"])
         .arg(path)
@@ -223,8 +328,36 @@ pub fn frame_at(path: &Path, t_ms: u64, size: (u32, u32)) -> Result<Vec<u8>, Med
     Ok(out.stdout[..want].to_vec())
 }
 
-/// A video read frame by frame from `start_ms`, at `fps`, scaled to `size`.
+/// A video read frame by frame from `start_ms`, at `fps`, scaled to `size` (through the
+/// [`backend`]).
 pub struct Decoder {
+    frames: Box<dyn VideoReader>,
+    /// Frames read so far.
+    pub read: u64,
+}
+
+impl Decoder {
+    pub fn open(path: &Path, start_ms: u64, fps: f64, size: (u32, u32)) -> Result<Decoder, MediaError> {
+        Ok(Decoder { frames: backend().video(path, start_ms, fps, size)?, read: 0 })
+    }
+
+    /// The source time of the next frame.
+    pub fn next_ms(&self) -> u64 {
+        self.frames.next_ms()
+    }
+
+    /// The next frame into `buf` (RGBA, `size`); false at the end.
+    pub fn next(&mut self, buf: &mut Vec<u8>) -> bool {
+        let ok = self.frames.next(buf);
+        if ok {
+            self.read += 1;
+        }
+        ok
+    }
+}
+
+/// FFmpeg's video reader.
+struct FfmpegDecoder {
     child: Child,
     /// Frames read ahead on a thread of their own (a few, so decoding runs while the last one
     /// is drawn).
@@ -236,8 +369,8 @@ pub struct Decoder {
     pub read: u64,
 }
 
-impl Decoder {
-    pub fn open(path: &Path, start_ms: u64, fps: f64, size: (u32, u32)) -> Result<Decoder, MediaError> {
+impl FfmpegDecoder {
+    fn open(path: &Path, start_ms: u64, fps: f64, size: (u32, u32)) -> Result<FfmpegDecoder, MediaError> {
         let mut child = command(ffmpeg()?)
             .args(["-v", "error", "-hwaccel", "auto", "-ss", &format!("{:.3}", start_ms as f64 / 1000.0), "-i"])
             .arg(path)
@@ -250,16 +383,16 @@ impl Decoder {
         let (tx, frames) = std::sync::mpsc::sync_channel(AHEAD);
         let bytes = (size.0 * size.1 * 4) as usize;
         std::thread::spawn(move || read_ahead(out, bytes, tx));
-        Ok(Decoder { child, frames, size, fps, start_ms, read: 0 })
+        Ok(FfmpegDecoder { child, frames, size, fps, start_ms, read: 0 })
     }
+}
 
-    /// The source time of the next frame.
-    pub fn next_ms(&self) -> u64 {
+impl VideoReader for FfmpegDecoder {
+    fn next_ms(&self) -> u64 {
         self.start_ms + (self.read as f64 * 1000.0 / self.fps) as u64
     }
 
-    /// The next frame into `buf` (RGBA, `size`); false at the end.
-    pub fn next(&mut self, buf: &mut Vec<u8>) -> bool {
+    fn next(&mut self, buf: &mut Vec<u8>) -> bool {
         match self.frames.recv() {
             Ok(f) => {
                 debug_assert_eq!(f.len(), (self.size.0 * self.size.1 * 4) as usize);
@@ -285,7 +418,7 @@ fn read_ahead(mut out: ChildStdout, bytes: usize, tx: std::sync::mpsc::SyncSende
     }
 }
 
-impl Drop for Decoder {
+impl Drop for FfmpegDecoder {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();

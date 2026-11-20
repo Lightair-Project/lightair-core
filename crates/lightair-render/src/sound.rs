@@ -34,8 +34,18 @@ pub fn decode(path: &Path, rate: u32, channels: u32) -> Result<Vec<f32>, MediaEr
     decode_track(path, None, rate, channels)
 }
 
-/// One of a file's audio tracks (`None`: its first), decoded.
+/// One of a file's audio tracks (`None`: its first), decoded (through the media backend).
 pub fn decode_track(path: &Path, track: Option<u32>, rate: u32, channels: u32) -> Result<Vec<f32>, MediaError> {
+    media::backend().audio(path, track, rate, channels)
+}
+
+/// FFmpeg's decoding of an audio track (its media backend's).
+pub(crate) fn ffmpeg_decode_track(
+    path: &Path,
+    track: Option<u32>,
+    rate: u32,
+    channels: u32,
+) -> Result<Vec<f32>, MediaError> {
     let map = format!("0:a:{}", track.unwrap_or(0));
     let mut child = media::command(media::ffmpeg()?)
         .args(["-v", "error", "-i"])
