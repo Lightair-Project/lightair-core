@@ -1,0 +1,5 @@
+# Authors whose commits to the shared crates are allowed (lightair-live docs/11 §1): the copyright
+# holder, and contributors who signed the CLA (docs/CLA.md). The licence job
+# (.github/workflows/licences.yml) stops on a commit by anyone else, since only these commits can be
+# offered under the commercial licence as well as the GPL.
+22976574+MoonGoblinDev@users.noreply.github.com

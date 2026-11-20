@@ -1,0 +1,50 @@
+# Keeps the shared crates licensable both ways (LICENSING.md, lightair-live docs/11 §1): no
+# third-party GPL/LGPL/AGPL in their dependency trees, no path to libobs, Chromium or GPUI, one TLS
+# stack (rustls), and every commit to them by the copyright holder or a contributor under the CLA
+# (authors.txt). lightair-core is public, so this runs on GitHub's free minutes.
+name: licences
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses bans sources
+
+  authors:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Commits to the shared crates are by allowed authors
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            range="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+          elif [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
+            range="${{ github.sha }}"
+          else
+            range="${{ github.event.before }}..${{ github.sha }}"
+          fi
+          allowed=$(grep -v '^#' authors.txt | sed '/^$/d')
+          commits=$(grep -v '^#' allowed-commits.txt | sed '/^$/d')
+          bad=0
+          while read -r sha email; do
+            [ -z "$sha" ] && continue
+            if printf '%s\n' "$commits" | grep -q "^${sha:0:7}"; then
+              continue
+            fi
+            if ! printf '%s\n' "$allowed" | grep -qxF "$email"; then
+              echo "::error::$sha by $email: not in authors.txt (contributions need the CLA, docs/CLA.md)"
+              bad=1
+            fi
+          done < <(git log --format='%H %ae' "$range" -- crates)
+          exit $bad

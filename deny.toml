@@ -1,0 +1,47 @@
+# The shared crates stay licensable both ways (LICENSING.md): their dependency trees hold only
+# permissive licences (and MPL-2.0, file-level), never third-party GPL, LGPL or AGPL, and never
+# reach libobs, Chromium or GPUI, which only the desktop app may use. Checked by
+# .github/workflows/licences.yml on every push and pull request, and by `cargo deny check` here.
+[graph]
+all-features = true
+
+[licenses]
+allow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause", "BSD-3-Clause",
+         "ISC", "Zlib", "Unicode-3.0", "MPL-2.0",
+         "CDLA-Permissive-2.0"]
+confidence-threshold = 0.9
+# this repo's own crates: GPL or commercial terms, by their copyright holder (LICENSING.md)
+exceptions = [
+  { name = "lightair-model",       allow = ["GPL-3.0-or-later"] },
+  { name = "lightair-store",       allow = ["GPL-3.0-or-later"] },
+  { name = "lightair-audio",       allow = ["GPL-3.0-or-later"] },
+  { name = "lightair-render",      allow = ["GPL-3.0-or-later"] },
+  { name = "lightair-live",        allow = ["GPL-3.0-or-later"] },
+  { name = "lightair-automation",  allow = ["GPL-3.0-or-later"] },
+  { name = "lightair-widgets",     allow = ["GPL-3.0-or-later"] },
+  { name = "lightair-remote",      allow = ["GPL-3.0-or-later"] },
+  { name = "lightair-platform",    allow = ["GPL-3.0-or-later"] },
+  { name = "lightair-fonts",       allow = ["GPL-3.0-or-later"] },
+  { name = "xtask",                allow = ["GPL-3.0-or-later"] },
+]
+
+[licenses.private]
+ignore = false
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+allow-wildcard-paths = true
+deny = [
+  { name = "libobs-sys" }, { name = "cef" }, { name = "gpui" },
+  { name = "gpui-kit" }, { name = "gpui-component" }, { name = "gpui-base" },
+  # one TLS stack, rustls, on every platform (lightair-live docs/03)
+  { name = "native-tls" }, { name = "openssl-sys" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+
+[advisories]
+unmaintained = "workspace"

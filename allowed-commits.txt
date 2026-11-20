@@ -1,0 +1,5 @@
+# Commits to the shared crates allowed by their hash though their author isn't in authors.txt: the
+# copyright holder's own, made with another address (CLAUDE.md of the project, "Commits").
+c3f1279
+042f3ca
+5a922d4
