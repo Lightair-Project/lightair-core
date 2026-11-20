@@ -28,6 +28,8 @@ struct Pic {
     time: f32,
     /// The part of the picture drawn (x, y, w, h; negative: mirrored).
     uv: (f32, f32, f32, f32),
+    /// Its corners rounded and its ring (a clip's radius and border).
+    cut: Option<crate::compose::Cut>,
 }
 
 /// How a transition draws one of its two clips: faded, moved (frame widths and heights),
@@ -426,6 +428,7 @@ impl SequenceRenderer {
             effects: Vec::new(),
             time: 0.0,
             uv: (0.0, 0.0, 1.0, 1.0),
+            cut: None,
         }
     }
 
@@ -448,6 +451,7 @@ impl SequenceRenderer {
             effects: Vec::new(),
             time: 0.0,
             uv: (0.0, 0.0, 1.0, 1.0),
+            cut: None,
         };
         let rgb = |c: u32| [(c >> 16) as u8, (c >> 8) as u8, c as u8, 255];
         match &self.seq.background {
@@ -489,6 +493,7 @@ impl SequenceRenderer {
                     effects: Vec::new(),
                     time: m.time,
                     uv: m.uv,
+                    cut: None,
                 }]
             }
         }
@@ -518,6 +523,23 @@ impl SequenceRenderer {
         if clip.flip_v {
             uv = (uv.0, uv.1 + uv.3, uv.2, -uv.3);
         }
+        // rounded corners and a ring, in the picture's own pixels (its crop window); the edge
+        // soft over about one pixel on screen
+        let cut = (clip.radius > 0.0 || clip.border.is_some()).then(|| {
+            let (pw, ph) = (size.0 as f32, size.1 as f32);
+            let (tw, th) = (uv.2.abs() * pw, uv.3.abs() * ph);
+            let per_px = tw / (draw.0 * grow * self.k()).max(1.0);
+            let (colour, width) = clip.border.unwrap_or((0, 0.0));
+            let ch = |shift: u32| ((colour >> shift) & 255) as f32 / 255.0;
+            crate::compose::Cut {
+                centre: ((uv.0 + uv.2 / 2.0) * pw, (uv.1 + uv.3 / 2.0) * ph),
+                half: (tw / 2.0, th / 2.0),
+                radius: clip.radius.clamp(0.0, 0.5) * tw.min(th),
+                feather: per_px,
+                border: width.max(0.0) * tw / draw.0.max(1.0),
+                border_color: [ch(16), ch(8), ch(0), if width > 0.0 { 1.0 } else { 0.0 }],
+            }
+        });
         // a wipe: only its left part, up to where the edge has got to
         let (center, draw) = if sh.reveal < 1.0 {
             let r = sh.reveal.clamp(0.0, 1.0);
@@ -547,6 +569,7 @@ impl SequenceRenderer {
             effects: clip.effects_at(t),
             time: t.saturating_sub(clip.start_ms) as f32 / 1000.0,
             uv,
+            cut,
         });
     }
 
@@ -665,7 +688,7 @@ impl SequenceRenderer {
                 effects: &p.effects,
                 time: p.time,
                 uv: p.uv,
-                cut: None,
+                cut: p.cut,
                 tilt: (0.0, 0.0),
                 keep: None,
                 bounds: None,

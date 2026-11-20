@@ -92,3 +92,69 @@ fn a_fitted_picture_has_its_fill_behind_it() {
     old.as_object_mut().unwrap().remove("background");
     assert_eq!(serde_json::from_value::<Sequence>(old).unwrap().background, None);
 }
+
+/// A clip's corners rounded and a ring round it (Lightair Editor's camera bubble, ED-17).
+#[test]
+fn a_clip_is_drawn_as_a_bubble() {
+    let dir = tempfile::tempdir().unwrap();
+    let Ok(ff) = media::ffmpeg() else {
+        eprintln!("FFmpeg isn't installed; skipping");
+        return;
+    };
+    let src = dir.path().join("cam.mp4");
+    assert!(
+        Command::new(ff)
+            .args([
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=0xE0603A:s=200x200:r=30:d=2",
+                "-pix_fmt",
+                "yuv420p"
+            ])
+            .arg(&src)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let (w, h) = (200u32, 200u32);
+    let mut seq = Sequence::new((w, h), 30);
+    let m = seq.add_media(Media::from_file(&src).unwrap());
+    let clip = seq.append(m).unwrap();
+    let mut r = match SequenceRenderer::new(&seq) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("no renderer here ({e}); skipping");
+            return;
+        }
+    };
+    let mut frame = |s: &Sequence| {
+        r.set(s).unwrap();
+        r.frame(500)
+    };
+    let square = frame(&seq);
+    assert!(near(px(&square, w, 3, 3), 0xE0603A, 24), "square: the corner is the picture");
+
+    // a circle: the corners gone, the middle and the edges' middles there
+    seq.clip_mut(clip).unwrap().radius = 0.5;
+    let f = frame(&seq);
+    assert!(near(px(&f, w, 3, 3), 0x000000, 8), "{:?}", px(&f, w, 3, 3));
+    assert!(near(px(&f, w, 100, 100), 0xE0603A, 24) && near(px(&f, w, 100, 3), 0xE0603A, 24));
+
+    // a ring: its colour at the edge, the picture inside
+    seq.clip_mut(clip).unwrap().border = Some((0x2060C0, 10.0));
+    let f = frame(&seq);
+    assert!(near(px(&f, w, 100, 4), 0x2060C0, 24), "{:?}", px(&f, w, 100, 4));
+    assert!(near(px(&f, w, 100, 30), 0xE0603A, 24));
+    assert!(near(px(&f, w, 3, 3), 0x000000, 8));
+
+    // saved with the clip; a clip from before has neither
+    let back: Sequence = serde_json::from_value(serde_json::to_value(&seq).unwrap()).unwrap();
+    let c = back.tracks.iter().flat_map(|t| &t.clips).find(|c| c.id == clip).unwrap();
+    assert_eq!((c.radius, c.border), (0.5, Some((0x2060C0, 10.0))));
+    let plain = serde_json::to_value(Sequence::new((w, h), 30)).unwrap();
+    assert!(!plain.to_string().contains("radius"));
+}

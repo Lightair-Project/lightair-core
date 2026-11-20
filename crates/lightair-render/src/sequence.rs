@@ -458,6 +458,15 @@ pub struct Clip {
     pub flip_h: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub flip_v: bool,
+    /// Its picture's corners rounded (after the crop, before it's moved or turned): a fraction
+    /// of the cropped picture's short side, 0 square to 0.5 (a circle on a square crop, a pill
+    /// on a long one). A camera bubble.
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub radius: f32,
+    /// A ring around its picture's (rounded) edge: colour (0xRRGGBB) and width in the
+    /// sequence's pixels.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub border: Option<(u32, f32)>,
     /// Which of its file's audio tracks it plays (`None`: the first, or every one for a video
     /// clip whose sound isn't apart).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -492,6 +501,10 @@ impl ClipEffect {
     pub fn new(kind: impl Into<String>, settings: serde_json::Map<String, serde_json::Value>) -> ClipEffect {
         ClipEffect { id: Id::new(), kind: kind.into(), settings, on: true }
     }
+}
+
+fn is_zero_f32(v: &f32) -> bool {
+    *v == 0.0
 }
 
 fn is_zero(v: &u64) -> bool {
@@ -787,6 +800,8 @@ impl Clip {
             crop: (0.0, 0.0, 0.0, 0.0),
             flip_h: false,
             flip_v: false,
+            radius: 0.0,
+            border: None,
             stream: None,
             link: None,
             motion: Default::default(),
