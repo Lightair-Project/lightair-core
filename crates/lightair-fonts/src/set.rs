@@ -100,7 +100,7 @@ mod tests {
 
     #[test]
     fn coverage_comes_from_the_face_itself() {
-        let inter = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../branding/source/fonts/Inter-Variable.ttf");
+        let inter = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/Inter-Variable.ttf");
         let mut set = FontSet::new();
         set.add_file(&inter).unwrap();
         let db = set.into_db();

@@ -1,0 +1,39 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "xtask"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+
+[workspace.dependencies]
+lightair-audio = { path = "crates/lightair-audio" }
+lightair-automation = { path = "crates/lightair-automation" }
+lightair-core = { path = "crates/lightair-core" }
+lightair-fonts = { path = "crates/lightair-fonts" }
+lightair-live = { path = "crates/lightair-live" }
+lightair-platform = { path = "crates/lightair-platform" }
+lightair-remote = { path = "crates/lightair-remote" }
+lightair-render = { path = "crates/lightair-render" }
+lightair-store = { path = "crates/lightair-store" }
+lightair-widgets = { path = "crates/lightair-widgets" }
+
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+crossbeam-channel = "0.5"
+parking_lot = "0.12"
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v7", "serde"] }
+
+[profile.dev]
+# Line tables: backtraces and stepping by line, without variables' and types' descriptions.
+debug = "line-tables-only"
+
+# Dependencies are slow when unoptimised; keep our own code debuggable.
+[profile.dev.package."*"]
+opt-level = 2
+debug = false

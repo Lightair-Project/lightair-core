@@ -10,7 +10,7 @@ use lightair_render::generate::{self, Raster};
 use lightair_render::sequence::TextStyle;
 
 fn inter() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../branding/source/fonts/Inter-Variable.ttf")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../lightair-fonts/tests/data/Inter-Variable.ttf")
 }
 
 fn draw(set: FontSet, font: Option<FontRef>) -> Raster {

@@ -1,7 +1,9 @@
 //! The effect catalog's shader effects (`fx.*`, the Live filter's) on a clip's picture: the
 //! same effects ported to WGSL (fx.wgsl), each one pass or several, run on the GPU before the
 //! picture is composited. Their settings are the .effect files' uniforms, read from those files
-//! (names, order, defaults), so the two stay in step.
+//! (names, order, defaults), so the two stay in step. The .effect files in `fx/` are copies of
+//! the desktop's Lightair Effect Stack module's (`modules/lightair-effect-stack/data/fx/` in the
+//! desktop repo), which stays their source; the desktop's `cargo xtask check` fails if they differ.
 
 use std::collections::HashMap;
 
@@ -12,7 +14,7 @@ const EFFECTS: &str = include_str!("fx.wgsl");
 
 macro_rules! effect_files {
     ($($name:literal),* $(,)?) => {
-        &[$(($name, include_str!(concat!("../../../modules/lightair-effect-stack/data/fx/", $name, ".effect")))),*]
+        &[$(($name, include_str!(concat!("../fx/", $name, ".effect")))),*]
     };
 }
 
