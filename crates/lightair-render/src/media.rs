@@ -50,6 +50,23 @@ pub trait Backend: Send + Sync {
     /// One of a file's audio tracks (`None`: its first), decoded: interleaved f32 with `channels`
     /// at `rate`.
     fn audio(&self, path: &Path, track: Option<u32>, rate: u32, channels: u32) -> Result<Vec<f32>, MediaError>;
+    /// A stretch of an audio track: `frames` frames from frame `from` (both at `rate`), decoded
+    /// as [`Backend::audio`] does; shorter where the track ends. For long sources read in pieces as
+    /// they're played. By default the whole track is decoded and cut.
+    fn audio_range(
+        &self,
+        path: &Path,
+        track: Option<u32>,
+        rate: u32,
+        channels: u32,
+        from: u64,
+        frames: usize,
+    ) -> Result<Vec<f32>, MediaError> {
+        let all = self.audio(path, track, rate, channels)?;
+        let c = channels as usize;
+        let start = (from as usize * c).min(all.len());
+        Ok(all[start..(start + frames * c).min(all.len())].to_vec())
+    }
 }
 
 /// A video's frames in time order, from a [`Backend`].
@@ -105,6 +122,18 @@ impl Backend for Ffmpeg {
 
     fn audio(&self, path: &Path, track: Option<u32>, rate: u32, channels: u32) -> Result<Vec<f32>, MediaError> {
         crate::sound::ffmpeg_decode_track(path, track, rate, channels)
+    }
+
+    fn audio_range(
+        &self,
+        path: &Path,
+        track: Option<u32>,
+        rate: u32,
+        channels: u32,
+        from: u64,
+        frames: usize,
+    ) -> Result<Vec<f32>, MediaError> {
+        crate::sound::ffmpeg_decode_range(path, track, rate, channels, from, frames)
     }
 }
 
@@ -259,7 +288,20 @@ pub fn audio_tracks(path: &Path) -> Vec<String> {
 
 fn ffmpeg_audio_tracks(path: &Path) -> Vec<String> {
     let Some(ffprobe) = find("ffprobe") else { return Vec::new() };
-    let Ok(out) = command(ffprobe).args(["-v", "error", "-select_streams", "a", "-show_entries", "stream=index:stream_tags=title,handler_name", "-of", "json"]).arg(path).output() else {
+    let Ok(out) = command(ffprobe)
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "a",
+            "-show_entries",
+            "stream=index:stream_tags=title,handler_name",
+            "-of",
+            "json",
+        ])
+        .arg(path)
+        .output()
+    else {
         return Vec::new();
     };
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
@@ -271,7 +313,13 @@ fn ffmpeg_audio_tracks(path: &Path) -> Vec<String> {
                 .map(|(n, st)| {
                     let tags = &st["tags"];
                     // (the names muxers give every track aren't names: "SoundHandler", "Core Media Audio"…)
-                    let named = |k: &str| tags[k].as_str().map(str::trim).filter(|t| !t.is_empty() && !DEFAULT_TRACK_NAMES.contains(t)).map(String::from);
+                    let named = |k: &str| {
+                        tags[k]
+                            .as_str()
+                            .map(str::trim)
+                            .filter(|t| !t.is_empty() && !DEFAULT_TRACK_NAMES.contains(t))
+                            .map(String::from)
+                    };
                     named("title").or_else(|| named("handler_name")).unwrap_or_else(|| format!("Track {}", n + 1))
                 })
                 .collect()
@@ -280,7 +328,16 @@ fn ffmpeg_audio_tracks(path: &Path) -> Vec<String> {
 }
 
 /// The track names muxers write when the track has none of its own.
-const DEFAULT_TRACK_NAMES: [&str; 8] = ["SoundHandler", "VideoHandler", "Core Media Audio", "Core Media Video", "Apple Sound Media Handler", "Apple Video Media Handler", "ISO Media file produced by Google Inc.", "Mainconcept MP4 Sound Media Handler"];
+const DEFAULT_TRACK_NAMES: [&str; 8] = [
+    "SoundHandler",
+    "VideoHandler",
+    "Core Media Audio",
+    "Core Media Video",
+    "Apple Sound Media Handler",
+    "Apple Video Media Handler",
+    "ISO Media file produced by Google Inc.",
+    "Mainconcept MP4 Sound Media Handler",
+];
 
 /// What a file holds (through the [`backend`]).
 pub fn contents(path: &Path) -> Result<Contents, MediaError> {
@@ -307,8 +364,13 @@ fn ffmpeg_contents(path: &Path) -> Result<Contents, MediaError> {
     let format = v["format"]["format_name"].as_str().unwrap_or("");
     // a picture: an image format, or one frame and no length
     let still = video.is_some()
-        && (format.contains("image2") || format.contains("_pipe") || ["png", "jpg", "jpeg", "webp", "gif", "bmp", "tiff", "heic"].iter().any(|e| path.extension().is_some_and(|x| x.eq_ignore_ascii_case(e))));
-    let duration_ms = v["format"]["duration"].as_str().and_then(|d| d.parse::<f64>().ok()).map_or(0, |d| (d * 1000.0) as u64);
+        && (format.contains("image2")
+            || format.contains("_pipe")
+            || ["png", "jpg", "jpeg", "webp", "gif", "bmp", "tiff", "heic"]
+                .iter()
+                .any(|e| path.extension().is_some_and(|x| x.eq_ignore_ascii_case(e))));
+    let duration_ms =
+        v["format"]["duration"].as_str().and_then(|d| d.parse::<f64>().ok()).map_or(0, |d| (d * 1000.0) as u64);
     if video.is_none() && !audio {
         return Err(MediaError::Unreadable(path.into()));
     }
@@ -343,7 +405,17 @@ fn ffmpeg_frame_at(path: &Path, t_ms: u64, size: (u32, u32)) -> Result<Vec<u8>, 
     let out = command(ffmpeg()?)
         .args(["-v", "error", "-ss", &format!("{:.3}", t_ms as f64 / 1000.0), "-i"])
         .arg(path)
-        .args(["-frames:v", "1", "-vf", &format!("scale={}:{}", size.0, size.1), "-f", "rawvideo", "-pix_fmt", "rgba", "-"])
+        .args([
+            "-frames:v",
+            "1",
+            "-vf",
+            &format!("scale={}:{}", size.0, size.1),
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgba",
+            "-",
+        ])
         .stdin(Stdio::null())
         .output()?;
     let want = (size.0 * size.1 * 4) as usize;
@@ -467,7 +539,10 @@ fn encoders() -> &'static Vec<String> {
     LIST.get_or_init(|| {
         let Ok(ff) = ffmpeg() else { return Vec::new() };
         let Ok(out) = command(ff).args(["-hide_banner", "-encoders"]).output() else { return Vec::new() };
-        String::from_utf8_lossy(&out.stdout).lines().filter_map(|l| l.split_whitespace().nth(1).map(String::from)).collect()
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter_map(|l| l.split_whitespace().nth(1).map(String::from))
+            .collect()
     })
 }
 
@@ -475,14 +550,27 @@ fn encoders() -> &'static Vec<String> {
 /// second of black: a listed encoder may still lack its driver (NVENC on an older NVIDIA
 /// driver, AMF without an AMD GPU), and would fail the whole export.
 fn encodes(encoder: &str) -> bool {
-    static TRIED: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, bool>>> = std::sync::OnceLock::new();
+    static TRIED: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, bool>>> =
+        std::sync::OnceLock::new();
     let tried = TRIED.get_or_init(Default::default);
     if let Some(ok) = tried.lock().unwrap().get(encoder) {
         return *ok;
     }
     let ok = ffmpeg().ok().is_some_and(|ff| {
         command(ff)
-            .args(["-v", "error", "-f", "lavfi", "-i", "color=c=black:s=256x256:r=30:d=0.1", "-c:v", encoder, "-f", "null", "-"])
+            .args([
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:s=256x256:r=30:d=0.1",
+                "-c:v",
+                encoder,
+                "-f",
+                "null",
+                "-",
+            ])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
@@ -516,11 +604,16 @@ fn video_args(codec: Codec, size: (u32, u32), fps: f64) -> Vec<String> {
     let kbps = ((size.0 as f64 * size.1 as f64 * fps) / 30_000.0).clamp(4_000.0, 60_000.0) as u32;
     let v = |s: &[&str]| s.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     match codec {
-        Codec::ProRes if has("prores_videotoolbox") => v(&["-c:v", "prores_videotoolbox", "-profile:v", "2", "-pix_fmt", "p210le"]),
+        Codec::ProRes if has("prores_videotoolbox") => {
+            v(&["-c:v", "prores_videotoolbox", "-profile:v", "2", "-pix_fmt", "p210le"])
+        }
         Codec::ProRes => v(&["-c:v", "prores_ks", "-profile:v", "2", "-pix_fmt", "yuv422p10le"]),
         Codec::Gif => v(&["-loop", "0"]),
         Codec::H264 => {
-            let enc = ["h264_videotoolbox", "h264_nvenc", "h264_amf", "h264_qsv"].into_iter().find(|e| hardware(e)).unwrap_or("libx264");
+            let enc = ["h264_videotoolbox", "h264_nvenc", "h264_amf", "h264_qsv"]
+                .into_iter()
+                .find(|e| hardware(e))
+                .unwrap_or("libx264");
             let mut a = v(&["-c:v", enc, "-b:v", &format!("{kbps}k"), "-pix_fmt", "yuv420p"]);
             if enc == "libx264" {
                 a.extend(v(&["-preset", "medium"]));
@@ -611,7 +704,9 @@ impl Encoder {
                 cmd.arg("-i").arg(subs);
             }
             match mix.map(String::from).or_else(|| audio_filter(audio.len(), clips)) {
-                Some(f) => cmd.args(["-filter_complex", &f, "-map", "0:v", "-map", "[aout]", "-c:a", "aac", "-b:a", "192k"]),
+                Some(f) => {
+                    cmd.args(["-filter_complex", &f, "-map", "0:v", "-map", "[aout]", "-c:a", "aac", "-b:a", "192k"])
+                }
                 None => cmd.args(["-map", "0:v"]),
             };
             if subtitles.is_some() {
@@ -639,7 +734,9 @@ impl Encoder {
         if out.status.success() {
             Ok(())
         } else {
-            Err(MediaError::Failed(String::from_utf8_lossy(&out.stderr).trim().lines().last().unwrap_or("").to_string()))
+            Err(MediaError::Failed(
+                String::from_utf8_lossy(&out.stderr).trim().lines().last().unwrap_or("").to_string(),
+            ))
         }
     }
 }
@@ -672,8 +769,12 @@ impl Encoder {
         let mut cmd = command(ffmpeg()?);
         cmd.args(["-v", "error", "-y"]);
         if video {
-            cmd.args(["-f", "rawvideo", "-pix_fmt", "rgba", "-s", &format!("{}x{}", source.0, source.1)])
-                .args(["-r", &format!("{fps}"), "-i", "-"]);
+            cmd.args(["-f", "rawvideo", "-pix_fmt", "rgba", "-s", &format!("{}x{}", source.0, source.1)]).args([
+                "-r",
+                &format!("{fps}"),
+                "-i",
+                "-",
+            ]);
         }
         if sound {
             for a in audio {
@@ -702,7 +803,10 @@ impl Encoder {
         }
         cmd.args(&vargs);
         cmd.args(if sound { settings.audio_args(&has) } else { vec!["-an".to_string()] });
-        if matches!(settings.container, crate::exporter::Container::Mp4 | crate::exporter::Container::Mov | crate::exporter::Container::M4a) {
+        if matches!(
+            settings.container,
+            crate::exporter::Container::Mp4 | crate::exporter::Container::Mov | crate::exporter::Container::M4a
+        ) {
             cmd.args(["-movflags", "+faststart"]);
         }
         let mut child = cmd
@@ -741,7 +845,12 @@ fn shift_inputs(filter: &str) -> String {
 /// A smaller copy of a video for editing (no sound): fitted in 1920×1080, a keyframe every half
 /// second (quick to jump around in), written to `out` once it's whole. `progress(fraction)`
 /// returns false to stop.
-pub fn make_proxy(file: &Path, out: &Path, duration_ms: u64, mut progress: impl FnMut(f32) -> bool) -> Result<(), MediaError> {
+pub fn make_proxy(
+    file: &Path,
+    out: &Path,
+    duration_ms: u64,
+    mut progress: impl FnMut(f32) -> bool,
+) -> Result<(), MediaError> {
     if let Some(d) = out.parent() {
         std::fs::create_dir_all(d)?;
     }
@@ -785,7 +894,13 @@ pub type Thumbnails = (Vec<Vec<u8>>, (u32, u32));
 /// Thumbnails along a video of `duration_ms`, one every `every_ms`, `height` pixels tall and as
 /// wide as the video's shape: BGRA, in order, and their size. Read from its keyframes (quick),
 /// or every frame when it has too few keyframes for that.
-pub fn filmstrip(path: &Path, duration_ms: u64, every_ms: u64, height: u32, aspect: f32) -> Result<Thumbnails, MediaError> {
+pub fn filmstrip(
+    path: &Path,
+    duration_ms: u64,
+    every_ms: u64,
+    height: u32,
+    aspect: f32,
+) -> Result<Thumbnails, MediaError> {
     let size = ((((height as f32 * aspect).round() as u32).max(2)) & !1, height & !1);
     let wanted = (duration_ms / every_ms.max(1)) as usize;
     let quick = thumbnails(path, every_ms, size, true)?;
@@ -810,7 +925,16 @@ fn thumbnails(path: &Path, every_ms: u64, size: (u32, u32), keyframes: bool) -> 
     let mut child = cmd
         .arg("-i")
         .arg(path)
-        .args(["-an", "-vf", &format!("fps={}:eof_action=pass,scale={}:{}", 1000.0 / every_ms.max(1) as f64, size.0, size.1), "-f", "rawvideo", "-pix_fmt", "bgra", "-"])
+        .args([
+            "-an",
+            "-vf",
+            &format!("fps={}:eof_action=pass,scale={}:{}", 1000.0 / every_ms.max(1) as f64, size.0, size.1),
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "bgra",
+            "-",
+        ])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -833,14 +957,18 @@ fn thumbnails(path: &Path, every_ms: u64, size: (u32, u32), keyframes: bool) -> 
 mod tests {
     #[test]
     fn mixes_read_from_input_zero_without_frames() {
-        assert_eq!(super::shift_inputs("[1:a]atrim=start=0[s0];[2:a:0]volume=1[s1];[s0][s1]amix[aout]"), "[0:a]atrim=start=0[s0];[1:a:0]volume=1[s1];[s0][s1]amix[aout]");
+        assert_eq!(
+            super::shift_inputs("[1:a]atrim=start=0[s0];[2:a:0]volume=1[s1];[s0][s1]amix[aout]"),
+            "[0:a]atrim=start=0[s0];[1:a:0]volume=1[s1];[s0][s1]amix[aout]"
+        );
     }
 
     use super::*;
 
     #[test]
     fn the_audio_follows_the_cuts_and_speed() {
-        let clips = [Clip { start_ms: 0, end_ms: 4_000, speed: 1.0 }, Clip { start_ms: 6_000, end_ms: 10_000, speed: 2.0 }];
+        let clips =
+            [Clip { start_ms: 0, end_ms: 4_000, speed: 1.0 }, Clip { start_ms: 6_000, end_ms: 10_000, speed: 2.0 }];
         let f = audio_filter(2, &clips).unwrap();
         assert!(f.contains("[1:a]atrim=start=0.000:end=4.000"));
         assert!(f.contains("[2:a]atrim=start=6.000:end=10.000,asetpts=PTS-STARTPTS,atempo=2"));

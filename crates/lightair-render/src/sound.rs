@@ -39,6 +39,58 @@ pub fn decode_track(path: &Path, track: Option<u32>, rate: u32, channels: u32) -
     media::backend().audio(path, track, rate, channels)
 }
 
+/// A stretch of an audio track through the media backend: `frames` frames from frame `from`
+/// (both at `rate`).
+pub fn decode_range(
+    path: &Path,
+    track: Option<u32>,
+    rate: u32,
+    channels: u32,
+    from: u64,
+    frames: usize,
+) -> Result<Vec<f32>, MediaError> {
+    media::backend().audio_range(path, track, rate, channels, from, frames)
+}
+
+/// FFmpeg's decoding of a stretch of an audio track. It's sought to a fifth of a second before
+/// the stretch and that lead-in dropped: a compressed track's decoder (AAC's overlapping frames)
+/// needs a moment after a seek to give what decoding from the start would. From the start, no seek
+/// at all (even a seek to 0 changes the first second's decoding).
+pub(crate) fn ffmpeg_decode_range(
+    path: &Path,
+    track: Option<u32>,
+    rate: u32,
+    channels: u32,
+    from: u64,
+    frames: usize,
+) -> Result<Vec<f32>, MediaError> {
+    let lead = from.min(rate as u64 / 5);
+    let start = from - lead;
+    let map = format!("0:a:{}", track.unwrap_or(0));
+    let length = format!("{:.6}", (lead as f64 + frames as f64) / rate as f64 + 0.05);
+    let mut cmd = media::command(media::ffmpeg()?);
+    cmd.args(["-v", "error"]);
+    if start > 0 {
+        cmd.args(["-ss", &format!("{:.6}", start as f64 / rate as f64)]);
+    }
+    let mut child = cmd
+        .arg("-i")
+        .arg(path)
+        .args(["-t", &length, "-map", &map, "-f", "f32le", "-ac", &channels.to_string(), "-ar", &rate.to_string(), "-"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()?;
+    let mut bytes = Vec::new();
+    child.stdout.take().ok_or_else(|| MediaError::Failed("no output".into()))?.read_to_end(&mut bytes)?;
+    if !child.wait()?.success() && bytes.is_empty() {
+        return Err(MediaError::Unreadable(path.to_path_buf()));
+    }
+    let c = channels as usize;
+    let samples: Vec<f32> = bytes.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)).collect();
+    let skip = (lead as usize * c).min(samples.len());
+    Ok(samples[skip..(skip + frames * c).min(samples.len())].to_vec())
+}
+
 /// FFmpeg's decoding of an audio track (its media backend's).
 pub(crate) fn ffmpeg_decode_track(
     path: &Path,
@@ -71,7 +123,10 @@ pub fn peaks(path: &Path) -> Result<Vec<f32>, MediaError> {
 pub fn peaks_of(path: &Path, track: Option<u32>) -> Result<Vec<f32>, MediaError> {
     const R: u32 = 8_000;
     let samples = decode_track(path, track, R, 1)?;
-    Ok(samples.chunks((R / PEAKS_PER_SECOND) as usize).map(|c| c.iter().fold(0f32, |m, s| m.max(s.abs())).min(1.0)).collect())
+    Ok(samples
+        .chunks((R / PEAKS_PER_SECOND) as usize)
+        .map(|c| c.iter().fold(0f32, |m, s| m.max(s.abs())).min(1.0))
+        .collect())
 }
 
 /// The waveform of sounds played together: theirs added up, as they're mixed.
@@ -135,7 +190,8 @@ pub fn clean(file: &Path, v: VoiceClean, out: &Path) -> Result<(), MediaError> {
 pub fn clean_track(file: &Path, track: Option<u32>, v: VoiceClean, out: &Path) -> Result<(), MediaError> {
     use lightair_audio::dsp::{Ctx, Params, VoiceParams};
     let mut audio = decode_track(file, track, RATE, 2)?;
-    let params = Params::Voice(VoiceParams { amount: v.amount.clamp(0.0, 1.0), podcast: v.podcast, ..VoiceParams::default() });
+    let params =
+        Params::Voice(VoiceParams { amount: v.amount.clamp(0.0, 1.0), podcast: v.podcast, ..VoiceParams::default() });
     let mut p = params.make(RATE as f32);
     let ctx = Ctx { sample_rate: RATE as f32, key: None };
     let lat = p.latency();
@@ -207,7 +263,10 @@ pub(crate) fn sounding(seq: &Sequence) -> impl Iterator<Item = (&Clip, bool)> {
     // (a video track isn't muted: its sound is on the audio tracks)
     seq.tracks.iter().filter(|t| !t.muted || t.kind == TrackKind::Video).flat_map(|t| {
         let video = t.kind == TrackKind::Video;
-        t.clips.iter().filter(|c| !c.muted && c.content.is_none() && (c.volume > 0.0 || !c.volume_keys.is_empty())).map(move |c| (c, video))
+        t.clips
+            .iter()
+            .filter(|c| !c.muted && c.content.is_none() && (c.volume > 0.0 || !c.volume_keys.is_empty()))
+            .map(move |c| (c, video))
     })
 }
 
@@ -338,10 +397,20 @@ pub fn sound_to(seq: &Sequence, out: &Path) -> Result<bool, MediaError> {
 /// `rate` to its stdout (for the player). Voices not yet cleaned play as they are.
 pub fn stream(seq: &Sequence, from_ms: u64, rate: u32) -> Result<Option<Child>, MediaError> {
     let Some(mut cmd) = mixing(seq)? else { return Ok(None) };
-    cmd.args(["-ss", &format!("{:.3}", from_ms as f64 / 1000.0), "-f", "f32le", "-ac", "2", "-ar", &rate.to_string(), "-"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+    cmd.args([
+        "-ss",
+        &format!("{:.3}", from_ms as f64 / 1000.0),
+        "-f",
+        "f32le",
+        "-ac",
+        "2",
+        "-ar",
+        &rate.to_string(),
+        "-",
+    ])
+    .stdin(Stdio::null())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::null());
     Ok(Some(cmd.spawn()?))
 }
 

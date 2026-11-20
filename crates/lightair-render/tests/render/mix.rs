@@ -80,3 +80,24 @@ fn the_rust_mix_matches_ffmpegs() {
     // ducking really happens in both
     assert!(b[25] < b[5] * 0.8 + 0.25, "{} vs {}", b[25], b[5]);
 }
+
+/// FFmpeg's ranged reads (what the mix reads long sources in) join into the whole track, an AAC
+/// one too: no seam where a read starts.
+#[test]
+fn ffmpegs_ranged_reads_join_into_the_whole_track() {
+    use lightair_render::media::Backend;
+    let dir = tempfile::tempdir().unwrap();
+    let Some(file) = tone(dir.path(), "long.m4a", 440, 25) else {
+        eprintln!("FFmpeg isn't installed; skipping");
+        return;
+    };
+    let whole = media::Ffmpeg.audio(&file, None, RATE, 2).unwrap();
+    let n = 10 * RATE as u64;
+    let mut joined = Vec::new();
+    for i in 0..3 {
+        joined.extend(media::Ffmpeg.audio_range(&file, None, RATE, 2, i * n, n as usize).unwrap());
+    }
+    assert_eq!(joined.len(), whole.len());
+    let worst = joined.iter().zip(&whole).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
+    assert!(worst < 1e-3, "{worst}");
+}
