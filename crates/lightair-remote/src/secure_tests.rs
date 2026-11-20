@@ -577,3 +577,62 @@ fn a_phone_fetches_and_sends_files_in_pieces() {
     assert_eq!(http_req(&mut s, "GET", &path, &[], &[]).0, 403);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn control_phones_manage_devices_and_at_most_eight_connect() {
+    let handler: Handler = Arc::new(|_c: Call| Ok(json!({})));
+    let server = Server::start(Config { port: 0, lan: false, password: None }, handler).unwrap();
+    let identity = Identity::generate("7f3c").unwrap();
+    let pin = identity.fingerprint();
+    let desktop = DesktopInfo { id: "7f3c".into(), name: "Studio Mac".into(), version: "0.4.0".into() };
+    let device = |n: u8, scope: Scope| {
+        let key = SigningKey::from_bytes(&[10 + n; 32]);
+        (
+            crate::Device {
+                id: format!("phone-{n}"),
+                name: format!("Phone {n}"),
+                model: String::new(),
+                platform: "iOS".into(),
+                app_version: String::new(),
+                public_key: key.verifying_key().to_bytes(),
+                scope,
+                paired_at: 0,
+                last_seen: None,
+                source: None,
+            },
+            key,
+        )
+    };
+    let devices: Vec<_> = (0..10).map(|n| device(n, if n == 1 { Scope::Watch } else { Scope::Control })).collect();
+    let pairing = Pairing::new(devices.iter().map(|(d, _)| d.clone()).collect(), |_| false, |_| {});
+    let config = SecureConfig { port: 0, identity, desktop, features: vec![] };
+    let secure = server.start_secure(config, pairing.clone()).unwrap();
+    let port = secure.addr().port();
+    let sign_in = |n: usize| {
+        let (d, key) = &devices[n];
+        let (_, nonce) = connect(port, pin, &[]).unwrap_err();
+        connect(port, pin, &[("Authorization", sign_header(&d.id, &nonce, now(), |m| key.sign(m).to_bytes()))])
+    };
+
+    // a control device lists the paired devices; a watch device may not
+    let mut first = sign_in(0).unwrap();
+    let list = call(&mut first, 1, "pair.list", json!({}));
+    let all = list["result"]["devices"].as_array().unwrap();
+    assert_eq!(all.len(), 10);
+    assert!(all.iter().any(|d| d["id"] == "phone-0" && d["this"] == true));
+    let mut watcher = sign_in(1).unwrap();
+    assert_eq!(call(&mut watcher, 1, "pair.list", json!({}))["error"]["code"], -32001);
+
+    // at most 8 devices connected: 0 and 1 are, six more may, the ninth is turned away
+    let mut held: Vec<_> = (2..8).map(|n| sign_in(n).unwrap()).collect();
+    assert_eq!(sign_in(8).unwrap_err().0, 503);
+    // one leaves: room again
+    drop(held.pop());
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let mut ninth = sign_in(8).expect("room after one left");
+
+    // a control device removes another: its session stops working
+    assert_eq!(call(&mut first, 2, "pair.remove", json!({"device": "phone-8"}))["result"]["removed"], true);
+    assert_eq!(call(&mut ninth, 1, "state.get", json!({}))["error"]["code"], -32001);
+    assert!(!pairing.devices().iter().any(|d| d.id == "phone-8"));
+}

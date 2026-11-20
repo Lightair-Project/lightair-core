@@ -18,7 +18,11 @@ pub(crate) const READ_TIMEOUT: Duration = POLL;
 
 /// Answers the upgrade (with `protocol` if the client offered it). The stream's reads must time
 /// out after [`READ_TIMEOUT`], so the session can send events and notice the server stopping.
-pub(crate) fn accept<S: Read + Write>(mut stream: S, req: &Request, protocol: Option<&str>) -> io::Result<WebSocket<S>> {
+pub(crate) fn accept<S: Read + Write>(
+    mut stream: S,
+    req: &Request,
+    protocol: Option<&str>,
+) -> io::Result<WebSocket<S>> {
     let key = req.header("sec-websocket-key").ok_or_else(|| io::Error::other("no Sec-WebSocket-Key"))?;
     let mut sha = sha1_smol::Sha1::new();
     sha.update(key.as_bytes());
@@ -50,13 +54,19 @@ pub(crate) trait Protocol {
     }
 }
 
-pub(crate) fn run<S: Read + Write>(mut ws: WebSocket<S>, joined: Joined, shared: &crate::Shared, mut p: impl Protocol) -> io::Result<()> {
+pub(crate) fn run<S: Read + Write>(
+    mut ws: WebSocket<S>,
+    joined: Joined,
+    shared: &crate::Shared,
+    mut p: impl Protocol,
+) -> io::Result<()> {
     if let Some(g) = p.greeting() {
         send(&mut ws, g)?;
     }
     loop {
         if shared.stopping() {
-            let _ = ws.close(Some(CloseFrame { code: CloseCode::Away, reason: "Lightair stopped the remote API".into() }));
+            let _ =
+                ws.close(Some(CloseFrame { code: CloseCode::Away, reason: "Lightair stopped the remote API".into() }));
             let _ = ws.flush();
             return Ok(());
         }
@@ -74,7 +84,8 @@ pub(crate) fn run<S: Read + Write>(mut ws: WebSocket<S>, joined: Joined, shared:
                 }
             },
             Ok(Message::Binary(_)) => {
-                let _ = ws.close(Some(CloseFrame { code: CloseCode::Unsupported, reason: "text messages only".into() }));
+                let _ =
+                    ws.close(Some(CloseFrame { code: CloseCode::Unsupported, reason: "text messages only".into() }));
                 let _ = ws.flush();
                 return Ok(());
             }
@@ -84,6 +95,13 @@ pub(crate) fn run<S: Read + Write>(mut ws: WebSocket<S>, joined: Joined, shared:
             Err(e) => return Err(io::Error::other(e.to_string())),
         }
         while let Ok(event) = joined.events.try_recv() {
+            if let Some(m) = p.event(&event) {
+                send(&mut ws, m)?;
+            }
+        }
+        // it missed events it needed: start again from state.get (docs/05 §5)
+        if joined.resync.swap(false, std::sync::atomic::Ordering::AcqRel) {
+            let event = crate::Event { name: "session.resync".into(), data: serde_json::json!({}) };
             if let Some(m) = p.event(&event) {
                 send(&mut ws, m)?;
             }

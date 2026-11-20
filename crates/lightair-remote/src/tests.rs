@@ -52,7 +52,12 @@ fn mcp_lists_and_calls_tools() {
     let port = srv.addr().port();
     let (status, _) = post(port, "/mcp", r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#, None);
     assert_eq!(status, 401, "the password is asked");
-    let (status, body) = post(port, "/mcp", r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#, Some("pw"));
+    let (status, body) = post(
+        port,
+        "/mcp",
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+        Some("pw"),
+    );
     assert_eq!(status, 200);
     let v: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(v["result"]["protocolVersion"], "2025-06-18");
@@ -62,14 +67,29 @@ fn mcp_lists_and_calls_tools() {
     let v: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(v["result"]["tools"].as_array().unwrap().len(), crate::mcp::tool_names().len());
     assert!(crate::mcp::schemas_parse());
-    let (_, body) = post(port, "/mcp", r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"recording","arguments":{"action":"start"}}}"#, Some("pw"));
+    let (_, body) = post(
+        port,
+        "/mcp",
+        r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"recording","arguments":{"action":"start"}}}"#,
+        Some("pw"),
+    );
     let v: Value = serde_json::from_str(&body).unwrap();
     assert!(v["result"]["isError"].is_null(), "{v}");
     assert_eq!(calls.lock().last().unwrap().0, "record.start");
-    let (_, body) = post(port, "/mcp", r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"screenshot","arguments":{}}}"#, Some("pw"));
+    let (_, body) = post(
+        port,
+        "/mcp",
+        r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"screenshot","arguments":{}}}"#,
+        Some("pw"),
+    );
     let v: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(v["result"]["content"][0]["type"], "image");
-    let (_, body) = post(port, "/mcp", r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"get_stats","arguments":{}}}"#, Some("pw"));
+    let (_, body) = post(
+        port,
+        "/mcp",
+        r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"get_stats","arguments":{}}}"#,
+        Some("pw"),
+    );
     let v: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(v["result"]["isError"], true, "the method's error is the tool's");
 }
@@ -116,7 +136,8 @@ fn obs_websocket_identifies_and_answers() {
     ws.send(Message::text(json!({"op": 1, "d": {"rpcVersion": 1, "authentication": auth}}).to_string())).unwrap();
     assert_eq!(read_json(&mut ws)["op"], 2);
 
-    ws.send(Message::text(json!({"op": 6, "d": {"requestType": "GetSceneList", "requestId": "a"}}).to_string())).unwrap();
+    ws.send(Message::text(json!({"op": 6, "d": {"requestType": "GetSceneList", "requestId": "a"}}).to_string()))
+        .unwrap();
     let r = read_json(&mut ws);
     assert_eq!(r["d"]["requestStatus"]["code"], 100);
     assert_eq!(r["d"]["responseData"]["currentProgramSceneName"], "Main");
@@ -163,7 +184,10 @@ fn json_rpc_needs_the_password_then_answers() {
     assert_eq!(read_json(&mut ws)["error"]["code"], -32001);
     ws.send(Message::text(r#"{"jsonrpc":"2.0","id":2,"method":"auth.login","params":{"password":"pw"}}"#)).unwrap();
     assert_eq!(read_json(&mut ws)["result"]["authenticated"], true);
-    ws.send(Message::text(r#"[{"jsonrpc":"2.0","id":3,"method":"app.version"},{"jsonrpc":"2.0","id":4,"method":"nope"}]"#)).unwrap();
+    ws.send(Message::text(
+        r#"[{"jsonrpc":"2.0","id":3,"method":"app.version"},{"jsonrpc":"2.0","id":4,"method":"nope"}]"#,
+    ))
+    .unwrap();
     let b = read_json(&mut ws);
     assert_eq!(b[0]["result"]["workspace"], "Test");
     assert_eq!(b[1]["error"]["code"], -32601);
@@ -183,4 +207,19 @@ fn stopping_disconnects() {
     assert!(closed);
     std::thread::sleep(std::time::Duration::from_millis(100));
     assert!(TcpStream::connect(("127.0.0.1", port)).is_err() || post(port, "/mcp", "{}", None).0 != 200);
+}
+
+#[test]
+fn a_stalled_client_drops_meters_and_is_told_to_resync() {
+    let handler: Handler = Arc::new(|_c: Call| Ok(serde_json::json!({})));
+    let server = Server::start(Config { port: 0, lan: false, password: None }, handler).unwrap();
+    // a client that reads nothing
+    let joined = server.shared.join("test", "nowhere".into());
+    for _ in 0..crate::QUEUE + 50 {
+        server.emit("audio.levels", serde_json::json!({}));
+    }
+    assert_eq!(joined.events.len(), crate::QUEUE, "the queue is bounded");
+    assert!(!joined.resync.load(std::sync::atomic::Ordering::Acquire), "meters dropped quietly");
+    server.emit("scene.program", serde_json::json!({"id": "s2"}));
+    assert!(joined.resync.load(std::sync::atomic::Ordering::Acquire), "a lost scene change means a resync");
 }

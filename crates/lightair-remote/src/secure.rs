@@ -93,6 +93,41 @@ struct Secure {
     tls: Arc<rustls::ServerConfig>,
     stop: Arc<AtomicBool>,
     cameras: Arc<crate::camera::Cameras>,
+    /// Paired devices with a connection open, and how many each has (docs/05 §10: 8 at most).
+    connected: parking_lot::Mutex<std::collections::HashMap<String, usize>>,
+}
+
+/// Paired devices connected at once, at most (docs/05 §10).
+pub const MAX_DEVICES: usize = 8;
+
+/// A device's place among those connected, given back when its connection ends.
+struct Seat<'a> {
+    secure: &'a Secure,
+    device: String,
+}
+
+impl Secure {
+    /// A seat for a device's connection: refused when 8 others are connected already.
+    fn seat(&self, device: &str) -> Option<Seat<'_>> {
+        let mut c = self.connected.lock();
+        if !c.contains_key(device) && c.len() >= MAX_DEVICES {
+            return None;
+        }
+        *c.entry(device.to_owned()).or_default() += 1;
+        Some(Seat { secure: self, device: device.to_owned() })
+    }
+}
+
+impl Drop for Seat<'_> {
+    fn drop(&mut self) {
+        let mut c = self.secure.connected.lock();
+        if let Some(n) = c.get_mut(&self.device) {
+            *n -= 1;
+            if *n == 0 {
+                c.remove(&self.device);
+            }
+        }
+    }
 }
 
 impl Server {
@@ -112,8 +147,14 @@ impl Server {
         let addr = listener.local_addr()?;
         let stop = Arc::new(AtomicBool::new(false));
         let cameras = Arc::new(crate::camera::Cameras::default());
-        let secure =
-            Arc::new(Secure { config, pairing, tls: Arc::new(tls), stop: stop.clone(), cameras: cameras.clone() });
+        let secure = Arc::new(Secure {
+            config,
+            pairing,
+            tls: Arc::new(tls),
+            stop: stop.clone(),
+            cameras: cameras.clone(),
+            connected: Default::default(),
+        });
         let shared = self.shared.clone();
         std::thread::Builder::new().name("lightair-remote-tls".into()).spawn(move || {
             for stream in listener.incoming() {
@@ -173,6 +214,18 @@ fn serve(tcp: TcpStream, secure: &Arc<Secure>, shared: &Arc<Shared>) -> io::Resu
             b"Sign in with a paired device's key",
             &[("Lightair-Challenge", &nonce)],
         );
+    };
+    // at most 8 paired devices connected at once (one device's several connections count once)
+    let _seat = match &session {
+        Access::Device(d) => match secure.seat(&d.id) {
+            Some(seat) => Some(seat),
+            None => {
+                let body = json!({"error": format!("{MAX_DEVICES} devices are connected to this computer already. Close Lightair on one of them.")})
+                    .to_string();
+                return http::respond(&mut stream, 503, "application/json", body.as_bytes(), &[]);
+            }
+        },
+        Access::Pairing => None,
     };
     match (path, session) {
         ("/preview", Access::Device(device)) if device.scope == Scope::Camera => {
@@ -257,6 +310,23 @@ impl Session {
                 self.secure.pairing.claim(&params, self.peer, desktop).map_err(|r| (UNAUTHORIZED, r.0))
             }
             (_, Access::Pairing) => Err((UNAUTHORIZED, "Pair first (pair.claim).".to_string())),
+            // a device removed meanwhile (Settings, or another phone's pair.remove) can't go on
+            (_, Access::Device(d)) if !self.secure.pairing.devices().iter().any(|x| x.id == d.id) => {
+                Err((UNAUTHORIZED, "This device isn't paired with this computer any more. Pair again.".to_string()))
+            }
+            ("pair.list", Access::Device(d)) if d.scope == Scope::Control => Ok(json!({
+                "devices": self.secure.pairing.devices().iter().map(|x| json!({
+                    "id": x.id, "name": x.name, "model": x.model, "platform": x.platform,
+                    "app_version": x.app_version, "scope": x.scope.as_str(), "paired_at": x.paired_at,
+                    "last_seen": x.last_seen, "source": x.source, "this": x.id == d.id,
+                })).collect::<Vec<_>>()
+            })),
+            ("pair.remove", Access::Device(d)) if d.scope == Scope::Control => {
+                match params.get("device").and_then(Value::as_str) {
+                    Some(id) => Ok(json!({"removed": self.secure.pairing.remove(id)})),
+                    None => Err((rpc::INVALID_PARAMS, "`device` is needed".to_string())),
+                }
+            }
             ("pair.forget", Access::Device(d)) => {
                 self.secure.pairing.remove(&d.id);
                 Ok(json!({"forgotten": true}))

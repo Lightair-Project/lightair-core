@@ -133,6 +133,17 @@ struct Client {
     id: u64,
     info: ClientInfo,
     events: crossbeam_channel::Sender<Event>,
+    /// Events were dropped that it can't do without: it's told `session.resync` once its queue
+    /// has room again (docs/05 §5).
+    resync: Arc<AtomicBool>,
+}
+
+/// How many events wait for a client before some are dropped (docs/05 §5).
+pub const QUEUE: usize = 1000;
+
+/// Events a client can miss without harm: a newer one says the same (meters, health, pictures).
+fn coalescable(name: &str) -> bool {
+    matches!(name, "audio.levels" | "output.health" | "scene.thumbnail")
 }
 
 pub(crate) struct Shared {
@@ -164,10 +175,16 @@ impl Shared {
 
     /// Lists a client until the returned guard goes.
     pub(crate) fn join(self: &Arc<Self>, protocol: &'static str, peer: String) -> Joined {
-        let (tx, rx) = crossbeam_channel::unbounded();
+        let (tx, rx) = crossbeam_channel::bounded(QUEUE);
         let id = self.next.fetch_add(1, Ordering::Relaxed);
-        self.clients.lock().push(Client { id, info: ClientInfo { protocol, peer }, events: tx });
-        Joined { shared: self.clone(), id, events: rx }
+        let resync = Arc::new(AtomicBool::new(false));
+        self.clients.lock().push(Client {
+            id,
+            info: ClientInfo { protocol, peer },
+            events: tx,
+            resync: resync.clone(),
+        });
+        Joined { shared: self.clone(), id, events: rx, resync }
     }
 
     /// The password matches (constant time), or none is asked.
@@ -187,6 +204,8 @@ pub(crate) struct Joined {
     shared: Arc<Shared>,
     id: u64,
     pub events: crossbeam_channel::Receiver<Event>,
+    /// Set when events it needed were dropped (a full queue).
+    pub resync: Arc<AtomicBool>,
 }
 
 impl Drop for Joined {
@@ -266,7 +285,14 @@ impl Server {
     pub fn emit(&self, name: &str, data: Value) {
         let event = Event { name: name.to_string(), data };
         for c in self.shared.clients.lock().iter() {
-            let _ = c.events.send(event.clone());
+            // a client that stalls doesn't grow memory: its queue is bounded. Meters and the
+            // like are dropped when it's full; anything else means it must start again from
+            // `state.get` (`session.resync`, once there's room)
+            if let Err(crossbeam_channel::TrySendError::Full(_)) = c.events.try_send(event.clone())
+                && !coalescable(name)
+            {
+                c.resync.store(true, Ordering::Release);
+            }
         }
     }
 
