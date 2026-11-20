@@ -307,7 +307,11 @@ fn gpu() -> Result<(wgpu::Device, wgpu::Queue), String> {
         }))
         .map_err(|e| format!("no graphics adapter: {e}"))?;
         let _ = ADAPTER.set(adapter.clone());
-        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).map_err(|e| format!("no graphics device: {e}"))
+        // what this adapter offers, not wgpu's defaults: those ask for more than some adapters have
+        // (16 inter-stage shader variables against the iOS simulator's and some older GPUs' 15),
+        // and then there's no device at all
+        let desc = wgpu::DeviceDescriptor { required_limits: adapter.limits(), ..Default::default() };
+        pollster::block_on(adapter.request_device(&desc)).map_err(|e| format!("no graphics device: {e}"))
     })
     .clone()
 }
