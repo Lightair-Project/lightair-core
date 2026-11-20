@@ -8,7 +8,9 @@
 //! - `pair.forget`: the device removes itself;
 //! - scopes: a `watch` device can only read;
 //! - `audio.levels` (20 Hz) only reaches sessions that subscribed to it by name;
-//! - `wss://host:4456/preview`: the program picture as a stream of frames ([`crate::preview`]).
+//! - `wss://host:4456/preview`: the program picture as a stream of frames ([`crate::preview`]);
+//! - `wss://host:4456/camera?source=<id>`: a phone camera's control channel, for a device paired
+//!   as that source's camera ([`crate::camera`]).
 //!
 //! Each call reaches the app with the device's name as its client, so undo says
 //! "Sam's iPhone: Mute Mic".
@@ -49,11 +51,17 @@ pub struct SecureConfig {
 pub struct SecureListener {
     addr: SocketAddr,
     stop: Arc<AtomicBool>,
+    cameras: Arc<crate::camera::Cameras>,
 }
 
 impl SecureListener {
     pub fn addr(&self) -> SocketAddr {
         self.addr
+    }
+
+    /// Where phone cameras go (docs/05 §6). Until it's set, `/camera` answers 404.
+    pub fn cameras(&self, host: Arc<dyn crate::camera::CameraHost>) {
+        *self.cameras.host.lock() = Some(host);
     }
 }
 
@@ -84,6 +92,7 @@ struct Secure {
     pairing: Arc<Pairing>,
     tls: Arc<rustls::ServerConfig>,
     stop: Arc<AtomicBool>,
+    cameras: Arc<crate::camera::Cameras>,
 }
 
 impl Server {
@@ -102,7 +111,9 @@ impl Server {
         let listener = TcpListener::bind(("0.0.0.0", config.port))?;
         let addr = listener.local_addr()?;
         let stop = Arc::new(AtomicBool::new(false));
-        let secure = Arc::new(Secure { config, pairing, tls: Arc::new(tls), stop: stop.clone() });
+        let cameras = Arc::new(crate::camera::Cameras::default());
+        let secure =
+            Arc::new(Secure { config, pairing, tls: Arc::new(tls), stop: stop.clone(), cameras: cameras.clone() });
         let shared = self.shared.clone();
         std::thread::Builder::new().name("lightair-remote-tls".into()).spawn(move || {
             for stream in listener.incoming() {
@@ -119,7 +130,7 @@ impl Server {
             }
         })?;
         tracing::info!(%addr, "remote API for phones listening (TLS)");
-        Ok(SecureListener { addr, stop })
+        Ok(SecureListener { addr, stop, cameras })
     }
 }
 
@@ -134,12 +145,12 @@ fn serve(tcp: TcpStream, secure: &Arc<Secure>, shared: &Arc<Shared>) -> io::Resu
     let Some(req) = http::read_request(&mut stream)? else { return Ok(()) };
     let upgrade = req.header("upgrade").is_some_and(|u| u.eq_ignore_ascii_case("websocket"));
     let path = req.path.split('?').next().unwrap_or("/");
-    if !(req.method == "GET" && (path == "/rpc" || path == "/preview") && upgrade) {
+    if !(req.method == "GET" && matches!(path, "/rpc" | "/preview" | "/camera") && upgrade) {
         return http::respond(&mut stream, 404, "text/plain", b"Not found", &[]);
     }
     let session = if let Some(auth) = req.header("authorization").filter(|a| a.starts_with("Lightair-Key ")) {
         match secure.pairing.authenticate(auth) {
-            Ok(device) => Access::Device(device),
+            Ok(device) => Access::Device(Box::new(device)),
             Err(refused) => {
                 let body = json!({"error": refused.0}).to_string();
                 return http::respond(&mut stream, 401, "application/json", body.as_bytes(), &[]);
@@ -158,10 +169,24 @@ fn serve(tcp: TcpStream, secure: &Arc<Secure>, shared: &Arc<Shared>) -> io::Resu
         );
     };
     match (path, session) {
+        ("/preview", Access::Device(device)) if device.scope == Scope::Camera => {
+            http::respond(&mut stream, 403, "text/plain", b"A camera doesn't watch the program", &[])
+        }
         ("/preview", Access::Device(device)) => {
             crate::preview::run(stream, &req, shared, peer, client_label(&device.name))
         }
-        ("/preview", Access::Pairing) => http::respond(&mut stream, 401, "text/plain", b"Pair first", &[]),
+        ("/preview" | "/camera", Access::Pairing) => http::respond(&mut stream, 401, "text/plain", b"Pair first", &[]),
+        ("/camera", Access::Device(device)) => {
+            let source = crate::camera::source_of(&req);
+            // only the phone paired as this source's camera
+            if device.scope != Scope::Camera || source.is_none() || device.source != source {
+                let body = json!({"error": "This phone isn't paired as this layer's camera. Scan its code again."})
+                    .to_string();
+                return http::respond(&mut stream, 403, "application/json", body.as_bytes(), &[]);
+            }
+            let source = source.unwrap_or_default();
+            crate::camera::run(stream, &req, shared, &secure.cameras, peer, *device, source)
+        }
         (_, session) => run(stream, &req, secure, shared, peer, session),
     }
 }
@@ -169,7 +194,7 @@ fn serve(tcp: TcpStream, secure: &Arc<Secure>, shared: &Arc<Shared>) -> io::Resu
 enum Access {
     /// Only `session.hello` and `pair.claim`.
     Pairing,
-    Device(Device),
+    Device(Box<Device>),
 }
 
 fn run(

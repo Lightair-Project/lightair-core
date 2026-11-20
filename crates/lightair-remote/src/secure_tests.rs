@@ -251,3 +251,119 @@ fn a_paired_phone_watches_the_preview() {
     };
     assert!(u64::from_be_bytes(next[8..16].try_into().unwrap()) > pts);
 }
+
+/// A Phone camera layer as the desktop would be: it records what reaches it.
+#[derive(Default)]
+struct Layer {
+    channel: parking_lot::Mutex<Option<crate::CameraChannel>>,
+    heard: parking_lot::Mutex<Vec<Value>>,
+    gone: std::sync::atomic::AtomicUsize,
+}
+
+impl crate::CameraHost for Layer {
+    fn connected(&self, source: &str, _: &crate::Device, channel: crate::CameraChannel) -> bool {
+        if source != "cam-1" {
+            return false;
+        }
+        *self.channel.lock() = Some(channel);
+        true
+    }
+    fn message(&self, _: &str, message: &Value) {
+        self.heard.lock().push(message.clone());
+    }
+    fn disconnected(&self, _: &str) {
+        self.gone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+    fn now_us(&self) -> u64 {
+        5_000_000
+    }
+}
+
+fn wait_for(what: &str, ok: impl Fn() -> bool) {
+    let start = std::time::Instant::now();
+    while !ok() {
+        assert!(start.elapsed() < std::time::Duration::from_secs(5), "timed out waiting for {what}");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn a_phone_pairs_as_a_camera_and_talks_to_its_layer() {
+    let handler: Handler = Arc::new(|_| Err(ApiError::new(crate::ErrorKind::Unknown, "no such method")));
+    let server = Server::start(Config { port: 0, lan: false, password: None }, handler).unwrap();
+    let identity = Identity::generate("d1").unwrap();
+    let pin = identity.fingerprint();
+    let fp = identity.fingerprint_b64();
+    let desktop = DesktopInfo { id: "d1".into(), name: "Studio Mac".into(), version: "0.4.0".into() };
+    let pairing = Pairing::new(vec![], |r| r.scope == Scope::Camera && r.source.as_deref() == Some("cam-1"), |_| {});
+    let secure = server
+        .start_secure(SecureConfig { port: 0, identity, desktop: desktop.clone(), features: vec![] }, pairing.clone())
+        .unwrap();
+    let port = secure.addr().port();
+    let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+
+    // the layer's code carries its source
+    let offer = pairing.offer_camera("cam-1");
+    assert!(pairing.link(&offer, &desktop, &["127.0.0.1".into()], port, &fp).ends_with("&c=cam-1"));
+    let key = SigningKey::from_bytes(&[7; 32]);
+    let mut ws = connect(port, pin, &[("Lightair-Pairing", "1".into())]).unwrap();
+    let claim = json!({
+        "secret": b64.encode(offer.secret),
+        "device": {"id": "cam-phone", "name": "Old iPhone", "model": "iPhone12,1", "platform": "iOS", "app_version": "0.1.0"},
+        "public_key": b64.encode(key.verifying_key().to_bytes()),
+    });
+    let r = call(&mut ws, 1, "pair.claim", claim);
+    assert_eq!((r["result"]["scope"].as_str(), r["result"]["source"].as_str()), (Some("camera"), Some("cam-1")), "{r}");
+    drop(ws);
+    assert_eq!(pairing.devices()[0].source.as_deref(), Some("cam-1"));
+
+    let signed = |path: &str| {
+        let (_, nonce) = connect(port, pin, &[]).unwrap_err();
+        let auth = sign_header("cam-phone", &nonce, now(), |m| key.sign(m).to_bytes());
+        connect_to(port, pin, path, &[("Authorization", auth)])
+    };
+    // no host yet: nothing there
+    assert_eq!(signed("/camera?source=cam-1").unwrap_err().0, 404);
+    let layer = Arc::new(Layer::default());
+    secure.cameras(layer.clone());
+    // another layer's channel, or the remote's, isn't this phone's
+    assert_eq!(signed("/camera?source=cam-2").unwrap_err().0, 403);
+    assert_eq!(signed("/camera").unwrap_err().0, 403);
+
+    let mut cam = signed("/camera?source=cam-1").unwrap();
+    cam.send(Message::text(json!({"type": "hello", "device": {"model": "iPhone12,1"}}).to_string())).unwrap();
+    wait_for("hello", || layer.heard.lock().iter().any(|m| m["type"] == "hello"));
+    // the layer speaks: tally reaches the phone
+    assert!(
+        layer
+            .channel
+            .lock()
+            .as_ref()
+            .unwrap()
+            .send(json!({"type": "tally", "program": true, "staged": false, "live": true}))
+    );
+    let m: Value = serde_json::from_str(cam.read().unwrap().to_text().unwrap()).unwrap();
+    assert_eq!((m["type"].as_str(), m["live"].as_bool()), (Some("tally"), Some(true)));
+    // time sync is answered on the layer's clock
+    cam.send(Message::text(json!({"type": "time", "t1": 42}).to_string())).unwrap();
+    let m: Value = serde_json::from_str(cam.read().unwrap().to_text().unwrap()).unwrap();
+    assert_eq!((m["t1"].as_u64(), m["t2"].as_u64(), m["t3"].as_u64()), (Some(42), Some(5_000_000), Some(5_000_000)));
+
+    // a camera device can't watch the program or control the show
+    assert_eq!(signed("/preview").unwrap_err().0, 403);
+    let mut rpc = signed("/rpc").unwrap();
+    assert_eq!(call(&mut rpc, 1, "session.hello", json!({}))["result"]["scope"], "camera");
+    assert_eq!(call(&mut rpc, 2, "scene.switch", json!({}))["error"]["code"], -32001);
+
+    // a new connection for the source replaces the old one; leaving tells the layer
+    let mut again = signed("/camera?source=cam-1").unwrap();
+    again.send(Message::text(json!({"type": "health", "battery": 0.5}).to_string())).unwrap();
+    wait_for("health", || layer.heard.lock().iter().any(|m| m["type"] == "health"));
+    assert_eq!(
+        layer.gone.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "a replaced connection doesn't report its source gone"
+    );
+    drop(again);
+    wait_for("disconnected", || layer.gone.load(std::sync::atomic::Ordering::SeqCst) == 1);
+}

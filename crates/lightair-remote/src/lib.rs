@@ -15,6 +15,7 @@
 //! client in its own protocol. It listens on this machine only unless LAN access is on, and
 //! with a password every way in asks for it.
 
+pub mod camera;
 mod http;
 pub mod identity;
 pub mod mcp;
@@ -26,6 +27,7 @@ mod rpc;
 pub mod secure;
 mod ws;
 
+pub use camera::{CameraChannel, CameraHost};
 pub use identity::Identity;
 pub use pairing::{DesktopInfo, Device, DeviceRequest, Pairing, Scope};
 pub use secure::{SECURE_PORT, SecureConfig, SecureListener};

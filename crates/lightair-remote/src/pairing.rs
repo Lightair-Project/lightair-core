@@ -118,6 +118,8 @@ pub struct Device {
     /// Unix seconds.
     pub paired_at: u64,
     pub last_seen: Option<u64>,
+    /// The source a camera-scope device feeds (the desktop's Phone camera layer).
+    pub source: Option<String>,
 }
 
 impl Device {
@@ -126,6 +128,7 @@ impl Device {
             "id": self.id, "name": self.name, "model": self.model, "platform": self.platform,
             "app_version": self.app_version, "public_key": b64().encode(self.public_key),
             "scope": self.scope.as_str(), "paired_at": self.paired_at, "last_seen": self.last_seen,
+            "source": self.source,
         })
     }
 
@@ -142,6 +145,7 @@ impl Device {
             scope: Scope::parse(&s("scope")?)?,
             paired_at: v.get("paired_at").and_then(Value::as_u64).unwrap_or(0),
             last_seen: v.get("last_seen").and_then(Value::as_u64),
+            source: s("source"),
         })
     }
 }
@@ -168,6 +172,8 @@ pub struct DeviceRequest {
     pub app_version: String,
     pub scope: Scope,
     pub peer: IpAddr,
+    /// For a camera: the source it would feed.
+    pub source: Option<String>,
 }
 
 /// An open offer.
@@ -197,6 +203,8 @@ type OnChange = Box<dyn Fn(&[Device]) + Send + Sync>;
 pub struct Pairing {
     devices: Mutex<Vec<Device>>,
     offers: Mutex<Vec<Offer>>,
+    /// Camera offers' sources, by secret.
+    sources: Mutex<HashMap<[u8; 16], String>>,
     nonces: Mutex<Vec<(String, Instant)>>,
     claims: Mutex<HashMap<IpAddr, Attempts>>,
     confirm: Confirm,
@@ -218,6 +226,7 @@ impl Pairing {
         Arc::new(Pairing {
             devices: Mutex::new(devices),
             offers: Mutex::new(vec![]),
+            sources: Mutex::new(HashMap::new()),
             nonces: Mutex::new(vec![]),
             claims: Mutex::new(HashMap::new()),
             confirm: Box::new(confirm),
@@ -253,9 +262,26 @@ impl Pairing {
         offer
     }
 
+    /// A one-use offer that pairs a phone as the camera for `source` (docs/05 §6): scope
+    /// `camera`, and the link carries `c=<source>`.
+    pub fn offer_camera(&self, source: &str) -> Offer {
+        let offer = self.offer(Scope::Camera);
+        let mut sources = self.sources.lock();
+        let open: Vec<[u8; 16]> = self.offers.lock().iter().map(|o| o.secret).collect();
+        sources.retain(|k, _| open.contains(k));
+        sources.insert(offer.secret, source.to_owned());
+        offer
+    }
+
+    /// The source a camera offer is for.
+    pub fn offer_source(&self, offer: &Offer) -> Option<String> {
+        self.sources.lock().get(&offer.secret).cloned()
+    }
+
     /// Withdraws an offer (the pairing sheet closed).
     pub fn withdraw(&self, offer: &Offer) {
         self.offers.lock().retain(|o| o.secret != offer.secret);
+        self.sources.lock().remove(&offer.secret);
     }
 
     /// Whether an offer is open (mDNS says `pair=1`).
@@ -283,8 +309,9 @@ impl Pairing {
                 })
                 .collect::<String>()
         };
+        let camera = self.offer_source(offer).map(|c| format!("&c={}", enc(&c))).unwrap_or_default();
         format!(
-            "https://lightair.app/pair#v={LINK_FORMAT}&id={}&n={}&a={}&p={port}&k={}&f={fingerprint_b64}&s={}&x={}",
+            "https://lightair.app/pair#v={LINK_FORMAT}&id={}&n={}&a={}&p={port}&k={}&f={fingerprint_b64}&s={}&x={}{camera}",
             enc(&desktop.id),
             enc(&desktop.name),
             addresses.iter().map(|a| enc(a)).collect::<Vec<_>>().join(","),
@@ -311,6 +338,7 @@ impl Pairing {
             })?;
             offers.remove(at)
         };
+        let source = self.sources.lock().remove(&offer.secret);
         let device = params.get("device").cloned().unwrap_or(Value::Null);
         let field = |k: &str| device.get(k).and_then(Value::as_str).unwrap_or("").trim().to_owned();
         let key: [u8; 32] = params
@@ -328,6 +356,7 @@ impl Pairing {
             app_version: field("app_version"),
             scope: offer.scope,
             peer,
+            source: source.clone(),
         };
         if !(self.confirm)(&request) {
             return Err(Refused(format!("{} wasn't allowed on the computer.", request.name)));
@@ -343,6 +372,7 @@ impl Pairing {
             scope: offer.scope,
             paired_at: unix_now(),
             last_seen: Some(unix_now()),
+            source: source.clone(),
         };
         {
             let mut d = self.devices.lock();
@@ -354,6 +384,7 @@ impl Pairing {
         Ok(json!({
             "device_id": id,
             "scope": offer.scope.as_str(),
+            "source": source,
             "desktop": {"id": desktop.id, "name": desktop.name, "version": desktop.version},
         }))
     }
