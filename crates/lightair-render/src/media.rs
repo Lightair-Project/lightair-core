@@ -75,6 +75,38 @@ pub trait VideoReader: Send {
     fn next_ms(&self) -> u64;
     /// The next frame into `buf` (RGBA, the size asked for); false at the end.
     fn next(&mut self, buf: &mut Vec<u8>) -> bool;
+    /// The next frame as the reader has it: RGBA bytes by default; on macOS and iOS a reader
+    /// may hand over the decoder's own IOSurface-backed buffer instead (drawn with no copy).
+    /// `None` at the end.
+    fn next_picture(&mut self) -> Option<Picture> {
+        let mut buf = Vec::new();
+        self.next(&mut buf).then_some(Picture::Rgba(buf))
+    }
+}
+
+/// A decoded frame: RGBA bytes, or (macOS, iOS) an IOSurface-backed pixel buffer the compositor
+/// draws as it is.
+#[derive(Clone)]
+pub enum Picture {
+    Rgba(Vec<u8>),
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    Buffer(crate::texture::PixelBuffer),
+}
+
+impl Picture {
+    /// Its pixels as RGBA bytes (read back from a buffer).
+    pub fn rgba(&self) -> std::borrow::Cow<'_, [u8]> {
+        match self {
+            Picture::Rgba(b) => std::borrow::Cow::Borrowed(b),
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            Picture::Buffer(b) => std::borrow::Cow::Owned(b.rgba().unwrap_or_default()),
+        }
+    }
+
+    /// A buffer the decoder holds (keeping many of them would stall it).
+    fn is_buffer(&self) -> bool {
+        !matches!(self, Picture::Rgba(_))
+    }
 }
 
 /// The backend set with [`set_backend`]; FFmpeg's until then.
@@ -213,7 +245,7 @@ pub struct Stream {
     dec: Option<Decoder>,
     /// The frames read lately, in time order (the last is the current one): scrubbing back
     /// finds them here.
-    recent: std::collections::VecDeque<(u64, Vec<u8>)>,
+    recent: std::collections::VecDeque<(u64, Picture)>,
     keep: usize,
     /// The time of the current frame.
     at: Option<u64>,
@@ -221,6 +253,9 @@ pub struct Stream {
 
 /// What a stream keeps of the frames it read lately.
 const RECENT_BYTES: usize = 160 << 20;
+/// What a stream keeps of a decoder's own buffers (they come from its pool: keeping many
+/// would hold it up).
+const RECENT_BUFFERS: usize = 6;
 
 impl Stream {
     pub fn new(path: &Path, size: (u32, u32), fps: f64) -> Stream {
@@ -236,13 +271,18 @@ impl Stream {
         &self.path
     }
 
-    /// The frame at `ms` of the video.
-    pub fn frame(&mut self, ms: u64) -> Option<&[u8]> {
+    /// The frame at `ms` of the video, as RGBA bytes.
+    pub fn frame(&mut self, ms: u64) -> Option<std::borrow::Cow<'_, [u8]>> {
+        self.picture(ms).map(Picture::rgba)
+    }
+
+    /// The frame at `ms` of the video, as the decoder gave it.
+    pub fn picture(&mut self, ms: u64) -> Option<&Picture> {
         let frame = (1000.0 / self.fps) as u64;
         // read lately (scrubbing back): no decoding
         let behind = self.at.is_some_and(|a| ms + frame / 2 < a);
         if behind && let Some(i) = self.recent.iter().position(|(t, _)| *t <= ms && ms < t + frame.max(1)) {
-            return Some(self.recent[i].1.as_slice());
+            return Some(&self.recent[i].1);
         }
         let far = self.dec.as_ref().is_some_and(|d| ms > d.next_ms() + 2_000);
         if self.dec.is_none() || behind || far {
@@ -255,17 +295,15 @@ impl Stream {
         let dec = self.dec.as_mut()?;
         while self.at.is_none() || dec.next_ms() <= ms {
             let t = dec.next_ms();
-            let mut f = Vec::new();
-            if !dec.next(&mut f) {
-                break;
-            }
+            let Some(f) = dec.next_picture() else { break };
+            let keep = if f.is_buffer() { RECENT_BUFFERS } else { self.keep };
             self.recent.push_back((t, f));
-            if self.recent.len() > self.keep {
+            while self.recent.len() > keep {
                 self.recent.pop_front();
             }
             self.at = Some(t);
         }
-        self.recent.back().map(|(_, f)| f.as_slice())
+        self.recent.back().map(|(_, f)| f)
     }
 }
 
@@ -450,6 +488,15 @@ impl Decoder {
             self.read += 1;
         }
         ok
+    }
+
+    /// The next frame as the reader has it (see [`VideoReader::next_picture`]).
+    pub fn next_picture(&mut self) -> Option<Picture> {
+        let p = self.frames.next_picture();
+        if p.is_some() {
+            self.read += 1;
+        }
+        p
     }
 }
 

@@ -27,6 +27,8 @@ pub mod sequence;
 pub mod shapes;
 #[cfg(target_os = "macos")]
 pub mod surface;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub mod texture;
 pub mod thumbs;
 pub mod speech;
 pub mod timeline;

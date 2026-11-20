@@ -201,8 +201,17 @@ enum Sprite {
 
 /// A picture in a frame of layers: RGBA (straight alpha), placed with its centre at `center`
 /// (result pixels), drawn `draw` big, turned `rotation` degrees, at `opacity`.
+/// A layer's pixels: RGBA bytes (uploaded), or (macOS, iOS) a decoder's IOSurface-backed
+/// buffer, drawn over the same memory.
+#[derive(Clone, Copy)]
+pub enum Pixels<'a> {
+    Rgba(&'a [u8]),
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    Buffer(&'a crate::texture::PixelBuffer),
+}
+
 pub struct Layer<'a> {
-    pub rgba: &'a [u8],
+    pub pixels: Pixels<'a>,
     pub size: (u32, u32),
     pub center: (f32, f32),
     pub draw: (f32, f32),
@@ -245,6 +254,12 @@ pub struct Compositor {
     sprites: HashMap<Sprite, (wgpu::Texture, (f32, f32))>,
     /// Picture layers' textures, by position in the frame.
     slots: Vec<(wgpu::Texture, (u32, u32))>,
+    /// macOS, iOS: the decoders' buffers drawn in the last frame (their memory is the slots'
+    /// textures), and which slots hold such a texture.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    held: Vec<crate::texture::PixelBuffer>,
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    imported: std::collections::HashSet<usize>,
     /// Clip effects, made when first used, and each slot's picture through its effects.
     fx: Option<crate::fx::Fx>,
     fx_out: Vec<Option<wgpu::Texture>>,
@@ -432,6 +447,10 @@ impl Compositor {
             screen: None,
             sprites: HashMap::new(),
             slots: Vec::new(),
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            held: Vec::new(),
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            imported: Default::default(),
             fx: None,
             fx_out: Vec::new(),
             #[cfg(target_os = "macos")]
@@ -585,11 +604,45 @@ impl Compositor {
 
     pub fn layers(&mut self, layers: &[Layer]) -> Vec<u8> {
         let (ow, oh) = (self.size.0 as f32, self.size.1 as f32);
+        // the buffers drawn last time: the GPU is done with them now (each frame waits for it)
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        self.held.clear();
         for (i, l) in layers.iter().enumerate() {
-            if self.slots.get(i).is_some_and(|(_, s)| *s == l.size) {
-                Self::upload(&self.queue, &self.slots[i].0, l.rgba, l.size);
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            let read_back: Vec<u8>;
+            let rgba = match l.pixels {
+                Pixels::Rgba(b) => b,
+                #[cfg(any(target_os = "macos", target_os = "ios"))]
+                Pixels::Buffer(b) => {
+                    // the decoder's own memory as the slot's texture, kept until it's drawn (a
+                    // slot that goes back to bytes then gets a texture of its own again)
+                    match b.texture(&self.device) {
+                        Some(t) => {
+                            let size = b.size();
+                            if i < self.slots.len() {
+                                self.slots[i] = (t, size);
+                            } else {
+                                self.slots.push((t, size));
+                            }
+                            self.held.push(b.clone());
+                            self.imported.insert(i);
+                            continue;
+                        }
+                        None => {
+                            read_back = b.rgba().unwrap_or_else(|| vec![0; (l.size.0 * l.size.1 * 4) as usize]);
+                            &read_back
+                        }
+                    }
+                }
+            };
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            let imported = self.imported.remove(&i);
+            #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+            let imported = false;
+            if !imported && self.slots.get(i).is_some_and(|(_, s)| *s == l.size) {
+                Self::upload(&self.queue, &self.slots[i].0, rgba, l.size);
             } else {
-                let t = Self::texture_of(&self.device, &self.queue, l.rgba, l.size);
+                let t = Self::texture_of(&self.device, &self.queue, rgba, l.size);
                 if i < self.slots.len() {
                     self.slots[i] = (t, l.size);
                 } else {
@@ -844,6 +897,10 @@ impl Compositor {
         if let Some(d) = drawable {
             self.queue.submit([encoder.finish()]);
             self.queue.present(d);
+            // a decoder's buffers drawn: done with before they go back to it
+            if !self.held.is_empty() {
+                let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+            }
             return Vec::new();
         }
         #[cfg(target_os = "macos")]

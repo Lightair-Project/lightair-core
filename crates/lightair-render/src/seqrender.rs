@@ -7,15 +7,15 @@ use std::path::{Path, PathBuf};
 
 use lightair_model::Id;
 
-use crate::compose::{Compositor, Layer, fit};
+use crate::compose::{Compositor, Layer, Pixels, fit};
 use crate::edit::{Edit, Look};
 use crate::export::{Renderer, Source};
-use crate::media::{self, Codec, Encoder, MediaError, Stream};
+use crate::media::{self, Codec, Encoder, MediaError, Picture, Stream};
 use crate::sequence::{Clip, Media, MediaKind, Sequence, TrackKind, TransitionKind};
 
 /// A layer, before it's handed to the compositor.
 struct Pic {
-    rgba: Vec<u8>,
+    picture: Picture,
     size: (u32, u32),
     center: (f32, f32),
     draw: (f32, f32),
@@ -355,11 +355,11 @@ impl SequenceRenderer {
     }
 
     /// The picture of one clip at timeline time `t` (held at its edge frame outside it):
-    /// RGBA, its size, and whether it's premultiplied (made pictures).
-    fn picture(&mut self, clip: &Clip, t: u64) -> Option<(Vec<u8>, (u32, u32), bool)> {
+    /// its pixels, its size, and whether it's premultiplied (made pictures).
+    fn picture(&mut self, clip: &Clip, t: u64) -> Option<(Picture, (u32, u32), bool)> {
         if let Some(content) = &clip.content {
             let r = self.made.get(content);
-            return Some((r.rgba, r.size, true));
+            return Some((Picture::Rgba(r.rgba), r.size, true));
         }
         let media = self.seq.media(clip.media)?.clone();
         let s = clip.source_held(t);
@@ -384,7 +384,7 @@ impl SequenceRenderer {
             }
             let fps = self.fps;
             let frame = self.takes.get_mut(&media.id)?.0.source_frame(s, fps)?;
-            return Some((frame, self.out, false));
+            return Some((Picture::Rgba(frame), self.out, false));
         }
         if media.kind == MediaKind::Image {
             if let std::collections::hash_map::Entry::Vacant(e) = self.stills.entry(media.id) {
@@ -392,7 +392,7 @@ impl SequenceRenderer {
                 let size = (even(media.width as f32 * k), even(media.height as f32 * k));
                 e.insert((media::frame_at(&media.path, 0, size).ok()?, size));
             }
-            return self.stills.get(&media.id).cloned().map(|(r, s)| (r, s, false));
+            return self.stills.get(&media.id).cloned().map(|(r, s)| (Picture::Rgba(r), s, false));
         }
         // the size it's drawn at (enough for its largest scale), never more than the file's own
         let (_, draw) = self.placement(clip, Some(&media), None, t);
@@ -405,15 +405,16 @@ impl SequenceRenderer {
         if self.streams.get(&clip.id).is_none_or(|s| s.size() != size || s.path() != file) {
             self.streams.insert(clip.id, Stream::new(&file, size, self.fps));
         }
-        let rgba = self.streams.get_mut(&clip.id)?.frame(s)?.to_vec();
-        Some((rgba, size, false))
+        // as the decoder gave it: on macOS and iOS perhaps its own buffer, drawn with no copy
+        let picture = self.streams.get_mut(&clip.id)?.picture(s)?.clone();
+        Some((picture, size, false))
     }
 
     /// White across the frame (a dip to white).
     fn white(&self, opacity: f32) -> Pic {
         let (w, h, k) = (self.seq.size.0 as f32, self.seq.size.1 as f32, self.k());
         Pic {
-            rgba: vec![255; 16],
+            picture: Picture::Rgba(vec![255; 16]),
             size: (2, 2),
             center: (w / 2.0 * k, h / 2.0 * k),
             draw: (w * k, h * k),
@@ -430,7 +431,7 @@ impl SequenceRenderer {
 
     /// One clip as a layer at `t`, with its animations, shifted by a transition.
     fn layer_of(&mut self, clip: &Clip, t: u64, sh: Shift, out: &mut Vec<Pic>) {
-        let Some((rgba, size, premultiplied)) = self.picture(clip, t) else { return };
+        let Some((picture, size, premultiplied)) = self.picture(clip, t) else { return };
         let media = self.seq.media(clip.media).cloned();
         let made = clip.content.as_ref().map(|_| size);
         let (center, draw) = self.placement(clip, media.as_ref(), made, t);
@@ -468,7 +469,7 @@ impl SequenceRenderer {
         let mut filter = clip.filter_at(t);
         filter.blur = (filter.blur + m.blur + sh.blur).min(1.0);
         out.push(Pic {
-            rgba,
+            picture,
             size,
             center: (center.0 * k, center.1 * k),
             draw: (draw.0 * grow * k, draw.1 * grow * k),
@@ -556,7 +557,11 @@ impl SequenceRenderer {
         let layers: Vec<Layer> = pics
             .iter()
             .map(|p| Layer {
-                rgba: &p.rgba,
+                pixels: match &p.picture {
+                    Picture::Rgba(b) => Pixels::Rgba(b),
+                    #[cfg(any(target_os = "macos", target_os = "ios"))]
+                    Picture::Buffer(b) => Pixels::Buffer(b),
+                },
                 size: p.size,
                 center: p.center,
                 draw: p.draw,
