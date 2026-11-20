@@ -59,7 +59,8 @@ fn run(name: &str, cmd: &mut Command) -> anyhow::Result<()> {
 fn git(dir: &Path, args: &[&str]) -> anyhow::Result<String> {
     let out = Command::new("git").arg("-C").arg(dir).args(args).output()?;
     ensure!(out.status.success(), "git {} in {}: {}", args.join(" "), dir.display(), String::from_utf8_lossy(&out.stderr).trim());
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    // only the end: `git status --porcelain` lines start with a meaningful space
+    Ok(String::from_utf8_lossy(&out.stdout).trim_end().to_string())
 }
 
 fn linked(app: &App) -> bool {
