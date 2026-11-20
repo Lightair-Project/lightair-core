@@ -831,3 +831,48 @@ impl SequenceRenderer {
 }
 
 pub use crate::sound::{mix_of, sound_to};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sequence::{Content, ShapeKind, ShapeStyle};
+
+    /// Made content (no media, no FFmpeg) comes back drawn: what runs on any GPU, a phone's
+    /// OpenGL ES or Vulkan too.
+    #[test]
+    fn made_content_is_drawn() {
+        let mut seq = Sequence::new((320, 180), 30);
+        let main = seq.main_track();
+        seq.place_content_on(
+            Content::Shape(ShapeStyle {
+                shape: ShapeKind::Rectangle,
+                width: 160.0,
+                height: 90.0,
+                fill: Some((0x0E7C86, 1.0)),
+                stroke: None,
+                radius: 0.0,
+            }),
+            0,
+            1_000,
+            main,
+        );
+        let mut r = match SequenceRenderer::new(&seq) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("no GPU here ({e}); skipping");
+                return;
+            }
+        };
+        let f = r.frame(500);
+        assert_eq!(f.len(), 320 * 180 * 4);
+        let px = |x: usize, y: usize| &f[(y * 320 + x) * 4..(y * 320 + x) * 4 + 4];
+        assert_eq!(px(160, 90), &[0x0E, 0x7C, 0x86, 255], "the rectangle");
+        assert_eq!(px(5, 5), &[0, 0, 0, 255], "black around it");
+
+        // a preview's frames (BGRA, as a window or a phone's player takes them)
+        let mut r = SequenceRenderer::new_with(&seq, Some((320, 320))).unwrap();
+        let f = r.frame(500);
+        let px = |x: usize, y: usize| &f[(y * 320 + x) * 4..(y * 320 + x) * 4 + 4];
+        assert_eq!(px(160, 90), &[0x86, 0x7C, 0x0E, 255], "the rectangle, BGRA");
+    }
+}

@@ -11,6 +11,7 @@
 //!   them (springs, evaluated deterministically).
 
 pub mod compose;
+pub use compose::set_backends;
 pub mod edit;
 pub mod export;
 pub mod exporter;

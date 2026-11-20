@@ -386,6 +386,8 @@ pub struct Compositor {
     layer_config: Option<wgpu::SurfaceConfiguration>,
     /// Picture layers blended in linear light into an sRGB target ([`Compositor::new_linear`]).
     linear: bool,
+    /// BGRA frames asked for where the GPU can't draw BGRA: drawn RGBA, swapped on read-back.
+    swap: bool,
     /// The last frame was for a layer or visual that gave no texture to draw into: it wasn't
     /// shown, and the caller should draw it again ([`Compositor::missed`]).
     missed: bool,
@@ -411,18 +413,71 @@ pub fn fit(aspect: f32, x: f32, y: f32, w: f32, h: f32) -> (f32, f32, f32, f32) 
 }
 
 /// The graphics device, made once (making one takes a while) and shared by every compositor.
-fn instance() -> &'static wgpu::Instance {
-    static INSTANCE: std::sync::OnceLock<wgpu::Instance> = std::sync::OnceLock::new();
-    INSTANCE.get_or_init(|| {
-        #[allow(unused_mut)]
-        let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
-        // Windows: Direct3D 12, which can present into a DirectComposition visual (the player)
-        #[cfg(windows)]
-        if std::env::var_os("LIGHTAIR_EDITOR_VULKAN").is_none() {
-            desc.backends = wgpu::Backends::DX12;
+/// The graphics APIs the app asked for ([`set_backends`]).
+static BACKENDS: std::sync::OnceLock<wgpu::Backends> = std::sync::OnceLock::new();
+
+/// Which graphics APIs lightair-render may use, asked before its first frame (false: too late,
+/// the device is made). `WGPU_BACKEND` still wins, for testing. Without it: Direct3D 12 on
+/// Windows, Vulkan then OpenGL ES on Android, wgpu's choice elsewhere.
+pub fn set_backends(backends: wgpu::Backends) -> bool {
+    BASE.get().is_none() && BACKENDS.set(backends).is_ok()
+}
+
+/// The instance and adapter everything is made with: the first of the wanted APIs that has an
+/// adapter.
+static BASE: std::sync::OnceLock<Result<(wgpu::Instance, wgpu::Adapter), String>> = std::sync::OnceLock::new();
+
+fn base() -> Result<&'static (wgpu::Instance, wgpu::Adapter), String> {
+    BASE.get_or_init(|| {
+        let tries: Vec<wgpu::Backends> = match (wgpu::Backends::from_env(), BACKENDS.get()) {
+            (Some(env), _) => vec![env],
+            (None, Some(b)) => vec![*b],
+            // Windows: Direct3D 12, which can present into a DirectComposition visual (the player)
+            _ if cfg!(windows) && std::env::var_os("LIGHTAIR_EDITOR_VULKAN").is_none() => vec![wgpu::Backends::DX12],
+            // Android: Vulkan where there is one (an emulator's OpenGL ES adapter would be picked
+            // over its Vulkan otherwise), else OpenGL ES; a software Vulkan (an emulator's,
+            // which falls over) only when there's no OpenGL ES either
+            _ if cfg!(target_os = "android") => vec![wgpu::Backends::VULKAN, wgpu::Backends::GL],
+            _ => vec![wgpu::Backends::all()],
+        };
+        let mut last = String::from("no graphics adapter");
+        let mut software: Option<(wgpu::Instance, wgpu::Adapter)> = None;
+        let count = tries.len();
+        for (i, backends) in tries.into_iter().enumerate() {
+            let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
+            desc.backends = backends;
+            // Android: no debug labels or validation layers (an emulator's Vulkan driver falls
+            // over on them); WGPU_DEBUG and the like still turn them on
+            if cfg!(target_os = "android") {
+                desc.flags = wgpu::InstanceFlags::empty();
+            }
+            desc.flags = desc.flags.with_env();
+            let instance = wgpu::Instance::new(desc);
+            match pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                ..Default::default()
+            })) {
+                Ok(adapter) => {
+                    let info = adapter.get_info();
+                    if info.device_type == wgpu::DeviceType::Cpu && i + 1 < count {
+                        software.get_or_insert((instance, adapter));
+                        continue;
+                    }
+                    tracing::info!(name = info.name, backend = ?info.backend, kind = ?info.device_type, "lightair-render's adapter");
+                    return Ok((instance, adapter));
+                }
+                Err(e) => last = format!("no graphics adapter ({backends:?}): {e}"),
+            }
         }
-        wgpu::Instance::new(desc)
+        software.ok_or(last)
     })
+    .as_ref()
+    .map_err(String::clone)
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos", windows))]
+fn instance() -> &'static wgpu::Instance {
+    &base().expect("an instance is only asked for once a compositor exists").0
 }
 
 /// The adapter the shared device was made on.
@@ -431,12 +486,7 @@ static ADAPTER: std::sync::OnceLock<wgpu::Adapter> = std::sync::OnceLock::new();
 fn gpu() -> Result<(wgpu::Device, wgpu::Queue), String> {
     static GPU: std::sync::OnceLock<Result<(wgpu::Device, wgpu::Queue), String>> = std::sync::OnceLock::new();
     GPU.get_or_init(|| {
-        let instance = instance();
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            ..Default::default()
-        }))
-        .map_err(|e| format!("no graphics adapter: {e}"))?;
+        let adapter = base()?.1.clone();
         let _ = ADAPTER.set(adapter.clone());
         // what this adapter offers, not wgpu's defaults: those ask for more than some adapters have
         // (16 inter-stage shader variables against the iOS simulator's and some older GPUs' 15),
@@ -466,13 +516,22 @@ impl Compositor {
     }
 
     fn new_in(size: (u32, u32), look: Look, bgra: bool, linear: bool) -> Result<Compositor, String> {
-        let out_format = match (bgra, linear) {
+        let (device, queue) = gpu()?;
+        // BGRA where the GPU draws and reads it back; OpenGL ES (which says it can, then reads
+        // BGRA back as zeros) and any that can't: RGBA, the bytes swapped as it's read back
+        let wanted = if linear { wgpu::TextureFormat::Bgra8UnormSrgb } else { wgpu::TextureFormat::Bgra8Unorm };
+        let swap = bgra
+            && !ADAPTER.get().is_some_and(|a| {
+                let usage = a.get_texture_format_features(wanted).allowed_usages;
+                a.get_info().backend != wgpu::Backend::Gl
+                    && usage.contains(wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC)
+            });
+        let out_format = match (bgra && !swap, linear) {
             (true, false) => wgpu::TextureFormat::Bgra8Unorm,
             (false, false) => wgpu::TextureFormat::Rgba8Unorm,
             (true, true) => wgpu::TextureFormat::Bgra8UnormSrgb,
             (false, true) => wgpu::TextureFormat::Rgba8UnormSrgb,
         };
-        let (device, queue) = gpu()?;
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("lightair-render"),
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
@@ -595,6 +654,7 @@ impl Compositor {
             layer_config: None,
             missed: false,
             linear,
+            swap,
             #[cfg(any(target_os = "ios", target_os = "macos"))]
             out_format,
             transparent: false,
@@ -1104,6 +1164,11 @@ impl Compositor {
             for y in 0..self.size.1 as usize {
                 let start = y * row as usize;
                 out.extend_from_slice(&data[start..start + self.size.0 as usize * 4]);
+            }
+            if self.swap {
+                for px in out.as_chunks_mut::<4>().0 {
+                    px.swap(0, 2);
+                }
             }
         }
         self.readback.unmap();
