@@ -1046,17 +1046,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "lightair-core"
-version = "0.1.0"
-dependencies = [
- "proptest",
- "serde",
- "serde_json",
- "thiserror",
- "uuid",
-]
-
-[[package]]
 name = "lightair-fonts"
 version = "0.1.0"
 dependencies = [
@@ -1087,6 +1076,17 @@ dependencies = [
  "tracing",
  "tungstenite",
  "ureq",
+]
+
+[[package]]
+name = "lightair-model"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "uuid",
 ]
 
 [[package]]
@@ -1125,8 +1125,8 @@ version = "0.1.0"
 dependencies = [
  "cosmic-text",
  "lightair-audio",
- "lightair-core",
  "lightair-fonts",
+ "lightair-model",
  "lightair-store",
  "objc2",
  "objc2-core-foundation",
@@ -1148,7 +1148,7 @@ dependencies = [
 name = "lightair-store"
 version = "0.1.0"
 dependencies = [
- "lightair-core",
+ "lightair-model",
  "serde",
  "serde_json",
  "tempfile",

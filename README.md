@@ -6,7 +6,7 @@ Editor all use them, so a fix here reaches all three.
 
 | Crate | Does |
 |---|---|
-| `lightair-core` | The project model: scenes, layers, inputs, formats; commands, undo, validation. No I/O |
+| `lightair-model` | The project model: scenes, layers, inputs, formats; commands, undo, validation. No I/O |
 | `lightair-store` | Saving and loading projects: the journal, migrations, imports |
 | `lightair-audio` | The audio graph and its DSP (Voice Clarity, loudness, noise suppression) |
 | `lightair-render` | The offline renderer and the Editor's model: sequences, takes, effects, export |
@@ -25,7 +25,7 @@ The apps depend on these crates by git at a pinned commit. Side by side in one f
 can build against a local checkout instead:
 
 ```toml
-lightair-core = { path = "../lightair-core/crates/lightair-core" }
+lightair-model = { path = "../lightair-core/crates/lightair-model" }
 ```
 
 ## Checking

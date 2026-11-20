@@ -229,7 +229,7 @@ impl Clip {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lightair_core::Id;
+    use lightair_model::Id;
 
     #[test]
     fn animations_come_in_and_go_out() {

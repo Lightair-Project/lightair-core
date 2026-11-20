@@ -1,6 +1,6 @@
 //! Which canvases Record records.
 
-use lightair_core::{Canvas, Workspace, RecordingSettings};
+use lightair_model::{Canvas, Workspace, RecordingSettings};
 
 #[test]
 fn every_canvas_until_chosen_and_never_none() {

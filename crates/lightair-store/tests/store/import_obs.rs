@@ -1,6 +1,6 @@
 //! OBS scene-collection import against a synthetic collection.
 
-use lightair_core::{Command, Document, Fit, Workspace, TransitionKind};
+use lightair_model::{Command, Document, Fit, Workspace, TransitionKind};
 use lightair_store::import_obs_collection;
 
 const FIXTURE: &str = include_str!("../fixtures/obs-collection.json");
@@ -22,7 +22,7 @@ fn scenes_inputs_and_order() {
     assert_eq!(p.program, Some(live.id), "program is OBS's program scene");
     assert_eq!(live.objects.len(), 3);
     let cam = p.sources.values().find(|i| i.name == "Camera").unwrap();
-    assert_eq!(cam.kind, lightair_core::kinds::CAMERA, "a portable kind");
+    assert_eq!(cam.kind, lightair_model::kinds::CAMERA, "a portable kind");
     assert_eq!(cam.settings["device"], "cam-1");
     let bg = p.sources.values().find(|i| i.name == "Backdrop").unwrap();
     assert_eq!(bg.kind, "color_source_v3", "versioned id wins");

@@ -1,13 +1,13 @@
 use std::io::Write;
 
-use lightair_core::{Command, Source, Object, Layout, Workspace, Scene};
+use lightair_model::{Command, Source, Object, Layout, Workspace, Scene};
 use lightair_store::{Package, StoreError, load_snapshot, save};
 use serde_json::json;
 
 fn sample() -> (Workspace, Vec<Command>) {
     let workspace = Workspace::new("Show");
     let canvas = workspace.primary_canvas().id;
-    let cam = Source::new("Camera", lightair_core::kinds::CAMERA, json!({"device": "abc"}));
+    let cam = Source::new("Camera", lightair_model::kinds::CAMERA, json!({"device": "abc"}));
     let scene = Scene::new("Main");
     let object = Object::new("Camera", cam.id, [(canvas, Layout::boxed(0.0, 0.0, 1920.0, 1080.0))]);
     let cmds = [Command::AddSource { source: cam }, Command::AddObject { scene: scene.id, object, index: None }];
@@ -102,13 +102,13 @@ fn a_format_1_workspace_opens_with_portable_kinds_and_is_saved_upgraded() {
     let opened = Package::open(dir.path(), || Workspace::new("unused")).unwrap();
     let by_name = |p: &Workspace, n: &str| p.sources.values().find(|i| i.name == n).unwrap().as_ref().clone();
     let d = by_name(&opened.workspace, "Display");
-    assert_eq!(d.kind, lightair_core::kinds::SCREEN);
+    assert_eq!(d.kind, lightair_model::kinds::SCREEN);
     assert_eq!(d.settings, json!({"mode": 0, "display": "U", "cursor": false}));
     assert_eq!(by_name(&opened.workspace, "Mic").settings, json!({"device": "default"}));
     // saved in the new canvas: the files say so too
     let m: serde_json::Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
     assert_eq!(m["formatVersion"], lightair_store::FORMAT_VERSION);
-    assert_eq!(by_name(&load_snapshot(dir.path()).unwrap(), "Mic").kind, lightair_core::kinds::MIC);
+    assert_eq!(by_name(&load_snapshot(dir.path()).unwrap(), "Mic").kind, lightair_model::kinds::MIC);
 }
 
 #[test]

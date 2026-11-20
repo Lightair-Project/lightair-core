@@ -1,7 +1,7 @@
 //! Copy, paste and duplicate: whole subtrees, new ids, content copied and devices shared, and
 //! the copy lands where the original is.
 
-use lightair_core::{Clip, Command, Document, Id, Source, Object, Layout, Workspace, Scene};
+use lightair_model::{Clip, Command, Document, Id, Source, Object, Layout, Workspace, Scene};
 
 fn close(a: f32, b: f32) -> bool {
     (a - b).abs() < 0.01
@@ -19,7 +19,7 @@ fn setup() -> Setup {
     let workspace = Workspace::new("Show");
     let canvas = workspace.primary_canvas().id;
     let mut doc = Document::new(workspace);
-    let camera = Source::new("Camera", lightair_core::kinds::CAMERA, serde_json::json!({}));
+    let camera = Source::new("Camera", lightair_model::kinds::CAMERA, serde_json::json!({}));
     let text = Source::new("Title", "text_ft2_source_v2", serde_json::json!({"text": "Hello"}));
     let (camera_id, text_id) = (camera.id, text.id);
     doc.apply(&Command::AddSource { source: camera }).unwrap();
@@ -114,7 +114,7 @@ fn pasting_into_another_workspace_brings_the_sources() {
     let p = other.doc.workspace();
     let object = p.scene(other.scene).unwrap().object(roots[0]).unwrap();
     let source = object.source.and_then(|i| p.sources.get(&i)).expect("input brought along");
-    assert_eq!(source.kind, lightair_core::kinds::CAMERA);
+    assert_eq!(source.kind, lightair_model::kinds::CAMERA);
     // Its canvas ids differ: the layout lands in the primary canvas.
     assert!(object.layouts.contains_key(&p.primary_canvas().id));
 }
@@ -129,7 +129,7 @@ fn prefab_instances_link_and_rebuild_in_place() {
     let mut prefab = Clip::copy(s.doc.workspace(), s.scene, &[gid]).unwrap();
     prefab.objects[0].prefab = None;
     // its own id, in its file: what instances link by
-    let prefab_id = lightair_core::Id::new();
+    let prefab_id = lightair_model::Id::new();
     prefab.prefab_id = Some(prefab_id);
 
     // Place an instance elsewhere: its root is linked.
@@ -170,7 +170,7 @@ fn prefab_instances_link_and_rebuild_in_place() {
 
 #[test]
 fn a_scene_saved_as_an_asset_comes_back_as_a_new_scene() {
-    use lightair_core::SceneAsset;
+    use lightair_model::SceneAsset;
     let mut s = setup();
     let f = s.canvas;
     let cam = s.add(Object::new("Camera", s.camera, [(f, Layout::boxed(0.0, 0.0, 640.0, 360.0))]));

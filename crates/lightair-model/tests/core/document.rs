@@ -1,15 +1,15 @@
 use std::sync::Arc;
 
-use lightair_core::{
+use lightair_model::{
     Command, CommandError, Document, Source, Object, ObjectPatch, Layout, Patch, Workspace, Scene, diff, diff_objects,
 };
 use proptest::prelude::*;
 
-fn setup() -> (Document, lightair_core::Id, lightair_core::Id, lightair_core::Id) {
+fn setup() -> (Document, lightair_model::Id, lightair_model::Id, lightair_model::Id) {
     let workspace = Workspace::new("Show");
     let canvas = workspace.primary_canvas().id;
     let mut doc = Document::new(workspace);
-    let cam = Source::new("Camera", lightair_core::kinds::CAMERA, serde_json::json!({}));
+    let cam = Source::new("Camera", lightair_model::kinds::CAMERA, serde_json::json!({}));
     let cam_id = cam.id;
     doc.apply(&Command::AddSource { source: cam }).unwrap();
     let scene = Scene::new("Main");
@@ -88,21 +88,21 @@ fn dragging_several_objects_is_one_undo_step() {
 #[test]
 fn the_virtual_camera_choice_is_kept_and_follows_removals() {
     let (mut doc, scene, _, _) = setup();
-    let square = lightair_core::Canvas::square();
+    let square = lightair_model::Canvas::square();
     let sq = square.id;
     doc.apply(&Command::AddCanvas { canvas: square }).unwrap();
-    let settings = lightair_core::VirtualCameraSettings { scene: Some(scene), canvas: Some(sq) };
+    let settings = lightair_model::VirtualCameraSettings { scene: Some(scene), canvas: Some(sq) };
     doc.apply(&Command::SetVirtualCamera { settings }).unwrap();
     assert_eq!(doc.workspace().outputs.virtual_camera, settings, "kept in the workspace");
     // saved with the workspace
     let text = serde_json::to_string(&doc.workspace().outputs).unwrap();
-    let back: lightair_core::OutputSettings = serde_json::from_str(&text).unwrap();
+    let back: lightair_model::OutputSettings = serde_json::from_str(&text).unwrap();
     assert_eq!(back.virtual_camera, settings);
     doc.undo();
     assert_eq!(doc.workspace().outputs.virtual_camera, Default::default(), "undo brings back the scene on air");
     doc.redo();
-    let ghost = lightair_core::Id::new();
-    assert!(doc.apply(&Command::SetVirtualCamera { settings: lightair_core::VirtualCameraSettings { scene: Some(ghost), canvas: None } }).is_err());
+    let ghost = lightair_model::Id::new();
+    assert!(doc.apply(&Command::SetVirtualCamera { settings: lightair_model::VirtualCameraSettings { scene: Some(ghost), canvas: None } }).is_err());
     doc.apply(&Command::RemoveCanvas { canvas: sq }).unwrap();
     assert_eq!(doc.workspace().outputs.virtual_camera.canvas, None, "its canvas gone: the primary");
     doc.apply(&Command::RemoveScene { scene }).unwrap();
@@ -112,7 +112,7 @@ fn the_virtual_camera_choice_is_kept_and_follows_removals() {
 #[test]
 fn removing_a_canvas_retargets_outputs() {
     let (mut doc, scene, object, _) = setup();
-    let square = lightair_core::Canvas::square();
+    let square = lightair_model::Canvas::square();
     let sq = square.id;
     doc.apply(&Command::AddCanvas { canvas: square }).unwrap();
     let mut clips = doc.workspace().outputs.clips;
@@ -123,13 +123,13 @@ fn removing_a_canvas_retargets_outputs() {
     doc.apply(&Command::RemoveCanvas { canvas: sq }).unwrap();
     assert_eq!(doc.workspace().outputs.clips.canvas, None, "clips fall back to the primary format");
     assert!(!doc.workspace().scene(scene).unwrap().object(object).unwrap().layouts.contains_key(&sq));
-    let odd = lightair_core::Canvas::custom("Odd", 1001, 99999);
+    let odd = lightair_model::Canvas::custom("Odd", 1001, 99999);
     assert_eq!((odd.width, odd.height), (1000, 7680));
 }
 
 #[test]
 fn uncropped_box() {
-    use lightair_core::Crop;
+    use lightair_model::Crop;
     // 1920×1080 source shown at half size with 200 px cropped off the left and 100 off the top.
     let l =
         Layout { crop: Crop { left: 200, top: 100, right: 0, bottom: 0 }, ..Layout::boxed(100.0, 50.0, 860.0, 490.0) };
@@ -174,7 +174,7 @@ fn switching_scenes_is_not_undone() {
 fn failing_commands_change_nothing() {
     let (mut doc, scene, ..) = setup();
     let before = doc.workspace().clone();
-    let ghost = lightair_core::Id::new();
+    let ghost = lightair_model::Id::new();
     assert_eq!(doc.apply(&Command::RemoveObject { scene, object: ghost }).unwrap_err(), CommandError::NoObject(ghost));
     let cam = *doc.workspace().sources.keys().next().unwrap();
     assert!(matches!(doc.apply(&Command::RemoveSource { source: cam }), Err(CommandError::SourceInUse(1))));
@@ -303,9 +303,9 @@ proptest! {
 
 #[test]
 fn journal_entries_from_before_the_renames_still_read() {
-    use lightair_core::Command;
+    use lightair_model::Command;
     // a canvas was a "format": AddFormat { format }, SetLayout { …, format }
-    let id = lightair_core::Id::new();
+    let id = lightair_model::Id::new();
     let old = format!(r#"{{"RemoveFormat":{{"format":"{id}"}}}}"#);
     let cmd: Command = serde_json::from_str(&old).unwrap();
     assert!(matches!(cmd, Command::RemoveCanvas { canvas } if canvas == id));
@@ -313,8 +313,8 @@ fn journal_entries_from_before_the_renames_still_read() {
 
 #[test]
 fn journal_entries_from_before_sources_were_sources_still_read() {
-    use lightair_core::Command;
-    let id = lightair_core::Id::new();
+    use lightair_model::Command;
+    let id = lightair_model::Id::new();
     let old = format!(r#"{{"RemoveInput":{{"input":"{id}"}}}}"#);
     let cmd: Command = serde_json::from_str(&old).unwrap();
     assert!(matches!(cmd, Command::RemoveSource { source } if source == id));
@@ -323,11 +323,11 @@ fn journal_entries_from_before_sources_were_sources_still_read() {
 #[test]
 fn removing_a_mix_takes_it_off_destinations() {
     let (mut doc, ..) = setup();
-    let vod = lightair_core::AudioMix::new("VOD (no music)");
+    let vod = lightair_model::AudioMix::new("VOD (no music)");
     let mix = vod.id;
     doc.apply(&Command::AddMix { mix: vod }).unwrap();
-    let destination = lightair_core::Destination {
-        id: lightair_core::Id::new(),
+    let destination = lightair_model::Destination {
+        id: lightair_model::Id::new(),
         name: "Twitch".into(),
         server: "rtmp://live.twitch.tv/app".into(),
         enabled: true,
@@ -347,17 +347,17 @@ fn removing_a_mix_takes_it_off_destinations() {
 #[test]
 fn a_scene_can_have_its_own_transition() {
     let (mut doc, scene, ..) = setup();
-    let own = lightair_core::TransitionSettings { kind: lightair_core::TransitionKind::Dip, duration_ms: 99_999, ..doc.workspace().transition };
+    let own = lightair_model::TransitionSettings { kind: lightair_model::TransitionKind::Dip, duration_ms: 99_999, ..doc.workspace().transition };
     doc.apply(&Command::SetSceneTransition { scene, transition: Some(own) }).unwrap();
     let t = doc.workspace().scene(scene).unwrap().transition.unwrap();
-    assert_eq!(t.kind, lightair_core::TransitionKind::Dip);
+    assert_eq!(t.kind, lightair_model::TransitionKind::Dip);
     assert_eq!(t.duration_ms, 5000, "clamped like the default's");
     // kept with the scene
     let json = serde_json::to_string(&**doc.workspace().scene(scene).unwrap()).unwrap();
-    let back: lightair_core::Scene = serde_json::from_str(&json).unwrap();
+    let back: lightair_model::Scene = serde_json::from_str(&json).unwrap();
     assert_eq!(back.transition, Some(t));
     // its own stinger video, kept with it
-    let st = lightair_core::Stinger { path: "/videos/intro.mov".into(), cut_ms: 700 };
+    let st = lightair_model::Stinger { path: "/videos/intro.mov".into(), cut_ms: 700 };
     doc.apply(&Command::SetSceneStinger { scene, stinger: Some(st.clone()) }).unwrap();
     assert_eq!(doc.workspace().scene(scene).unwrap().stinger, Some(st));
     doc.apply(&Command::SetSceneTransition { scene, transition: None }).unwrap();

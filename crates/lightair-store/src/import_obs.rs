@@ -7,7 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use lightair_core::{
+use lightair_model::{
     Command, Crop, Direction, Effect, Fit, Canvas, Id, Source, Object, Layout, Workspace, Scene, Track, TransitionKind,
     TransitionSettings,
 };
@@ -157,7 +157,7 @@ fn volume_db(volume: f64) -> f32 {
 
 /// OBS's capture sources become Lightair's portable kinds (the workspace opens on either platform).
 fn portable(mut input: Source) -> Source {
-    if let Some((kind, settings)) = lightair_core::kinds::from_libobs(&input.kind, &input.settings) {
+    if let Some((kind, settings)) = lightair_model::kinds::from_libobs(&input.kind, &input.settings) {
         input.kind = kind.into();
         input.settings = settings;
     }
@@ -460,7 +460,7 @@ pub fn import_obs_collection(json: &str, workspace: &Workspace) -> Result<(Comma
                     let point = settings["transition_point"].as_u64().unwrap_or(0);
                     let cut_ms = if settings["tp_type"].as_i64() == Some(1) { point * 1000 / 30 } else { point };
                     commands.push(Command::SetStinger {
-                        stinger: Some(lightair_core::Stinger { path: path.to_string(), cut_ms: cut_ms as u32 }),
+                        stinger: Some(lightair_model::Stinger { path: path.to_string(), cut_ms: cut_ms as u32 }),
                     });
                     report.converted.push(format!("transition {name}: stinger"));
                     TransitionKind::Stinger

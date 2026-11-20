@@ -216,7 +216,7 @@ pub fn set_transform_field(t: &mut Transform, i: usize, v: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lightair_core::Id;
+    use lightair_model::Id;
 
     #[test]
     fn properties_key_on_their_own() {

@@ -404,7 +404,7 @@ fn a_takes_scene_comes_back_as_layers_where_they_were() {
     let ff = media::ffmpeg().unwrap();
     assert!(Command::new(&ff).args(["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=yellow:s=200x200", "-frames:v", "1"]).arg(folder.join("layers/0-logo.png")).status().unwrap().success());
     assert!(Command::new(&ff).args(["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=2"]).arg(folder.join("Audio - Mic.wav")).status().unwrap().success());
-    let camera = lightair_core::Id::new();
+    let camera = lightair_model::Id::new();
     std::fs::write(
         folder.join("take.json"),
         format!(r#"{{"duration_ms":2000,"video":[{{"name":"Camera","file":"camera.mp4","input":"{camera}"}}],"audio":["Audio - Mic.wav"]}}"#),
@@ -464,7 +464,7 @@ fn what_was_behind_a_takes_screen_stays_behind_it() {
     };
     let ff = media::ffmpeg().unwrap();
     assert!(Command::new(&ff).args(["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=yellow:s=200x200", "-frames:v", "1"]).arg(folder.join("layers/0-logo.png")).status().unwrap().success());
-    let screen = lightair_core::Id::new();
+    let screen = lightair_model::Id::new();
     std::fs::write(
         folder.join("take.json"),
         format!(r#"{{"duration_ms":2000,"video":[{{"name":"Screen","kind":"screen","file":"screen.mp4","input":"{screen}"}}],"audio":[]}}"#),

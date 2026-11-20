@@ -5,8 +5,8 @@
 
 use std::path::{Path, PathBuf};
 
-use lightair_core::catalog;
-use lightair_core::Id;
+use lightair_model::catalog;
+use lightair_model::Id;
 use tiny_skia::{Color, FillRule, GradientStop, IntSize, LinearGradient, Paint, PathBuilder, Pixmap, Point, Shader, SpreadMode, Transform as Tf};
 
 use crate::motion::{self, Motion, MotionKind};

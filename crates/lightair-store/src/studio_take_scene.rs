@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use lightair_core::{Id, Workspace, kinds};
+use lightair_model::{Id, Workspace, kinds};
 use serde::{Deserialize, Serialize};
 
 pub const FILE: &str = "scene.json";

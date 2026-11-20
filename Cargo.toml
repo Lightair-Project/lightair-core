@@ -11,7 +11,7 @@ publish = false
 [workspace.dependencies]
 lightair-audio = { path = "crates/lightair-audio" }
 lightair-automation = { path = "crates/lightair-automation" }
-lightair-core = { path = "crates/lightair-core" }
+lightair-model = { path = "crates/lightair-model" }
 lightair-fonts = { path = "crates/lightair-fonts" }
 lightair-live = { path = "crates/lightair-live" }
 lightair-platform = { path = "crates/lightair-platform" }

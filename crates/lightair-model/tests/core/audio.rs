@@ -1,13 +1,13 @@
 //! The mixer's model: buses, mixes, routing rules, removal, older workspaces.
 
-use lightair_core::{
+use lightair_model::{
     AudioMix, Bus, Command, CommandError, Document, Effect, Source, Workspace, Route, Send, Track, TrackChannels,
 };
 use serde_json::json;
 
-fn workspace() -> (Document, lightair_core::Id) {
+fn workspace() -> (Document, lightair_model::Id) {
     let mut doc = Document::new(Workspace::new("Pod"));
-    let mic = Source::new("Interface", lightair_core::kinds::MIC, json!({}));
+    let mic = Source::new("Interface", lightair_model::kinds::MIC, json!({}));
     let id = mic.id;
     doc.apply(&Command::AddSource { source: mic }).unwrap();
     let t = Track::new("Host", id);
@@ -16,7 +16,7 @@ fn workspace() -> (Document, lightair_core::Id) {
     (doc, tid)
 }
 
-fn track(doc: &Document, id: lightair_core::Id) -> Track {
+fn track(doc: &Document, id: lightair_model::Id) -> Track {
     (**doc.workspace().track(id).unwrap()).clone()
 }
 
@@ -35,7 +35,7 @@ fn routing_to_buses_and_loops() {
     doc.apply(&Command::UpdateBus { bus: Bus { route: Route::Bus(b.id), ..a.clone() } }).unwrap();
     let looped = doc.apply(&Command::UpdateBus { bus: Bus { route: Route::Bus(a.id), ..b.clone() } });
     assert!(matches!(looped, Err(CommandError::AudioLoop)), "{looped:?}");
-    let missing = doc.apply(&Command::UpdateTrack { track: Track { route: Route::Bus(lightair_core::Id::new()), ..t } });
+    let missing = doc.apply(&Command::UpdateTrack { track: Track { route: Route::Bus(lightair_model::Id::new()), ..t } });
     assert!(matches!(missing, Err(CommandError::NoBus(_))));
     // removing Guests sends the track back to Program
     doc.apply(&Command::RemoveBus { bus: a.id }).unwrap();
@@ -65,23 +65,23 @@ fn mixes_and_their_sends() {
 #[test]
 fn older_projects_load_and_their_filters_become_engine_effects() {
     // a track saved before routing existed
-    let old = json!({"id": lightair_core::Id::new(), "name": "Mic", "input": lightair_core::Id::new(),
+    let old = json!({"id": lightair_model::Id::new(), "name": "Mic", "input": lightair_model::Id::new(),
         "volume_db": -3.0, "muted": false, "cue": false,
-        "effects": [{"id": lightair_core::Id::new(), "name": "Gate", "kind": "noise_gate_filter", "enabled": true,
+        "effects": [{"id": lightair_model::Id::new(), "name": "Gate", "kind": "noise_gate_filter", "enabled": true,
             "settings": {"open_threshold": -30.0, "close_threshold": -36.0}}]});
     let t: Track = serde_json::from_value(old).unwrap();
     assert_eq!((t.route, t.channels, t.pan, t.record), (Route::Master, TrackChannels::All, 0.0, false));
-    let gate = lightair_core::catalog::migrate_audio_effect(&t.effects[0]).unwrap();
+    let gate = lightair_model::catalog::migrate_audio_effect(&t.effects[0]).unwrap();
     assert_eq!(gate.kind, "audio.gate");
     assert_eq!(gate.settings["threshold_db"], -30.0);
     assert_eq!(gate.settings["hysteresis_db"], 6.0);
     assert_eq!(gate.id, t.effects[0].id, "the same effect, converted");
-    assert!(lightair_core::catalog::migrate_audio_effect(&Effect::new("V", "audio.voice", json!({}))).is_none());
+    assert!(lightair_model::catalog::migrate_audio_effect(&Effect::new("V", "audio.voice", json!({}))).is_none());
 }
 
 #[test]
 fn effects_on_buses_mixes_and_the_master() {
-    use lightair_core::{MASTER_ID, MixerStrip};
+    use lightair_model::{MASTER_ID, MixerStrip};
     let (mut doc, tid) = workspace();
     let bus = Bus::new("Music");
     let mix = AudioMix::new("VOD");
@@ -108,7 +108,7 @@ fn effects_on_buses_mixes_and_the_master() {
 
 #[test]
 fn strips_rename() {
-    use lightair_core::MixerStrip;
+    use lightair_model::MixerStrip;
     let (mut doc, tid) = workspace();
     let (bus, mix) = (Bus::new("Bus 1"), AudioMix::new("Mix 1"));
     let (bid, mid) = (bus.id, mix.id);

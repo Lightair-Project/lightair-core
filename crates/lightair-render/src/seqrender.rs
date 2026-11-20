@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use lightair_core::Id;
+use lightair_model::Id;
 
 use crate::compose::{Compositor, Layer, fit};
 use crate::edit::{Edit, Look};

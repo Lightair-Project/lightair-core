@@ -7,7 +7,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-lightair-core.workspace = true
+lightair-model.workspace = true
 lightair-audio.workspace = true
 lightair-store.workspace = true
 lightair-fonts.workspace = true

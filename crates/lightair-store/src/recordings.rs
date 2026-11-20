@@ -9,7 +9,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use lightair_core::Id;
+use lightair_model::Id;
 use serde::{Deserialize, Serialize};
 
 /// What an item is.

@@ -339,7 +339,7 @@ pub fn stream(seq: &Sequence, from_ms: u64, rate: u32) -> Result<Option<Child>, 
 mod tests {
     use super::*;
     use crate::sequence::{Clip, VolumeKey};
-    use lightair_core::Id;
+    use lightair_model::Id;
 
     #[test]
     fn volume_keys_make_a_curve() {

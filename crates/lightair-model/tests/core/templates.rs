@@ -1,7 +1,7 @@
 //! Mixer templates: each replaces the mixer in one undoable step, with valid routing.
 
-use lightair_core::templates::{Mics, Template, apply};
-use lightair_core::{AudioMix, Bus, Command, Document, Source, Workspace, Route, Track, TrackChannels};
+use lightair_model::templates::{Mics, Template, apply};
+use lightair_model::{AudioMix, Bus, Command, Document, Source, Workspace, Route, Track, TrackChannels};
 use serde_json::json;
 
 fn interface(channels: u16) -> Mics {

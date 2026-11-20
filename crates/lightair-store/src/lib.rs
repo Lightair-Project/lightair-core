@@ -29,11 +29,11 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use lightair_core::{Command, Canvas, Id, Source, OutputSettings, Workspace, Scene, Track};
+use lightair_model::{Command, Canvas, Id, Source, OutputSettings, Workspace, Scene, Track};
 use serde::{Deserialize, Serialize};
 
 /// Current on-disk canvas. Bump it and add a migration in [`migrate`] when the schema changes.
-/// 2: capture sources use Lightair's portable kinds (lightair_core::kinds).
+/// 2: capture sources use Lightair's portable kinds (lightair_model::kinds).
 pub const FORMAT_VERSION: u32 = 2;
 
 #[derive(Debug, thiserror::Error)]
@@ -64,9 +64,9 @@ struct Manifest {
     /// Scene ids in display order; scene contents live in `scenes/<id>.json`.
     scenes: Vec<Id>,
     #[serde(default)]
-    transition: lightair_core::TransitionSettings,
+    transition: lightair_model::TransitionSettings,
     #[serde(default)]
-    stinger: Option<lightair_core::Stinger>,
+    stinger: Option<lightair_model::Stinger>,
     /// The rotated journals (`journal/<n>.log`) this snapshot includes: up to this number.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     journal: Option<u64>,
@@ -172,7 +172,7 @@ pub fn load_snapshot(dir: &Path) -> Result<Workspace, StoreError> {
     let audio = dir.join("audio.json");
     let tracks: Vec<Track> = if audio.exists() { read_json(&audio)? } else { Vec::new() };
     let mixer = dir.join("mixer.json");
-    let audio_setup: lightair_core::AudioSetup = if mixer.exists() { read_json(&mixer)? } else { Default::default() };
+    let audio_setup: lightair_model::AudioSetup = if mixer.exists() { read_json(&mixer)? } else { Default::default() };
     let outputs_path = dir.join("outputs.json");
     let outputs: OutputSettings =
         if outputs_path.exists() { read_json(&outputs_path)? } else { OutputSettings::default() };
@@ -198,7 +198,7 @@ pub fn load_snapshot(dir: &Path) -> Result<Workspace, StoreError> {
         stinger: manifest.stinger,
     };
     // canvas 1 stored libobs's macOS ids
-    lightair_core::kinds::migrate(&mut workspace);
+    lightair_model::kinds::migrate(&mut workspace);
     Ok(workspace)
 }
 
@@ -383,7 +383,7 @@ impl Package {
             recovered += replay(&journal_path, &mut workspace)?;
         }
         // a journal from before portable kinds adds libobs ids
-        let migrated = lightair_core::kinds::migrate(&mut workspace);
+        let migrated = lightair_model::kinds::migrate(&mut workspace);
         let journal = OpenOptions::new().create(true).append(true).open(&journal_path).map_err(io(&journal_path))?;
         let mut package = Package {
             dir: dir.to_path_buf(),

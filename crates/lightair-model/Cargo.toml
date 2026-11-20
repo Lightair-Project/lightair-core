@@ -1,5 +1,5 @@
 [package]
-name = "lightair-core"
+name = "lightair-model"
 description = "Lightair's document model: workspaces, scenes, layers, inputs; commands, undo, diffing"
 version.workspace = true
 edition.workspace = true

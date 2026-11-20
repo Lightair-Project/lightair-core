@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use lightair_core::Id;
+use lightair_model::Id;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
