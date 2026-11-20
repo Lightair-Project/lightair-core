@@ -143,6 +143,12 @@ fn serve(tcp: TcpStream, secure: &Arc<Secure>, shared: &Arc<Shared>) -> io::Resu
     let conn = rustls::ServerConnection::new(secure.tls.clone()).map_err(io::Error::other)?;
     let mut stream: Tls = rustls::StreamOwned::new(conn, tcp);
     let Some(req) = http::read_request(&mut stream)? else { return Ok(()) };
+    // transfers: the token is the authorisation, for a device still paired (docs/05 §7)
+    if req.path.starts_with("/transfer/") {
+        let pairing = secure.pairing.clone();
+        let alive = move |device: &str| pairing.devices().iter().any(|d| d.id == device);
+        return crate::transfer::serve(&mut stream, req, shared.transfers(), &alive);
+    }
     let upgrade = req.header("upgrade").is_some_and(|u| u.eq_ignore_ascii_case("websocket"));
     let path = req.path.split('?').next().unwrap_or("/");
     if !(req.method == "GET" && matches!(path, "/rpc" | "/preview" | "/camera") && upgrade) {
@@ -267,7 +273,7 @@ impl Session {
             }
             (m, Access::Device(d)) => {
                 let client = client_label(&d.name);
-                self.shared.call(client, m, params).map_err(|e| (rpc::code(e.kind), e.message))
+                self.shared.call_from(client, &d.id, m, params).map_err(|e| (rpc::code(e.kind), e.message))
             }
         };
         let id = id?;

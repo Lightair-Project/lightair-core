@@ -367,3 +367,191 @@ fn a_phone_pairs_as_a_camera_and_talks_to_its_layer() {
     drop(again);
     wait_for("disconnected", || layer.gone.load(std::sync::atomic::Ordering::SeqCst) == 1);
 }
+
+/// One raw HTTP request over the pinned TLS port, on a connection kept for the next.
+fn http_req(
+    s: &mut rustls::StreamOwned<rustls::ClientConnection, TcpStream>,
+    method: &str,
+    path: &str,
+    headers: &[(&str, String)],
+    body: &[u8],
+) -> (u16, Vec<(String, String)>, Vec<u8>) {
+    let mut req = format!("{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: {}\r\n", body.len());
+    for (k, v) in headers {
+        req.push_str(&format!("{k}: {v}\r\n"));
+    }
+    req.push_str("\r\n");
+    s.write_all(req.as_bytes()).unwrap();
+    s.write_all(body).unwrap();
+    s.flush().unwrap();
+    // the head, then exactly Content-Length bytes (none for HEAD)
+    let mut head = Vec::new();
+    let mut b = [0u8; 1];
+    while !head.ends_with(b"\r\n\r\n") {
+        s.read_exact(&mut b).unwrap();
+        head.push(b[0]);
+    }
+    let text = String::from_utf8(head).unwrap();
+    let mut lines = text.split("\r\n");
+    let status: u16 = lines.next().unwrap()[9..12].parse().unwrap();
+    let headers: Vec<(String, String)> =
+        lines.filter_map(|l| l.split_once(": ")).map(|(k, v)| (k.to_ascii_lowercase(), v.to_string())).collect();
+    let len: usize = headers.iter().find(|(k, _)| k == "content-length").map_or(0, |(_, v)| v.parse().unwrap());
+    let mut body = vec![0u8; if method == "HEAD" { 0 } else { len }];
+    s.read_exact(&mut body).unwrap();
+    (status, headers, body)
+}
+
+fn header<'a>(h: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    h.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
+}
+
+#[test]
+fn a_phone_fetches_and_sends_files_in_pieces() {
+    let slot: Arc<std::sync::OnceLock<Arc<crate::Transfers>>> = Arc::default();
+    let dir = std::env::temp_dir().join(format!("lightair-transfer-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("take")).unwrap();
+    // a file of 3 MB and a bit, its bytes counting up
+    let data: Vec<u8> = (0..3_000_123u32).map(|i| (i % 251) as u8).collect();
+    std::fs::write(dir.join("take/screen.mp4"), &data).unwrap();
+    let (s2, d2) = (slot.clone(), dir.clone());
+    let handler: Handler = Arc::new(move |c: Call| {
+        let t = s2.get().unwrap();
+        let device = c.device.clone().ok_or_else(|| ApiError::failed("no device"))?;
+        match c.method.as_str() {
+            "takes.fetch" => {
+                let tr = t
+                    .offer_download(
+                        &device,
+                        vec![("Take 1.lightair-take/screen.mp4".into(), d2.join("take/screen.mp4"))],
+                    )
+                    .unwrap();
+                Ok(tr.to_json())
+            }
+            "transfer.upload" => {
+                let files =
+                    c.params["files"].as_array().unwrap().iter().filter_map(crate::FileSpec::from_json).collect();
+                Ok(t.offer_upload(&device, files, d2.join("in"), json!({"kind": "export"})).unwrap().to_json())
+            }
+            _ => Err(ApiError::new(crate::ErrorKind::Unknown, "no such method")),
+        }
+    });
+    let server = Server::start(Config { port: 0, lan: false, password: None }, handler).unwrap();
+    slot.set(server.transfers()).ok();
+    let identity = Identity::generate("7f3c").unwrap();
+    let pin = identity.fingerprint();
+    let desktop = DesktopInfo { id: "7f3c".into(), name: "Studio Mac".into(), version: "0.4.0".into() };
+    let key = SigningKey::from_bytes(&[5; 32]);
+    let device = crate::Device {
+        id: "ipad-1".into(),
+        name: "Sam's iPad".into(),
+        model: String::new(),
+        platform: "iOS".into(),
+        app_version: String::new(),
+        public_key: key.verifying_key().to_bytes(),
+        scope: Scope::Control,
+        paired_at: 0,
+        last_seen: None,
+        source: None,
+    };
+    let pairing = Pairing::new(vec![device], |_| false, |_| {});
+    let config = SecureConfig { port: 0, identity, desktop, features: vec![] };
+    let secure = server.start_secure(config, pairing.clone()).unwrap();
+    let port = secure.addr().port();
+    let (_, nonce) = connect(port, pin, &[]).unwrap_err();
+    let mut ws =
+        connect(port, pin, &[("Authorization", sign_header("ipad-1", &nonce, now(), |m| key.sign(m).to_bytes()))])
+            .unwrap();
+
+    // the take: offered with its SHA-256, the device's id reaching the app
+    let r = call(&mut ws, 1, "takes.fetch", json!({"take": "t1"}));
+    let token = r["result"]["token"].as_str().unwrap().to_owned();
+    let m = &r["result"]["manifest"][0];
+    assert_eq!(m["size"], data.len() as u64);
+    assert_eq!(m["sha256"], Sha256::digest(&data).iter().map(|b| format!("{b:02x}")).collect::<String>());
+    let path = format!("/transfer/{token}/Take%201.lightair-take/screen.mp4");
+
+    // in 1 MB pieces on one connection, resumed partway on another
+    let mut got = Vec::new();
+    let mut s = tls(port, pin);
+    for first in (0..2_000_000).step_by(1_000_000) {
+        let (st, h, body) =
+            http_req(&mut s, "GET", &path, &[("Range", format!("bytes={first}-{}", first + 999_999))], &[]);
+        assert_eq!(st, 206);
+        assert_eq!(header(&h, "accept-ranges"), Some("bytes"));
+        assert_eq!(
+            header(&h, "content-range"),
+            Some(format!("bytes {first}-{}/{}", first + 999_999, data.len()).as_str())
+        );
+        got.extend(body);
+    }
+    drop(s);
+    let mut s = tls(port, pin);
+    let (st, _, body) = http_req(&mut s, "GET", &path, &[("Range", format!("bytes={}-", got.len()))], &[]);
+    assert_eq!(st, 206);
+    got.extend(body);
+    assert_eq!(got, data);
+    let (st, h, _) = http_req(&mut s, "HEAD", &path, &[], &[]);
+    assert_eq!((st, header(&h, "content-length")), (200, Some("3000123")));
+    drop(s);
+
+    // a wrong token, and a name that isn't in the transfer
+    let mut s = tls(port, pin);
+    assert_eq!(http_req(&mut s, "GET", "/transfer/nope/x.mp4", &[], &[]).0, 404);
+    let mut s = tls(port, pin);
+    assert_eq!(http_req(&mut s, "GET", &format!("/transfer/{token}/other.mp4"), &[], &[]).0, 404);
+
+    // an upload in pieces: the wrong offset refused, a resume by HEAD, the SHA checked
+    let export: Vec<u8> = (0..2_500_000u32).map(|i| (i % 241) as u8).collect();
+    let sha: String = Sha256::digest(&export).iter().map(|b| format!("{b:02x}")).collect();
+    let r = call(
+        &mut ws,
+        2,
+        "transfer.upload",
+        json!({"files": [{"name": "Export.mp4", "size": export.len(), "sha256": sha}]}),
+    );
+    let up = r["result"]["token"].as_str().unwrap().to_owned();
+    let path = format!("/transfer/{up}/Export.mp4");
+    let total = export.len();
+    let piece =
+        |a: usize, b: usize| (vec![("Content-Range", format!("bytes {a}-{}/{total}", b - 1))], export[a..b].to_vec());
+    let mut s = tls(port, pin);
+    let (h, b) = piece(0, 1_000_000);
+    assert_eq!(http_req(&mut s, "PUT", &path, &h, &b).0, 202);
+    let (h, b) = piece(2_000_000, total);
+    let (st, hh, _) = http_req(&mut s, "PUT", &path, &h, &b);
+    assert_eq!((st, header(&hh, "lightair-received")), (416, Some("1000000")));
+    drop(s);
+    let mut s = tls(port, pin);
+    let (_, hh, _) = http_req(&mut s, "HEAD", &path, &[], &[]);
+    assert_eq!(header(&hh, "lightair-received"), Some("1000000"));
+    let (h, b) = piece(1_000_000, 2_000_000);
+    assert_eq!(http_req(&mut s, "PUT", &path, &h, &b).0, 202);
+    assert!(server.transfers().take_finished().is_empty());
+    let (h, b) = piece(2_000_000, total);
+    assert_eq!(http_req(&mut s, "PUT", &path, &h, &b).0, 201);
+    assert_eq!(std::fs::read(dir.join("in/Export.mp4")).unwrap(), export);
+    let done = server.transfers().take_finished();
+    assert_eq!(done.len(), 1);
+    assert_eq!((done[0].device.as_str(), done[0].meta["kind"].as_str()), ("ipad-1", Some("export")));
+
+    // a file that doesn't match its SHA-256 is dropped
+    let r = call(
+        &mut ws,
+        3,
+        "transfer.upload",
+        json!({"files": [{"name": "Bad.mp4", "size": 4, "sha256": "0".repeat(64)}]}),
+    );
+    let bad = r["result"]["token"].as_str().unwrap().to_owned();
+    let mut s = tls(port, pin);
+    assert_eq!(http_req(&mut s, "PUT", &format!("/transfer/{bad}/Bad.mp4"), &[], b"abcd").0, 422);
+    assert!(!dir.join("in/Bad.mp4").exists() && !dir.join("in/Bad.mp4.partial").exists());
+
+    // the device removed: its tokens stop working
+    pairing.remove("ipad-1");
+    let mut s = tls(port, pin);
+    let path = format!("/transfer/{token}/Take%201.lightair-take/screen.mp4");
+    assert_eq!(http_req(&mut s, "GET", &path, &[], &[]).0, 403);
+    let _ = std::fs::remove_dir_all(&dir);
+}

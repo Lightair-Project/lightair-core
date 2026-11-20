@@ -4,9 +4,9 @@
 
 use serde_json::{Value, json};
 
+use crate::Shared;
 use crate::http::Request;
 use crate::rpc::{self, error};
-use crate::Shared;
 
 /// Protocol versions this server speaks (newest first).
 const VERSIONS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
@@ -425,10 +425,13 @@ pub(crate) fn schemas_parse() -> bool {
 pub fn answer_without_app(body: &[u8]) -> Option<String> {
     let shared = Shared {
         config: crate::Config { port: 0, lan: false, password: None },
-        handler: std::sync::Arc::new(|_| Err(crate::ApiError::failed("Lightair isn't running (open it, and turn on Settings › Remote API)"))),
+        handler: std::sync::Arc::new(|_| {
+            Err(crate::ApiError::failed("Lightair isn't running (open it, and turn on Settings › Remote API)"))
+        }),
         stop: Default::default(),
         clients: Default::default(),
         next: Default::default(),
+        transfers: Default::default(),
     };
     handle(body, &shared)
 }

@@ -25,12 +25,14 @@ pub mod pairing;
 mod preview;
 mod rpc;
 pub mod secure;
+pub mod transfer;
 mod ws;
 
 pub use camera::{CameraChannel, CameraHost};
 pub use identity::Identity;
 pub use pairing::{DesktopInfo, Device, DeviceRequest, Pairing, Scope};
 pub use secure::{SECURE_PORT, SecureConfig, SecureListener};
+pub use transfer::{FileSpec, Finished, Transfer, Transfers};
 
 use std::io;
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -59,6 +61,9 @@ pub struct Call {
     pub params: Value,
     /// Who asked ("MCP", "obs-websocket", "JSON-RPC"), for undo labels and logs.
     pub client: &'static str,
+    /// The paired device that asked, on the phones' TLS port (`None` elsewhere): transfers and
+    /// checkouts are tied to it.
+    pub device: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -136,11 +141,21 @@ pub(crate) struct Shared {
     stop: AtomicBool,
     clients: Mutex<Vec<Client>>,
     next: AtomicU64,
+    transfers: Arc<Transfers>,
 }
 
 impl Shared {
     pub(crate) fn call(&self, client: &'static str, method: &str, params: Value) -> Reply {
-        (self.handler)(Call { method: method.to_string(), params, client })
+        (self.handler)(Call { method: method.to_string(), params, client, device: None })
+    }
+
+    /// A call from a paired device.
+    pub(crate) fn call_from(&self, client: &'static str, device: &str, method: &str, params: Value) -> Reply {
+        (self.handler)(Call { method: method.to_string(), params, client, device: Some(device.to_owned()) })
+    }
+
+    pub(crate) fn transfers(&self) -> &Arc<Transfers> {
+        &self.transfers
     }
 
     pub(crate) fn stopping(&self) -> bool {
@@ -218,6 +233,7 @@ impl Server {
             stop: AtomicBool::new(false),
             clients: Mutex::new(vec![]),
             next: AtomicU64::new(1),
+            transfers: Arc::new(Transfers::default()),
         });
         let s = shared.clone();
         std::thread::Builder::new().name("lightair-remote".into()).spawn(move || {
@@ -252,6 +268,12 @@ impl Server {
         for c in self.shared.clients.lock().iter() {
             let _ = c.events.send(event.clone());
         }
+    }
+
+    /// Files on offer to paired devices, and uploads they send (docs/05 §7): served on the
+    /// phones' TLS port.
+    pub fn transfers(&self) -> Arc<Transfers> {
+        self.shared.transfers.clone()
     }
 
     pub fn clients(&self) -> Vec<ClientInfo> {
@@ -293,7 +315,13 @@ fn serve(mut stream: TcpStream, shared: &Arc<Shared>) -> io::Result<()> {
             ("POST", "/mcp") => {
                 if !mcp::authorized(&req, shared) {
                     let body = br#"{"jsonrpc":"2.0","id":null,"error":{"code":-32001,"message":"Lightair's remote API password is missing or wrong (Settings > Remote API)"}}"#;
-                    return http::respond(&mut stream, 401, "application/json", body, &[("WWW-Authenticate", "Bearer")]);
+                    return http::respond(
+                        &mut stream,
+                        401,
+                        "application/json",
+                        body,
+                        &[("WWW-Authenticate", "Bearer")],
+                    );
                 }
                 match mcp::handle(&req.body, shared) {
                     Some(body) => http::respond(&mut stream, 200, "application/json", body.as_bytes(), &[])?,
@@ -324,6 +352,6 @@ fn serve(mut stream: TcpStream, shared: &Arc<Shared>) -> io::Result<()> {
 }
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod secure_tests;
+#[cfg(test)]
+mod tests;
