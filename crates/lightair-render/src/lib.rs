@@ -19,6 +19,7 @@ pub mod generate;
 pub mod keys;
 pub mod sound;
 pub mod media;
+pub mod mix;
 pub mod motion;
 pub mod pointer;
 pub mod seqrender;

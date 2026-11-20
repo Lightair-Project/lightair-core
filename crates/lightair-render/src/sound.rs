@@ -189,7 +189,7 @@ pub fn sources(seq: &Sequence, c: &Clip, video_track: bool) -> Vec<Source> {
 
 /// What a clip's sound is played from: its sources, a cleaned voice in place of each when
 /// it's been made.
-fn sound_files(seq: &Sequence, c: &Clip, video_track: bool) -> Vec<Source> {
+pub(crate) fn sound_files(seq: &Sequence, c: &Clip, video_track: bool) -> Vec<Source> {
     let files = sources(seq, c, video_track);
     match c.voice {
         Some(v) => files
@@ -203,7 +203,7 @@ fn sound_files(seq: &Sequence, c: &Clip, video_track: bool) -> Vec<Source> {
     }
 }
 
-fn sounding(seq: &Sequence) -> impl Iterator<Item = (&Clip, bool)> {
+pub(crate) fn sounding(seq: &Sequence) -> impl Iterator<Item = (&Clip, bool)> {
     // (a video track isn't muted: its sound is on the audio tracks)
     seq.tracks.iter().filter(|t| !t.muted || t.kind == TrackKind::Video).flat_map(|t| {
         let video = t.kind == TrackKind::Video;
