@@ -30,6 +30,7 @@ pub mod surface;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub mod texture;
 pub mod thumbs;
+pub mod scene;
 pub mod speech;
 pub mod timeline;
 pub mod zoom;

@@ -665,6 +665,10 @@ impl SequenceRenderer {
                 effects: &p.effects,
                 time: p.time,
                 uv: p.uv,
+                cut: None,
+                tilt: (0.0, 0.0),
+                keep: None,
+                bounds: None,
             })
             .collect();
         self.compositor.layers(&layers)

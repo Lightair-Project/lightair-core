@@ -36,6 +36,9 @@ struct U {
     // x: masks in use, y: a mask's block size (texture pixels), z: sharpening (0..1)
     mask_info: vec4<f32>,
     masks: array<vec4<f32>, 4>,
+    // picture layers: x: kept inside a box around the centre (turned with the layer), yz: its
+    // half size (output pixels)
+    clip: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var tex: texture_2d<f32>;
@@ -56,7 +59,31 @@ fn vs(@builtin(vertex_index) i: u32) -> V {
     out.pos = vec4(p.x / u.out_size.x * 2.0 - 1.0, 1.0 - p.y / u.out_size.y * 2.0, 0.0, 1.0);
     out.local = local;
     out.px = p;
+    // a picture layer tilted in 3D, with perspective (as Lightair's libobs transform filter):
+    // around the horizontal axis, then the vertical, the eye two picture-sizes away
+    let tilt = u.dir_shadow.xy;
+    if (u.mode.x > 2.5 && abs(tilt.x) + abs(tilt.y) > 0.0001) {
+        let q = (local - vec2(0.5, 0.5)) * u.rect.zw;
+        let y1 = q.y * cos(tilt.x);
+        let z1 = q.y * sin(tilt.x);
+        let x2 = q.x * cos(tilt.y) + z1 * sin(tilt.y);
+        let z2 = -q.x * sin(tilt.y) + z1 * cos(tilt.y);
+        let w = 1.0 + z2 / (max(u.rect.z, u.rect.w) * 2.0);
+        let f = vec2(x2, y1) / w;
+        let c = u.pivot.xy;
+        let t = c + vec2(f.x * cos(a) - f.y * sin(a), f.x * sin(a) + f.y * cos(a));
+        out.pos = vec4((t.x / u.out_size.x * 2.0 - 1.0) * w, (1.0 - t.y / u.out_size.y * 2.0) * w, 0.0, w);
+        out.px = t;
+    }
     return out;
+}
+
+// sRGB-encoded colour to linear light (a compositor that blends as libobs does: in linear
+// light, into an sRGB target that encodes again)
+fn to_linear(c: vec3<f32>) -> vec3<f32> {
+    let lo = c / 12.92;
+    let hi = pow((max(c, vec3(0.0)) + vec3(0.055)) / 1.055, vec3(2.4));
+    return select(hi, lo, c <= vec3(0.04045));
 }
 
 fn rounded_box(p: vec2<f32>, half: vec2<f32>, r: f32) -> f32 {
@@ -123,6 +150,7 @@ fn fs(v: V) -> @location(0) vec4<f32> {
         // a picture layer (straight alpha): its hidden areas pixelated, through its filter
         var c = colour;
         let dims = vec2<f32>(textureDimensions(tex));
+        let uv0 = uv;
         for (var i = 0u; i < u32(u.mask_info.x); i++) {
             let m = u.masks[i];
             if (uv.x >= m.x && uv.y >= m.y && uv.x <= m.x + m.z && uv.y <= m.y + m.w) {
@@ -149,9 +177,55 @@ fn fs(v: V) -> @location(0) vec4<f32> {
         let edge = distance(v.local, vec2(0.5, 0.5)) * 1.414;
         rgb *= 1.0 - u.c1.x * smoothstep(0.3, 1.0, edge);
         rgb = clamp(rgb, vec3(0.0), vec3(1.0));
-        return vec4(rgb * c.a, c.a) * u.mode.z;
+        let linear = u.out_size.z > 0.5;
+        if (linear) {
+            rgb = to_linear(rgb);
+        }
+        var alpha = c.a;
+        // a cut-out (as Lightair's libobs shape mask): a rounded box around the crop window,
+        // in the picture's pixels, its soft edge and its border the outermost pixels
+        if (u.c2.x > 0.5) {
+            let d = rounded_box(uv0 * dims - u.pivot.zw, u.dir_shadow.zw, u.c2.y);
+            let edge = max(u.c2.z, 0.75);
+            let inside = 1.0 - smoothstep(-edge, 0.0, d);
+            if (u.c2.w > 0.0) {
+                let ring = smoothstep(-u.c2.w - edge, -u.c2.w, d) * u.shadow_rect.a;
+                var border = u.shadow_rect.rgb;
+                if (linear) {
+                    border = to_linear(border);
+                }
+                rgb = mix(rgb, border, ring);
+                alpha = max(alpha, ring);
+            }
+            alpha = alpha * inside;
+        }
+        // where this pixel is in the layer's own (turned) frame, from its centre
+        let turn = u.mode.w;
+        let e = v.px - u.pivot.xy;
+        let r = vec2(e.x * cos(turn) + e.y * sin(turn), -e.x * sin(turn) + e.y * cos(turn));
+        // tilted: what grows past the picture's own box is cut off (the filter draws into it)
+        let tilt = u.dir_shadow.xy;
+        if (abs(tilt.x) + abs(tilt.y) > 0.0001) {
+            if (abs(r.x) > u.rect.z * 0.5 + 0.5 || abs(r.y) > u.rect.w * 0.5 + 0.5) {
+                alpha = 0.0;
+            }
+        }
+        // kept inside its box (a picture covering it, the rest cut off)
+        if (u.clip.x > 0.5) {
+            let inside = clamp(u.clip.yz - abs(r) + vec2(0.5), vec2(0.0), vec2(1.0));
+            alpha = alpha * inside.x * inside.y;
+        }
+        // a wipe: only the side of a line the layer is kept on (output pixels)
+        let n = u.c1.zw;
+        if (dot(n, n) > 0.0) {
+            alpha = alpha * clamp(dot(v.px, n) - u.mask_info.w + 0.5, 0.0, 1.0);
+        }
+        return vec4(rgb * alpha, alpha) * u.mode.z;
     }
     // a sprite (premultiplied)
+    if (u.out_size.z > 0.5 && colour.a > 0.0) {
+        return vec4(to_linear(colour.rgb / colour.a) * colour.a, colour.a) * u.mode.z;
+    }
     return colour * u.mode.z;
 }
 "#;
@@ -227,6 +301,33 @@ pub struct Layer<'a> {
     pub time: f32,
     /// The part of the picture drawn: x, y, w, h (fractions; a negative size mirrors it).
     pub uv: (f32, f32, f32, f32),
+    /// A cut-out of the picture (a scene object's shape).
+    pub cut: Option<Cut>,
+    /// 3D tilt in degrees, with perspective: around the horizontal axis (positive: the bottom
+    /// recedes), then the vertical (positive: the left side recedes). What grows past the
+    /// layer's box is cut off.
+    pub tilt: (f32, f32),
+    /// Only the part on one side of a line is drawn (a wipe): `(nx, ny, offset)`, kept where
+    /// `nx * x + ny * y >= offset` in output pixels (`(nx, ny)` a unit vector).
+    pub keep: Option<(f32, f32, f32)>,
+    /// Only what's inside a box around the centre, turned with the layer, is drawn: its half
+    /// size in output pixels (a picture filling its box, the overflow cut off after a tilt).
+    pub bounds: Option<(f32, f32)>,
+}
+
+/// A cut-out of a layer's picture, as Lightair's libobs shape mask makes it: a rounded box in
+/// the picture's own pixels.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Cut {
+    /// The box's centre and half size, in the picture's pixels (its crop window).
+    pub centre: (f32, f32),
+    pub half: (f32, f32),
+    /// Corner radius, soft edge and border width, in the picture's pixels.
+    pub radius: f32,
+    pub feather: f32,
+    pub border: f32,
+    /// The border's colour: straight RGBA, 0..1.
+    pub border_color: [f32; 4],
 }
 
 /// Which texture a draw samples.
@@ -283,6 +384,8 @@ pub struct Compositor {
     layer: Option<wgpu::Surface<'static>>,
     #[cfg(any(target_os = "ios", target_os = "macos"))]
     layer_config: Option<wgpu::SurfaceConfiguration>,
+    /// Picture layers blended in linear light into an sRGB target ([`Compositor::new_linear`]).
+    linear: bool,
     /// The last frame was for a layer or visual that gave no texture to draw into: it wasn't
     /// shown, and the caller should draw it again ([`Compositor::missed`]).
     missed: bool,
@@ -352,7 +455,23 @@ impl Compositor {
 
     /// A compositor whose frames are BGRA when `bgra` (as a window draws them: no swapping).
     pub fn new_with(size: (u32, u32), look: Look, bgra: bool) -> Result<Compositor, String> {
-        let out_format = if bgra { wgpu::TextureFormat::Bgra8Unorm } else { wgpu::TextureFormat::Rgba8Unorm };
+        Self::new_in(size, look, bgra, false)
+    }
+
+    /// A compositor that blends picture layers in linear light, as libobs does (a scene's
+    /// see-through objects and soft edges come out as on the desktop). Its frames are still
+    /// sRGB-encoded bytes. Reads frames back or presents into a layer; no IOSurface or visual.
+    pub fn new_linear(size: (u32, u32), bgra: bool) -> Result<Compositor, String> {
+        Self::new_in(size, Look::default(), bgra, true)
+    }
+
+    fn new_in(size: (u32, u32), look: Look, bgra: bool, linear: bool) -> Result<Compositor, String> {
+        let out_format = match (bgra, linear) {
+            (true, false) => wgpu::TextureFormat::Bgra8Unorm,
+            (false, false) => wgpu::TextureFormat::Rgba8Unorm,
+            (true, true) => wgpu::TextureFormat::Bgra8UnormSrgb,
+            (false, true) => wgpu::TextureFormat::Rgba8UnormSrgb,
+        };
         let (device, queue) = gpu()?;
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("lightair-render"),
@@ -475,6 +594,7 @@ impl Compositor {
             #[cfg(any(target_os = "ios", target_os = "macos"))]
             layer_config: None,
             missed: false,
+            linear,
             #[cfg(any(target_os = "ios", target_os = "macos"))]
             out_format,
             transparent: false,
@@ -544,14 +664,14 @@ impl Compositor {
         let (colours, angle) = BACKDROPS[(self.look.backdrop.max(0) as usize).min(BACKDROPS.len() - 1)];
         let a = angle.to_radians();
         let base = |rect: [f32; 4]| {
-            let mut u = [0f32; 60];
+            let mut u = [0f32; 64];
             u[0..4].copy_from_slice(&[ow, oh, 0.0, 0.0]);
             u[4..8].copy_from_slice(&rect);
             u[8..12].copy_from_slice(&[0.0, 0.0, 1.0, 1.0]);
             u
         };
         // draws: (uniforms, texture)
-        let mut draws: Vec<([f32; 60], Tex)> = Vec::new();
+        let mut draws: Vec<([f32; 64], Tex)> = Vec::new();
         let mut back = base([0.0, 0.0, ow, oh]);
         back[12..16].copy_from_slice(&[0.0, radius, 1.0, 0.0]);
         back[20..24].copy_from_slice(&rgb(colours[0]));
@@ -677,8 +797,8 @@ impl Compositor {
             .iter()
             .enumerate()
             .map(|(i, l)| {
-                let mut u = [0f32; 60];
-                u[0..4].copy_from_slice(&[ow, oh, 0.0, 0.0]);
+                let mut u = [0f32; 64];
+                u[0..4].copy_from_slice(&[ow, oh, if self.linear { 1.0 } else { 0.0 }, 0.0]);
                 u[4..8].copy_from_slice(&[l.center.0 - l.draw.0 / 2.0, l.center.1 - l.draw.1 / 2.0, l.draw.0, l.draw.1]);
                 u[8..12].copy_from_slice(&[l.uv.0, l.uv.1, l.uv.2, l.uv.3]);
                 let mode = if l.premultiplied { 2.0 } else { 3.0 };
@@ -687,10 +807,25 @@ impl Compositor {
                 let f = l.filter;
                 u[20..24].copy_from_slice(&[f.brightness, f.contrast, f.saturation, f.temperature]);
                 u[24..28].copy_from_slice(&[f.vignette, f.blur, 0.0, 0.0]);
+                if let Some(c) = l.cut {
+                    u[18..20].copy_from_slice(&[c.centre.0, c.centre.1]);
+                    u[28..32].copy_from_slice(&[1.0, c.radius, c.feather, c.border]);
+                    u[34..36].copy_from_slice(&[c.half.0, c.half.1]);
+                    u[36..40].copy_from_slice(&c.border_color);
+                }
+                u[32..34].copy_from_slice(&[l.tilt.0.to_radians(), l.tilt.1.to_radians()]);
                 let masks: Vec<_> = l.masks.iter().take(4).collect();
                 u[40..44].copy_from_slice(&[masks.len() as f32, (l.size.0 as f32 / 40.0).max(4.0), 0.0, 0.0]);
                 for (k, m) in masks.iter().enumerate() {
                     u[44 + k * 4..48 + k * 4].copy_from_slice(&[m.0, m.1, m.2, m.3]);
+                }
+                if let Some((hw, hh)) = l.bounds {
+                    u[60..64].copy_from_slice(&[1.0, hw, hh, 0.0]);
+                }
+                // (after the masks: their info shares the offset's vector)
+                if let Some((nx, ny, offset)) = l.keep {
+                    u[26..28].copy_from_slice(&[nx, ny]);
+                    u[43] = offset;
                 }
                 (u, if self.fx_out[i].is_some() { Tex::Fx(i) } else { Tex::Slot(i) })
             })
@@ -702,7 +837,7 @@ impl Compositor {
     /// read back; for a BGRA compositor. False if it couldn't be made.
     #[cfg(target_os = "macos")]
     pub fn attach_surface(&mut self) -> bool {
-        if !self.bgra {
+        if !self.bgra || self.linear {
             return false;
         }
         self.surface = crate::surface::Target::new(&self.device, self.size);
@@ -786,7 +921,7 @@ impl Compositor {
     /// surface couldn't be made (the frames are read back as before).
     #[cfg(windows)]
     pub fn attach_visual(&mut self, visual: *mut std::ffi::c_void) -> bool {
-        if !self.bgra_out || visual.is_null() {
+        if !self.bgra_out || self.linear || visual.is_null() {
             return false;
         }
         let surface = match unsafe { instance().create_surface_unsafe(wgpu::SurfaceTargetUnsafe::CompositionVisual(visual)) } {
@@ -831,7 +966,7 @@ impl Compositor {
 
     /// Draws, then reads the frame back: RGBA (BGRA for a BGRA compositor), top row first;
     /// nothing when it draws into an IOSurface.
-    fn draw(&mut self, draws: Vec<([f32; 60], Tex)>) -> Vec<u8> {
+    fn draw(&mut self, draws: Vec<([f32; 64], Tex)>) -> Vec<u8> {
         // a layer's drawable, when frames are presented into one
         #[cfg(any(target_os = "ios", target_os = "macos"))]
         let drawable = match (&self.layer, &self.layer_config) {
