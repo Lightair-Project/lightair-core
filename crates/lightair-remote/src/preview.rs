@@ -3,12 +3,12 @@
 //!
 //! | Message | Direction | Content |
 //! |---|---|---|
-//! | `{"start": {"max_width": 720, "max_fps": 10}}` | phone → desktop | Starts or changes the stream |
+//! | `{"start": {"max_width": 720, "max_fps": 10, "canvas": id}}` | phone → desktop | Starts or changes the stream; `canvas` (optional) picks a format other than the primary one |
 //! | binary frame | desktop → phone | 16-byte header (`u8 kind` 1 = JPEG, `u8 flags`, `u16 width`, `u16 height`, `u16 reserved`, `u64 pts_us`, big-endian) + the JPEG |
 //! | `{"ack": pts_us}` | phone → desktop | After each frame it showed: the next comes after an ack or 500 ms, so a slow network gets fewer frames, never a backlog |
 //! | `{"stop": true}` | phone → desktop | |
 //!
-//! Frames come from the app's `preview.frame` method (`max_width` in; `mime`, `width`, `height`,
+//! Frames come from the app's `preview.frame` method (`max_width` and `canvas` in; `mime`, `width`, `height`,
 //! base64 `data` out), called on this connection's thread only while a phone watches.
 
 use std::io::{self, Read, Write};
@@ -42,7 +42,7 @@ pub(crate) fn run(
 
 fn stream_frames<T: Read + Write>(mut ws: WebSocket<T>, shared: &Arc<Shared>, client: &'static str) -> io::Result<()> {
     let started = Instant::now();
-    let mut watching: Option<(u64, u64)> = None; // (max_width, max_fps)
+    let mut watching: Option<(u64, u64, Value)> = None; // (max_width, max_fps, canvas)
     let mut sent: Option<(u64, Instant)> = None; // (pts, when), awaiting its ack
     let mut last_frame = Instant::now() - Duration::from_secs(1);
     loop {
@@ -57,7 +57,8 @@ fn stream_frames<T: Read + Write>(mut ws: WebSocket<T>, shared: &Arc<Shared>, cl
                 if let Some(start) = v.get("start") {
                     let width = start.get("max_width").and_then(Value::as_u64).unwrap_or(720).clamp(160, 1280);
                     let fps = start.get("max_fps").and_then(Value::as_u64).unwrap_or(10).clamp(1, 15);
-                    watching = Some((width, fps));
+                    let canvas = start.get("canvas").filter(|c| c.is_string()).cloned().unwrap_or(Value::Null);
+                    watching = Some((width, fps, canvas));
                     sent = None;
                 } else if v.get("stop").is_some() {
                     watching = None;
@@ -73,12 +74,13 @@ fn stream_frames<T: Read + Write>(mut ws: WebSocket<T>, shared: &Arc<Shared>, cl
             Err(Error::ConnectionClosed | Error::AlreadyClosed) => return Ok(()),
             Err(e) => return Err(io::Error::other(e.to_string())),
         }
-        if let Some((width, fps)) = watching {
+        if let Some((width, fps, canvas)) = &watching {
+            let (width, fps) = (*width, *fps);
             let due = last_frame.elapsed() >= Duration::from_millis(1000 / fps);
             let free = sent.is_none_or(|(_, at)| at.elapsed() >= ACK_WITHIN);
             if due && free {
                 last_frame = Instant::now();
-                match shared.call(client, "preview.frame", json!({"max_width": width})) {
+                match shared.call(client, "preview.frame", json!({"max_width": width, "canvas": canvas})) {
                     Ok(frame) => {
                         if let Some(bytes) = encode(&frame, started.elapsed().as_micros() as u64) {
                             let pts = u64::from_be_bytes(bytes[8..16].try_into().expect("8 bytes"));
