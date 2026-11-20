@@ -28,6 +28,23 @@ can build against a local checkout instead:
 lightair-model = { path = "../lightair-core/crates/lightair-model" }
 ```
 
+## Working on lightair-core and an app together
+
+The apps (`lightair`, `lightair-live`, `lightair-editor`) sit beside this repo in one folder and
+pin lightair-core to a commit on GitHub. To change both at once, run these here:
+
+```sh
+cargo xtask dev on       # every app builds against this checkout instead of its pin
+cargo xtask dev status   # who's linked, pinned where, what's uncommitted
+cargo xtask ship         # check and push lightair-core, then pin, check and commit each linked app
+cargo xtask dev off      # back to the pins without shipping
+```
+
+While linked, only each app's `Cargo.lock` changes; don't commit it (a pre-commit guard
+refuses), since `ship` pins and commits it. `ship --push` pushes the apps too, `--only
+desktop,live,editor` picks apps, and `--dry-run` only reports. The project's working rules are in
+`../CLAUDE.md` (beside the repos, not in git).
+
 ## Checking
 
 There's no hosted CI. Before a push:
