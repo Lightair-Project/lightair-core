@@ -101,6 +101,7 @@ const READ_ONLY: &[&str] = &[
     "record.status",
     "stream.status",
     "clip.status",
+    "panic.get",
 ];
 
 /// A paired device.

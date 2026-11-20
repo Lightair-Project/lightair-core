@@ -74,8 +74,17 @@ fn tls(port: u16, pin: [u8; 32]) -> rustls::StreamOwned<rustls::ClientConnection
 
 /// Connects to /rpc with extra headers; `Err((status, headers))` when refused.
 fn connect(port: u16, pin: [u8; 32], headers: &[(&'static str, String)]) -> Result<Phone, (u16, String)> {
+    connect_to(port, pin, "/rpc", headers)
+}
+
+fn connect_to(
+    port: u16,
+    pin: [u8; 32],
+    path: &str,
+    headers: &[(&'static str, String)],
+) -> Result<Phone, (u16, String)> {
     let mut req =
-        tungstenite::client::IntoClientRequest::into_client_request(format!("ws://127.0.0.1:{port}/rpc")).unwrap();
+        tungstenite::client::IntoClientRequest::into_client_request(format!("ws://127.0.0.1:{port}{path}")).unwrap();
     for (k, v) in headers {
         req.headers_mut().insert(*k, v.parse().unwrap());
     }
@@ -186,4 +195,59 @@ fn a_phone_pairs_signs_in_and_controls() {
     let mut out = String::new();
     plain.read_to_string(&mut out).unwrap();
     assert!(out.contains("JSON-RPC 2.0"));
+}
+
+#[test]
+fn a_paired_phone_watches_the_preview() {
+    let jpeg = base64::engine::general_purpose::STANDARD.encode([0xFF, 0xD8, 0xFF, 0xD9]);
+    let handler: Handler = Arc::new(move |c: Call| match c.method.as_str() {
+        "preview.frame" => {
+            assert_eq!(c.params["max_width"], 480);
+            Ok(json!({"mime": "image/jpeg", "width": 480, "height": 270, "data": jpeg}))
+        }
+        _ => Err(ApiError::new(crate::ErrorKind::Unknown, "no such method")),
+    });
+    let server = Server::start(Config { port: 0, lan: false, password: None }, handler).unwrap();
+    let identity = Identity::generate("d").unwrap();
+    let pin = identity.fingerprint();
+    let desktop = DesktopInfo { id: "d".into(), name: "Desk".into(), version: "1".into() };
+    let pairing = Pairing::new(vec![], |_| true, |_| {});
+    let secure =
+        server.start_secure(SecureConfig { port: 0, identity, desktop, features: vec![] }, pairing.clone()).unwrap();
+    let port = secure.addr().port();
+    let key = SigningKey::from_bytes(&[5; 32]);
+    let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    let offer = pairing.offer(Scope::Watch);
+    let mut ws = connect(port, pin, &[("Lightair-Pairing", "1".into())]).unwrap();
+    call(
+        &mut ws,
+        1,
+        "pair.claim",
+        json!({"secret": b64.encode(offer.secret), "device": {"id": "p"}, "public_key": b64.encode(key.verifying_key().to_bytes())}),
+    );
+
+    // unsigned: refused
+    assert_eq!(connect_to(port, pin, "/preview", &[]).unwrap_err().0, 401);
+    let (_, nonce) = connect(port, pin, &[]).unwrap_err();
+    let auth = sign_header("p", &nonce, now(), |m| key.sign(m).to_bytes());
+    let mut ws = connect_to(port, pin, "/preview", &[("Authorization", auth)]).unwrap();
+    ws.send(Message::text(json!({"start": {"max_width": 480, "max_fps": 10}}).to_string())).unwrap();
+    let frame = loop {
+        if let Message::Binary(b) = ws.read().unwrap() {
+            break b;
+        }
+    };
+    assert_eq!(frame[0], 1, "JPEG");
+    assert_eq!(u16::from_be_bytes([frame[2], frame[3]]), 480);
+    assert_eq!(u16::from_be_bytes([frame[4], frame[5]]), 270);
+    assert_eq!(&frame[16..], &[0xFF, 0xD8, 0xFF, 0xD9]);
+    // acked: the next frame follows
+    let pts = u64::from_be_bytes(frame[8..16].try_into().unwrap());
+    ws.send(Message::text(json!({"ack": pts}).to_string())).unwrap();
+    let next = loop {
+        if let Message::Binary(b) = ws.read().unwrap() {
+            break b;
+        }
+    };
+    assert!(u64::from_be_bytes(next[8..16].try_into().unwrap()) > pts);
 }

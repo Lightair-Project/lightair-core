@@ -7,7 +7,8 @@
 //! - `pair.claim`, on a connection that asked to pair (`Lightair-Pairing: 1`);
 //! - `pair.forget`: the device removes itself;
 //! - scopes: a `watch` device can only read;
-//! - `audio.levels` (20 Hz) only reaches sessions that subscribed to it by name.
+//! - `audio.levels` (20 Hz) only reaches sessions that subscribed to it by name;
+//! - `wss://host:4456/preview`: the program picture as a stream of frames ([`crate::preview`]).
 //!
 //! Each call reaches the app with the device's name as its client, so undo says
 //! "Sam's iPhone: Mute Mic".
@@ -67,7 +68,7 @@ impl Drop for SecureListener {
 }
 
 /// A device's name as a call's client (interned: one per name).
-fn client_label(name: &str) -> &'static str {
+pub(crate) fn client_label(name: &str) -> &'static str {
     static NAMES: OnceLock<Mutex<HashMap<String, &'static str>>> = OnceLock::new();
     let mut names = NAMES.get_or_init(Default::default).lock();
     if let Some(n) = names.get(name) {
@@ -122,7 +123,7 @@ impl Server {
     }
 }
 
-type Tls = rustls::StreamOwned<rustls::ServerConnection, TcpStream>;
+pub(crate) type Tls = rustls::StreamOwned<rustls::ServerConnection, TcpStream>;
 
 fn serve(tcp: TcpStream, secure: &Arc<Secure>, shared: &Arc<Shared>) -> io::Result<()> {
     let peer = tcp.peer_addr()?;
@@ -133,7 +134,7 @@ fn serve(tcp: TcpStream, secure: &Arc<Secure>, shared: &Arc<Shared>) -> io::Resu
     let Some(req) = http::read_request(&mut stream)? else { return Ok(()) };
     let upgrade = req.header("upgrade").is_some_and(|u| u.eq_ignore_ascii_case("websocket"));
     let path = req.path.split('?').next().unwrap_or("/");
-    if !(req.method == "GET" && path == "/rpc" && upgrade) {
+    if !(req.method == "GET" && (path == "/rpc" || path == "/preview") && upgrade) {
         return http::respond(&mut stream, 404, "text/plain", b"Not found", &[]);
     }
     let session = if let Some(auth) = req.header("authorization").filter(|a| a.starts_with("Lightair-Key ")) {
@@ -156,7 +157,13 @@ fn serve(tcp: TcpStream, secure: &Arc<Secure>, shared: &Arc<Shared>) -> io::Resu
             &[("Lightair-Challenge", &nonce)],
         );
     };
-    run(stream, &req, secure, shared, peer, session)
+    match (path, session) {
+        ("/preview", Access::Device(device)) => {
+            crate::preview::run(stream, &req, shared, peer, client_label(&device.name))
+        }
+        ("/preview", Access::Pairing) => http::respond(&mut stream, 401, "text/plain", b"Pair first", &[]),
+        (_, session) => run(stream, &req, secure, shared, peer, session),
+    }
 }
 
 enum Access {

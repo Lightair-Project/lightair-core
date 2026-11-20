@@ -21,6 +21,7 @@ pub mod mcp;
 pub mod mdns;
 mod obs;
 pub mod pairing;
+mod preview;
 mod rpc;
 pub mod secure;
 mod ws;
