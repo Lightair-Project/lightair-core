@@ -1,7 +1,6 @@
 //! Just enough HTTP/1.1: a request's head and body, and plain answers.
 
 use std::io::{self, Read, Write};
-use std::net::TcpStream;
 
 /// Bodies larger than this aren't read (16 MB).
 const MAX_BODY: usize = 16 << 20;
@@ -31,7 +30,7 @@ impl Request {
 }
 
 /// The next request on the connection (`None`: the client closed it).
-pub(crate) fn read_request(stream: &mut TcpStream) -> io::Result<Option<Request>> {
+pub(crate) fn read_request(stream: &mut impl Read) -> io::Result<Option<Request>> {
     let mut buf: Vec<u8> = Vec::with_capacity(4096);
     let mut chunk = [0u8; 4096];
     loop {
@@ -84,7 +83,7 @@ pub(crate) fn read_request(stream: &mut TcpStream) -> io::Result<Option<Request>
 
 /// Writes an answer. The connection stays open after a success, closes after anything else.
 pub(crate) fn respond(
-    stream: &mut TcpStream,
+    stream: &mut impl Write,
     status: u16,
     content_type: &str,
     body: &[u8],

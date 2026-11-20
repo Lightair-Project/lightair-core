@@ -46,6 +46,7 @@ const SUB_ALL: u64 = 0x7FF;
 type Status = (u64, String);
 
 pub(crate) fn run(stream: TcpStream, req: &Request, shared: &Arc<Shared>, peer: String) -> io::Result<()> {
+    stream.set_read_timeout(Some(crate::ws::READ_TIMEOUT))?;
     let ws = crate::ws::accept(stream, req, Some("obswebsocket.json"))?;
     let joined = shared.join("obs-websocket", peer);
     let auth = shared.password().map(|_| (crate::random_b64(32), crate::random_b64(32)));

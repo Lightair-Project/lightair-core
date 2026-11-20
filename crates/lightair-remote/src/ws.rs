@@ -1,7 +1,6 @@
 //! WebSocket sessions: the handshake, then messages in and events out on one thread.
 
-use std::io::{self, Write};
-use std::net::TcpStream;
+use std::io::{self, Read, Write};
 use std::time::Duration;
 
 use base64::Engine;
@@ -14,8 +13,12 @@ use crate::{Event, Joined};
 /// How often a quiet session looks for events to send and for the server stopping.
 const POLL: Duration = Duration::from_millis(50);
 
-/// Answers the upgrade (with `protocol` if the client offered it).
-pub(crate) fn accept(mut stream: TcpStream, req: &Request, protocol: Option<&str>) -> io::Result<WebSocket<TcpStream>> {
+/// How often a quiet session wakes: the caller sets it as the socket's read timeout.
+pub(crate) const READ_TIMEOUT: Duration = POLL;
+
+/// Answers the upgrade (with `protocol` if the client offered it). The stream's reads must time
+/// out after [`READ_TIMEOUT`], so the session can send events and notice the server stopping.
+pub(crate) fn accept<S: Read + Write>(mut stream: S, req: &Request, protocol: Option<&str>) -> io::Result<WebSocket<S>> {
     let key = req.header("sec-websocket-key").ok_or_else(|| io::Error::other("no Sec-WebSocket-Key"))?;
     let mut sha = sha1_smol::Sha1::new();
     sha.update(key.as_bytes());
@@ -31,7 +34,7 @@ pub(crate) fn accept(mut stream: TcpStream, req: &Request, protocol: Option<&str
     }
     head.push_str("\r\n");
     stream.write_all(head.as_bytes())?;
-    stream.set_read_timeout(Some(POLL))?;
+    stream.flush()?;
     Ok(WebSocket::from_raw_socket(stream, Role::Server, None))
 }
 
@@ -47,7 +50,7 @@ pub(crate) trait Protocol {
     }
 }
 
-pub(crate) fn run(mut ws: WebSocket<TcpStream>, joined: Joined, shared: &crate::Shared, mut p: impl Protocol) -> io::Result<()> {
+pub(crate) fn run<S: Read + Write>(mut ws: WebSocket<S>, joined: Joined, shared: &crate::Shared, mut p: impl Protocol) -> io::Result<()> {
     if let Some(g) = p.greeting() {
         send(&mut ws, g)?;
     }
@@ -95,6 +98,6 @@ pub(crate) fn run(mut ws: WebSocket<TcpStream>, joined: Joined, shared: &crate::
     }
 }
 
-fn send(ws: &mut WebSocket<TcpStream>, text: String) -> io::Result<()> {
+fn send<S: Read + Write>(ws: &mut WebSocket<S>, text: String) -> io::Result<()> {
     ws.send(Message::text(text)).map_err(|e| io::Error::other(e.to_string()))
 }

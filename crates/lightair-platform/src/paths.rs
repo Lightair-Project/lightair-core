@@ -89,7 +89,9 @@ mod tests {
         let home = dirs::home_dir().unwrap();
         let d = DesktopPaths;
         assert!(d.data_dir().starts_with(&home) || cfg!(windows));
-        assert!(d.workspaces_dir().ends_with("Lightair/Workspaces") || d.workspaces_dir().ends_with("Lightair\\Workspaces"));
+        assert!(
+            d.workspaces_dir().ends_with("Lightair/Workspaces") || d.workspaces_dir().ends_with("Lightair\\Workspaces")
+        );
         assert!(d.recordings_dir().file_name().is_some_and(|n| n == "Lightair"));
     }
 

@@ -7,16 +7,27 @@
 //! - `http://host:port/mcp`: the Model Context Protocol (Streamable HTTP), so agents use Lightair
 //!   as a set of tools ([`mcp`]); `lightair mcp` bridges it to stdio.
 //!
+//! - `wss://host:4456/rpc`: the same JSON-RPC for paired phones, over TLS with a pinned
+//!   certificate and a key per device ([`secure`], [`pairing`]); advertised over mDNS ([`mdns`]).
+//!
 //! Each request becomes a [`Call`] the app answers with its [`Handler`] (Lightair's methods are
 //! the app's business; this crate only carries them). Events the app [`Server::emit`]s reach every
 //! client in its own protocol. It listens on this machine only unless LAN access is on, and
 //! with a password every way in asks for it.
 
 mod http;
+pub mod identity;
 pub mod mcp;
+pub mod mdns;
 mod obs;
+pub mod pairing;
 mod rpc;
+pub mod secure;
 mod ws;
+
+pub use identity::Identity;
+pub use pairing::{DesktopInfo, Device, DeviceRequest, Pairing, Scope};
+pub use secure::{SECURE_PORT, SecureConfig, SecureListener};
 
 use std::io;
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -311,3 +322,5 @@ fn serve(mut stream: TcpStream, shared: &Arc<Shared>) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod secure_tests;

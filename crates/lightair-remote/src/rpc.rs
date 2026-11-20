@@ -42,6 +42,7 @@ pub(crate) fn bearer(req: &Request) -> Option<&str> {
 }
 
 pub(crate) fn run(stream: TcpStream, req: &Request, shared: &Arc<Shared>, peer: String) -> io::Result<()> {
+    stream.set_read_timeout(Some(crate::ws::READ_TIMEOUT))?;
     let ws = crate::ws::accept(stream, req, None)?;
     let joined = shared.join("JSON-RPC", peer);
     let session = Session { shared: shared.clone(), authed: shared.password_ok(bearer(req)), events: None };
