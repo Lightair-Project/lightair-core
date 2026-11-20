@@ -1012,8 +1012,31 @@ impl Media {
         self.kind == MediaKind::Video && (self.width > 1920 || self.height > 1080)
     }
 
-    /// Where its proxy is (or goes): named by the file, its size and time.
+    /// Where its proxy is (or goes): named by the file's content (its length and a checksum of
+    /// its start, middle and end), so the proxy is found wherever the file is: moved to another
+    /// folder or disk, or copied to another device with its proxy (a phone editing a desktop's
+    /// take). Unreadable: by its path.
     pub fn proxy_path(&self) -> PathBuf {
+        let name = content_name(&self.path).unwrap_or_else(|| format!("{:016x}", fnv(self.path.to_string_lossy().as_bytes(), FNV)));
+        crate::sound::cache().join(format!("proxy-{name}.mp4"))
+    }
+
+    /// Its proxy, when it has one made. One made before proxies were named by content (by the
+    /// path, size and time) is found too, and renamed.
+    pub fn proxy(&self) -> Option<PathBuf> {
+        if !self.wants_proxy() {
+            return None;
+        }
+        let path = self.proxy_path();
+        if path.is_file() {
+            return Some(path);
+        }
+        let old = self.old_proxy_path();
+        (old.is_file() && std::fs::rename(&old, &path).is_ok()).then_some(path)
+    }
+
+    /// Where proxies went before they were named by content.
+    fn old_proxy_path(&self) -> PathBuf {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
         self.path.hash(&mut h);
@@ -1023,11 +1046,44 @@ impl Media {
         }
         crate::sound::cache().join(format!("proxy-{:016x}.mp4", h.finish()))
     }
+}
 
-    /// Its proxy, when it has one made.
-    pub fn proxy(&self) -> Option<PathBuf> {
-        self.wants_proxy().then(|| self.proxy_path()).filter(|p| p.is_file())
+/// FNV-1a's offset basis (a fixed, documented hash: every build and device names a file alike).
+const FNV: u64 = 0xcbf2_9ce4_8422_2325;
+
+fn fnv(bytes: &[u8], mut h: u64) -> u64 {
+    for b in bytes {
+        h = (h ^ *b as u64).wrapping_mul(0x0100_0000_01b3);
     }
+    h
+}
+
+/// A file's name by content: its length, and FNV-1a over 64 KB from its start, middle and end
+/// (enough to tell recordings apart without reading gigabytes). Remembered by path, length and
+/// time, so asking again costs one look at the file's metadata.
+pub fn content_name(path: &Path) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    type Known = std::collections::HashMap<(PathBuf, u64, Option<std::time::SystemTime>), String>;
+    static KNOWN: std::sync::Mutex<Option<Known>> = std::sync::Mutex::new(None);
+    const PIECE: u64 = 64 << 10;
+    let mut f = std::fs::File::open(path).ok()?;
+    let meta = f.metadata().ok()?;
+    let len = meta.len();
+    let key = (path.to_path_buf(), len, meta.modified().ok());
+    if let Some(name) = KNOWN.lock().ok()?.as_ref().and_then(|k| k.get(&key)) {
+        return Some(name.clone());
+    }
+    let mut h = FNV;
+    let mut piece = Vec::with_capacity(PIECE as usize);
+    for at in [0, (len / 2).saturating_sub(PIECE / 2), len.saturating_sub(PIECE)] {
+        f.seek(SeekFrom::Start(at)).ok()?;
+        piece.clear();
+        f.by_ref().take(PIECE).read_to_end(&mut piece).ok()?;
+        h = fnv(&piece, h);
+    }
+    let name = format!("{len:x}-{h:016x}");
+    KNOWN.lock().ok()?.get_or_insert_default().insert(key, name.clone());
+    Some(name)
 }
 
 impl Sequence {
@@ -1817,6 +1873,28 @@ mod tests {
         assert_eq!(first.transform_at(3_000).x, 200.0);
         s.trim_end(second, 9_000);
         assert_eq!(s.clip(second).unwrap().end_ms(), 9_000);
+    }
+
+    #[test]
+    fn a_proxy_made_under_its_old_name_is_found_and_renamed() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("big.mp4");
+        std::fs::write(&file, vec![7u8; 300 << 10]).unwrap();
+        let mut s = Sequence::new((1920, 1080), 30);
+        let id = video(&mut s, "big", 1_000);
+        let mut m = s.media(id).unwrap().clone();
+        m.path = file.clone();
+        (m.kind, m.width, m.height) = (MediaKind::Video, 3840, 2160);
+        std::fs::create_dir_all(crate::sound::cache()).unwrap();
+        let _ = std::fs::remove_file(m.proxy_path());
+        std::fs::write(m.old_proxy_path(), b"proxy").unwrap();
+        assert_eq!(m.proxy(), Some(m.proxy_path()));
+        assert!(!m.old_proxy_path().exists() && m.proxy_path().is_file());
+        // the name is the content's: a copy elsewhere has the same
+        let copy = dir.path().join("copy.mp4");
+        std::fs::copy(&file, &copy).unwrap();
+        assert_eq!(content_name(&copy), content_name(&file));
+        std::fs::remove_file(m.proxy_path()).unwrap();
     }
 
     #[test]

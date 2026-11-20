@@ -262,6 +262,14 @@ fn proxies_and_filmstrips() {
     let p = media::probe(&proxy).unwrap();
     assert_eq!((p.width, p.height), (1920, 1080), "fitted in 1080p");
     assert!(seq.proxies_missing().is_empty());
+    // named by its content: the file moved (or copied to another device), its proxy is found
+    let moved = dir.path().join("elsewhere/big-moved.mp4");
+    std::fs::create_dir_all(moved.parent().unwrap()).unwrap();
+    std::fs::rename(&big, &moved).unwrap();
+    let mut there = medium.clone();
+    there.path = moved.clone();
+    assert_eq!(there.proxy(), Some(proxy.clone()), "found after the file moved");
+    std::fs::rename(&moved, &big).unwrap();
     seq.proxies = false;
     assert!(seq.proxies_missing().is_empty(), "none wanted when they're off");
     seq.proxies = true;
