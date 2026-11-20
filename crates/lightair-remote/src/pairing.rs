@@ -273,6 +273,21 @@ impl Pairing {
         offer
     }
 
+    /// A one-use offer to type rather than scan (docs/05 §2, "Without a camera"): six words for
+    /// the person to type on the phone, which stand for the offer's secret. Valid two minutes.
+    pub fn offer_words(&self, scope: Scope) -> (Offer, [String; 6]) {
+        let mut bits = [0u8; 9];
+        let _ = getrandom::fill(&mut bits);
+        let words = words_of(&bits, 6);
+        let secret = words_secret(&words.join(" ")).expect("words just made read back");
+        let offer = Offer { secret, scope, expires_at: unix_now() + OFFER_FOR.as_secs() };
+        let mut offers = self.offers.lock();
+        let now = unix_now();
+        offers.retain(|o| o.expires_at > now);
+        offers.push(offer.clone());
+        (offer, words.try_into().expect("six words"))
+    }
+
     /// The source a camera offer is for.
     pub fn offer_source(&self, offer: &Offer) -> Option<String> {
         self.sources.lock().get(&offer.secret).cloned()
@@ -324,11 +339,17 @@ impl Pairing {
     /// `pair.claim`: checks the secret, asks the person, stores the device.
     pub(crate) fn claim(&self, params: &Value, peer: IpAddr, desktop: &DesktopInfo) -> Result<Value, Refused> {
         self.count_claim(peer)?;
-        let secret = params
-            .get("secret")
-            .and_then(Value::as_str)
-            .and_then(|s| b64().decode(s).ok())
-            .ok_or_else(|| Refused("The pairing code is missing.".into()))?;
+        // the QR's secret, or the six words typed from the screen (the secret they stand for)
+        let secret = match params.get("words").and_then(Value::as_str) {
+            Some(typed) => words_secret(typed)
+                .ok_or_else(|| Refused("Those aren't the six words. Check them against the computer.".into()))?
+                .to_vec(),
+            None => params
+                .get("secret")
+                .and_then(Value::as_str)
+                .and_then(|s| b64().decode(s).ok())
+                .ok_or_else(|| Refused("The pairing code is missing.".into()))?,
+        };
         let offer = {
             let mut offers = self.offers.lock();
             let now = unix_now();
@@ -530,5 +551,106 @@ mod tests {
         assert!(!Scope::Watch.allows("scene.switch"));
         assert!(!Scope::Watch.allows("chat.send"));
         assert!(Scope::Control.allows("scene.switch"));
+    }
+}
+
+// ---------------------------------------------------------------- words to type
+
+/// Consonants and vowels of the words: each word is consonant, vowel, consonant, vowel (16 × 4
+/// × 16 × 2 = 2,048 words, 11 bits each), easy to say and type, made here rather than taken
+/// from a list (so the phones make the same words with the same few lines).
+const CONSONANTS: &[u8; 16] = b"bdfghjklmnprstvz";
+const VOWELS: &[u8; 4] = b"aiou";
+const ENDS: &[u8; 2] = b"ao";
+
+/// Word number `n` (0–2047).
+pub fn word(n: u16) -> String {
+    let n = n as usize & 0x7FF;
+    let c1 = CONSONANTS[n >> 7];
+    let v1 = VOWELS[(n >> 5) & 0x03];
+    let c2 = CONSONANTS[(n >> 1) & 0x0F];
+    let v2 = ENDS[n & 0x01];
+    String::from_utf8(vec![c1, v1, c2, v2]).expect("ASCII")
+}
+
+/// A word's number, any case.
+pub fn word_number(w: &str) -> Option<u16> {
+    let b = w.trim().to_ascii_lowercase().into_bytes();
+    if b.len() != 4 {
+        return None;
+    }
+    let c1 = CONSONANTS.iter().position(|c| *c == b[0])?;
+    let v1 = VOWELS.iter().position(|c| *c == b[1])?;
+    let c2 = CONSONANTS.iter().position(|c| *c == b[2])?;
+    let v2 = ENDS.iter().position(|c| *c == b[3])?;
+    Some(((c1 << 7) | (v1 << 5) | (c2 << 1) | v2) as u16)
+}
+
+/// `count` words from the leading bits of `bytes`, 11 bits each.
+pub fn words_of(bytes: &[u8], count: usize) -> Vec<String> {
+    let bit = |i: usize| (bytes.get(i / 8).copied().unwrap_or(0) >> (7 - i % 8)) & 1;
+    (0..count).map(|k| word((0..11).fold(0u16, |n, j| (n << 1) | bit(k * 11 + j) as u16))).collect()
+}
+
+/// The secret six typed words stand for (`None` unless they're six of the words).
+pub fn words_secret(typed: &str) -> Option<[u8; 16]> {
+    use sha2::{Digest, Sha256};
+    let numbers: Vec<u16> = typed
+        .split(|c: char| c.is_whitespace() || c == '-' || c == ',')
+        .filter(|w| !w.is_empty())
+        .map(word_number)
+        .collect::<Option<_>>()?;
+    if numbers.len() != 6 {
+        return None;
+    }
+    let mut h = Sha256::new();
+    h.update(b"lightair pairing words\0");
+    for n in numbers {
+        h.update(n.to_be_bytes());
+    }
+    Some(h.finalize()[..16].try_into().expect("16 bytes"))
+}
+
+/// A certificate fingerprint as four words, to compare on both screens when pairing by typed
+/// words (the phone takes the fingerprint on first use then).
+pub fn fingerprint_words(fingerprint: &[u8; 32]) -> [String; 4] {
+    words_of(fingerprint, 4).try_into().expect("four words")
+}
+
+#[cfg(test)]
+mod word_tests {
+    use super::*;
+
+    #[test]
+    fn words_go_both_ways_and_stand_for_a_secret() {
+        let all: std::collections::HashSet<String> = (0..2048).map(word).collect();
+        assert_eq!(all.len(), 2048, "every number its own word");
+        for n in [0u16, 1, 777, 2047] {
+            assert_eq!(word_number(&word(n)), Some(n));
+        }
+        assert_eq!(word(0), "baba");
+        assert_eq!(word_number("TASA"), word_number("tasa"));
+        let six = words_of(&[0xAB; 9], 6).join(" ");
+        assert_eq!(words_secret(&six), words_secret(&six.to_uppercase().replace(' ', "-")));
+        assert!(words_secret("baba baba").is_none());
+        assert!(words_secret("baba baba baba baba baba xxxx").is_none());
+    }
+
+    #[test]
+    fn a_phone_pairs_with_typed_words() {
+        let pairing = Pairing::new(vec![], |_| true, |_| {});
+        let (_, words) = pairing.offer_words(Scope::Control);
+        let key = ed25519_dalek::SigningKey::from_bytes(&[7; 32]);
+        let desktop = DesktopInfo { id: "d".into(), name: "Studio".into(), version: "1".into() };
+        let claim = |w: &str| {
+            serde_json::json!({"words": w, "device": {"id": "p", "name": "Sam's iPhone"},
+                "public_key": b64().encode(key.verifying_key().to_bytes())})
+        };
+        let peer: IpAddr = "192.168.1.9".parse().unwrap();
+        assert!(pairing.claim(&claim("baba baba baba baba baba baba"), peer, &desktop).is_err());
+        let ok = pairing.claim(&claim(&words.join(" ")), peer, &desktop).expect("paired by words");
+        assert_eq!(ok["device_id"], "p");
+        // once only
+        assert!(pairing.claim(&claim(&words.join(" ")), peer, &desktop).is_err());
     }
 }
