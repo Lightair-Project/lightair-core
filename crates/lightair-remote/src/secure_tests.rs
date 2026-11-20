@@ -548,6 +548,22 @@ fn a_phone_fetches_and_sends_files_in_pieces() {
     assert_eq!(http_req(&mut s, "PUT", &format!("/transfer/{bad}/Bad.mp4"), &[], b"abcd").0, 422);
     assert!(!dir.join("in/Bad.mp4").exists() && !dir.join("in/Bad.mp4.partial").exists());
 
+    // an empty file (an empty stem): an empty body, no Content-Range
+    let empty: String = Sha256::digest(b"").iter().map(|b| format!("{b:02x}")).collect();
+    let r =
+        call(&mut ws, 4, "transfer.upload", json!({"files": [{"name": "Silence.wav", "size": 0, "sha256": empty}]}));
+    let none = r["result"]["token"].as_str().unwrap().to_owned();
+    let mut s = tls(port, pin);
+    assert_eq!(http_req(&mut s, "PUT", &format!("/transfer/{none}/Silence.wav"), &[], b"").0, 201);
+    assert_eq!(std::fs::metadata(dir.join("in/Silence.wav")).unwrap().len(), 0);
+    // and a download with an open range, and none (the whole file)
+    let mut s = tls(port, pin);
+    let path0 = format!("/transfer/{token}/Take%201.lightair-take/screen.mp4");
+    let (st, _, body) = http_req(&mut s, "GET", &path0, &[("Range", "bytes=3000000-".into())], &[]);
+    assert_eq!((st, body.as_slice()), (206, &data[3_000_000..]));
+    let (st, _, body) = http_req(&mut s, "GET", &path0, &[], &[]);
+    assert_eq!((st, body.len()), (200, data.len()));
+
     // the device removed: its tokens stop working
     pairing.remove("ipad-1");
     let mut s = tls(port, pin);

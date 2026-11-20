@@ -459,6 +459,19 @@ fn put<S: Read + Write>(
         return told(stream, 200, "OK", "already here", spec.size);
     }
     let body = &req.body;
+    // an empty file: an empty body, without Content-Range or with `bytes */0`
+    if spec.size == 0 {
+        let range = req.header("content-range").map(str::trim);
+        if !body.is_empty() || range.is_some_and(|r| r != "bytes */0") {
+            return told(stream, 400, "Bad Request", "an empty file is sent as an empty body", 0);
+        }
+        let part = partial(dir, &spec.name);
+        if let Some(parent) = part.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        File::create(&part)?;
+        return finish(stream, transfers, token, spec, dir, &part);
+    }
     let (first, last, total) = match req.header("content-range") {
         Some(r) => match content_range(r) {
             Some(x) => x,
@@ -492,12 +505,30 @@ fn put<S: Read + Write>(
     if have < spec.size {
         return told(stream, 202, "Accepted", "more to come", have);
     }
-    // the whole file: checked, then put in place
-    if sha256_file(&part)? != spec.sha256 {
-        let _ = fs::remove_file(&part);
-        return told(stream, 422, "Unprocessable Entity", "the file didn't match its SHA-256: send it again", 0);
+    finish(stream, transfers, token, spec, dir, &part)
+}
+
+/// The whole file is here: checked, then put in place (the upload finished once all are).
+fn finish<S: Read + Write>(
+    stream: &mut S,
+    transfers: &Transfers,
+    token: &str,
+    spec: &FileSpec,
+    dir: &Path,
+    part: &Path,
+) -> io::Result<bool> {
+    if sha256_file(part)? != spec.sha256 {
+        let _ = fs::remove_file(part);
+        answer(
+            stream,
+            422,
+            "Unprocessable Entity",
+            &json!({"error": "the file didn't match its SHA-256: send it again", "received": 0}),
+            &[("Lightair-Received", "0".into())],
+        )?;
+        return Ok(true);
     }
-    fs::rename(&part, dir.join(&spec.name))?;
+    fs::rename(part, dir.join(&spec.name))?;
     // the last file of the upload: the app's to take
     let mut entries = transfers.entries.lock();
     if let Some(e) = entries.get_mut(token)
