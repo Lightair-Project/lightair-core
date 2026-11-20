@@ -624,3 +624,41 @@ fn a_takes_zooms_from_the_zoom_track_show() {
     let differ = flat.chunks(4).zip(back.chunks(4)).filter(|(a, b)| a[..3].iter().zip(&b[..3]).any(|(x, y)| x.abs_diff(*y) > 30)).count();
     assert!(differ < flat.len() / 4 / 50, "as it was: {differ} pixels");
 }
+
+#[test]
+fn a_phones_portrait_video_is_shown_upright() {
+    // stored on its side (640×360: red left, blue right) with a quarter turn to show it by, as a
+    // phone records portrait video
+    let dir = tempfile::tempdir().unwrap();
+    let Some(stored) =
+        lavfi(dir.path(), "stored.mp4", "color=c=red:s=320x360:d=1[a];color=c=blue:s=320x360:d=1[b];[a][b]hstack")
+    else {
+        eprintln!("FFmpeg isn't installed; skipping");
+        return;
+    };
+    let portrait = dir.path().join("portrait.mp4");
+    let ff = media::ffmpeg().unwrap();
+    assert!(
+        Command::new(ff)
+            .args(["-v", "error", "-y", "-display_rotation:v:0", "90", "-i"])
+            .arg(&stored)
+            .args(["-c", "copy"])
+            .arg(&portrait)
+            .status()
+            .unwrap()
+            .success()
+    );
+    // its size as shown
+    let m = Media::from_file(&portrait).unwrap();
+    assert_eq!((m.width, m.height), (360, 640));
+    assert_eq!((media::probe(&portrait).unwrap().width, media::probe(&portrait).unwrap().height), (360, 640));
+    // and drawn upright: the halves are now top and bottom, not squeezed side by side
+    let f = media::frame_at(&portrait, 500, (360, 640)).unwrap();
+    let (top, bottom) = (px(&f, 360, 180, 100), px(&f, 360, 180, 540));
+    let (left, right) = (px(&f, 360, 40, 100), px(&f, 360, 320, 100));
+    assert!(
+        top != bottom && (top[0] > 200 || top[2] > 200) && (bottom[0] > 200 || bottom[2] > 200),
+        "{top:?} {bottom:?}"
+    );
+    assert_eq!(left, right, "one colour across");
+}

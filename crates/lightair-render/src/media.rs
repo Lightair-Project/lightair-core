@@ -147,7 +147,14 @@ pub fn probe(path: &Path) -> Result<Probe, MediaError> {
 fn ffmpeg_probe(path: &Path) -> Result<Probe, MediaError> {
     let ffprobe = find("ffprobe").ok_or(MediaError::NoFfmpeg)?;
     let out = command(ffprobe)
-        .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,avg_frame_rate:format=duration"])
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height,avg_frame_rate:stream_side_data=rotation:format=duration",
+        ])
         .args(["-of", "json"])
         .arg(path)
         .output()?;
@@ -160,7 +167,10 @@ fn ffmpeg_probe(path: &Path) -> Result<Probe, MediaError> {
     });
     let duration = v["format"]["duration"].as_str().and_then(|d| d.parse::<f64>().ok());
     match (s["width"].as_u64(), s["height"].as_u64(), duration) {
-        (Some(w), Some(h), Some(d)) => Ok(Probe { width: w as u32, height: h as u32, fps: fps.unwrap_or(30.0), duration_ms: (d * 1000.0) as u64 }),
+        (Some(w), Some(h), Some(d)) => {
+            let (width, height) = shown_size(s, w as u32, h as u32);
+            Ok(Probe { width, height, fps: fps.unwrap_or(30.0), duration_ms: (d * 1000.0) as u64 })
+        }
         _ => Err(MediaError::Unreadable(path.into())),
     }
 }
@@ -280,7 +290,14 @@ pub fn contents(path: &Path) -> Result<Contents, MediaError> {
 fn ffmpeg_contents(path: &Path) -> Result<Contents, MediaError> {
     let ffprobe = find("ffprobe").ok_or(MediaError::NoFfmpeg)?;
     let out = command(ffprobe)
-        .args(["-v", "error", "-show_entries", "stream=codec_type,width,height,nb_frames:format=duration,format_name", "-of", "json"])
+        .args([
+            "-v",
+            "error",
+            "-show_entries",
+            "stream=codec_type,width,height,nb_frames:stream_side_data=rotation:format=duration,format_name",
+            "-of",
+            "json",
+        ])
         .arg(path)
         .output()?;
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).map_err(|_| MediaError::Unreadable(path.into()))?;
@@ -295,14 +312,22 @@ fn ffmpeg_contents(path: &Path) -> Result<Contents, MediaError> {
     if video.is_none() && !audio {
         return Err(MediaError::Unreadable(path.into()));
     }
-    Ok(Contents {
-        video: video.is_some(),
-        audio,
-        still,
-        width: video.and_then(|s| s["width"].as_u64()).unwrap_or(0) as u32,
-        height: video.and_then(|s| s["height"].as_u64()).unwrap_or(0) as u32,
-        duration_ms,
-    })
+    let stored = |k: &str| video.and_then(|s| s[k].as_u64()).unwrap_or(0) as u32;
+    let (width, height) = video.map_or((0, 0), |s| shown_size(s, stored("width"), stored("height")));
+    Ok(Contents { video: video.is_some(), audio, still, width, height, duration_ms })
+}
+
+/// A video stream's size as it's shown: a phone's portrait video is stored on its side with a
+/// rotation to show it by (ffprobe's `side_data_list`), and FFmpeg's decoder turns its frames
+/// upright, so a quarter turn swaps the stored width and height.
+fn shown_size(stream: &serde_json::Value, width: u32, height: u32) -> (u32, u32) {
+    let turned = stream["side_data_list"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|d| d["rotation"].as_f64())
+        .any(|r| (r.rem_euclid(180.0) - 90.0).abs() < 1.0);
+    if turned { (height, width) } else { (width, height) }
 }
 
 fn scale_filter(fps: f64, size: (u32, u32)) -> String {
