@@ -110,6 +110,10 @@ impl crate::ws::Protocol for Session {
         if !self.authed || self.events.as_ref().is_some_and(|e| !e.contains(&event.name)) {
             return None;
         }
+        // 20 Hz meters only to clients that ask for them by name
+        if event.name == "audio.levels" && self.events.is_none() {
+            return None;
+        }
         Some(json!({"jsonrpc": "2.0", "method": "event", "params": {"name": event.name, "data": event.data}}).to_string())
     }
 }
