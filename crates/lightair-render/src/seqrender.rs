@@ -86,6 +86,9 @@ pub struct SequenceRenderer {
     /// Windows: the composition visual previews are presented into (`IDCompositionVisual*`).
     #[cfg(windows)]
     visual: usize,
+    /// iOS, macOS: the `CAMetalLayer*` previews are presented into (0: none).
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    layer: usize,
 }
 
 /// A frame for the player: its pixels (BGRA in a preview), or (macOS) an IOSurface picture.
@@ -137,6 +140,8 @@ impl SequenceRenderer {
             zero_copy: false,
             #[cfg(windows)]
             visual: 0,
+            #[cfg(any(target_os = "ios", target_os = "macos"))]
+            layer: 0,
         })
     }
 
@@ -179,7 +184,36 @@ impl SequenceRenderer {
         self.attach();
     }
 
+    /// iOS, macOS: previews presented into `layer` (a `CAMetalLayer*` the caller keeps alive and
+    /// shows, sized by the preview) instead of read back: [`SequenceRenderer::frame`] then returns
+    /// nothing. `None`: read back again. False if the layer can't take them (read back as before).
+    ///
+    /// # Safety
+    /// `layer` must be a valid `CAMetalLayer` for as long as this renderer presents into it.
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    pub unsafe fn present_into_layer(&mut self, layer: Option<*mut std::ffi::c_void>) -> bool {
+        self.layer = layer.map_or(0, |l| l as usize);
+        if self.layer == 0 {
+            self.compositor.detach_layer();
+            return true;
+        }
+        self.attach();
+        self.compositor.presents_into_layer()
+    }
+
+    /// iOS, macOS: whether previews are presented into a layer.
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    pub fn presents_into_layer(&self) -> bool {
+        self.compositor.presents_into_layer()
+    }
+
     fn attach(&mut self) {
+        // (a preview only: an export reads its frames back)
+        #[cfg(any(target_os = "ios", target_os = "macos"))]
+        if self.layer != 0 && self.preview.is_some() && !self.compositor.presents_into_layer() {
+            // SAFETY: the caller of present_into_layer keeps the layer alive while it's set
+            unsafe { self.compositor.attach_layer(self.layer as *mut std::ffi::c_void) };
+        }
         #[cfg(target_os = "macos")]
         if self.zero_copy && self.preview.is_some() {
             self.compositor.attach_surface();

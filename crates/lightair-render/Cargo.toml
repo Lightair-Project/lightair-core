@@ -34,3 +34,6 @@ objc2-video-toolbox = { version = "0.3.2", default-features = false, features = 
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 objc2-core-video = { version = "0.3.2", default-features = false, features = ["std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn"] }
+# a CAMetalLayer, for the frames presented into one
+objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["std", "CALayer", "CAMetalLayer", "objc2-core-foundation"] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFCGTypes"] }

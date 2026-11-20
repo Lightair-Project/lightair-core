@@ -3,6 +3,7 @@
 mod effects;
 mod export;
 mod exporter;
+mod layer;
 mod mix;
 mod sequence;
 mod speed;

@@ -260,6 +260,12 @@ pub struct Compositor {
     visual: Option<wgpu::Surface<'static>>,
     #[cfg(windows)]
     bgra_out: bool,
+    /// iOS, macOS: frames drawn into a wgpu surface on a `CAMetalLayer` the caller shows (a
+    /// phone's player) and presented there, not read back; and the format frames are drawn in.
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    layer: Option<wgpu::Surface<'static>>,
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    out_format: wgpu::TextureFormat,
     /// Frames start transparent instead of black (an export that keeps transparency).
     transparent: bool,
 }
@@ -436,6 +442,10 @@ impl Compositor {
             visual: None,
             #[cfg(windows)]
             bgra_out: bgra,
+            #[cfg(any(target_os = "ios", target_os = "macos"))]
+            layer: None,
+            #[cfg(any(target_os = "ios", target_os = "macos"))]
+            out_format,
             transparent: false,
         };
         let pointer = rgb(0x0090FF);
@@ -640,6 +650,63 @@ impl Compositor {
         self.surface.as_ref()?.frame()
     }
 
+    /// iOS, macOS: draws frames into `layer` (a `CAMetalLayer*` the caller keeps alive and shows)
+    /// and presents them there instead of reading them back; [`Compositor::layers`] then returns
+    /// nothing. The layer's drawable is the compositor's size, in its format.
+    ///
+    /// # Safety
+    /// `layer` must be a valid `CAMetalLayer` for as long as this compositor draws into it.
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    pub unsafe fn attach_layer(&mut self, layer: *mut std::ffi::c_void) -> bool {
+        if layer.is_null() {
+            return false;
+        }
+        let surface =
+            match unsafe { instance().create_surface_unsafe(wgpu::SurfaceTargetUnsafe::CoreAnimationLayer(layer)) } {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!(%e, "the player's layer");
+                    return false;
+                }
+            };
+        let Some(adapter) = ADAPTER.get() else { return false };
+        let caps = surface.get_capabilities(adapter);
+        if !caps.formats.contains(&self.out_format) {
+            tracing::warn!(format = ?self.out_format, "the player's layer can't take the frames' format");
+            return false;
+        }
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: self.out_format,
+            width: self.size.0,
+            height: self.size.1,
+            present_mode: wgpu::PresentMode::Fifo,
+            desired_maximum_frame_latency: 2,
+            alpha_mode: if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::Opaque) {
+                wgpu::CompositeAlphaMode::Opaque
+            } else {
+                caps.alpha_modes[0]
+            },
+            view_formats: vec![],
+            color_space: wgpu::SurfaceColorSpace::Auto,
+        };
+        surface.configure(&self.device, &config);
+        self.layer = Some(surface);
+        true
+    }
+
+    /// iOS, macOS: back to reading frames back.
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    pub fn detach_layer(&mut self) {
+        self.layer = None;
+    }
+
+    /// iOS, macOS: whether frames are presented into a layer.
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    pub fn presents_into_layer(&self) -> bool {
+        self.layer.is_some()
+    }
+
     /// Windows: frames are presented into `visual` (an `IDCompositionVisual*`, kept alive by the
     /// caller while this lives) from now on, not read back; for a BGRA compositor. False if the
     /// surface couldn't be made (the frames are read back as before).
@@ -690,9 +757,21 @@ impl Compositor {
     /// Draws, then reads the frame back: RGBA (BGRA for a BGRA compositor), top row first;
     /// nothing when it draws into an IOSurface.
     fn draw(&mut self, draws: Vec<([f32; 60], Tex)>) -> Vec<u8> {
+        // a layer's drawable, when frames are presented into one
+        #[cfg(any(target_os = "ios", target_os = "macos"))]
+        let drawable = self.layer.as_ref().and_then(|s| match s.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(t) | wgpu::CurrentSurfaceTexture::Suboptimal(t) => Some(t),
+            _ => None,
+        });
         #[cfg(target_os = "macos")]
-        let view = match &self.surface {
-            Some(s) => s.texture.create_view(&Default::default()),
+        let view = match (&drawable, &self.surface) {
+            (Some(d), _) => d.texture.create_view(&Default::default()),
+            (None, Some(s)) => s.texture.create_view(&Default::default()),
+            (None, None) => self.target.create_view(&Default::default()),
+        };
+        #[cfg(target_os = "ios")]
+        let view = match &drawable {
+            Some(d) => d.texture.create_view(&Default::default()),
             None => self.target.create_view(&Default::default()),
         };
         #[cfg(windows)]
@@ -705,7 +784,7 @@ impl Compositor {
             Some(frame) => frame.texture.create_view(&Default::default()),
             None => self.target.create_view(&Default::default()),
         };
-        #[cfg(not(any(target_os = "macos", windows)))]
+        #[cfg(not(any(target_os = "macos", target_os = "ios", windows)))]
         let view = self.target.create_view(&Default::default());
         let mut encoder = self.device.create_command_encoder(&Default::default());
         let groups: Vec<wgpu::BindGroup> = draws
@@ -760,6 +839,12 @@ impl Compositor {
                 pass.set_bind_group(0, g, &[]);
                 pass.draw(0..6, 0..1);
             }
+        }
+        #[cfg(any(target_os = "ios", target_os = "macos"))]
+        if let Some(d) = drawable {
+            self.queue.submit([encoder.finish()]);
+            self.queue.present(d);
+            return Vec::new();
         }
         #[cfg(target_os = "macos")]
         if self.surface.is_some() {
