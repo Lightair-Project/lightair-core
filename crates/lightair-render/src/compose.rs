@@ -274,11 +274,18 @@ pub struct Compositor {
     #[cfg(windows)]
     visual: Option<wgpu::Surface<'static>>,
     #[cfg(windows)]
+    visual_config: Option<wgpu::SurfaceConfiguration>,
+    #[cfg(windows)]
     bgra_out: bool,
     /// iOS, macOS: frames drawn into a wgpu surface on a `CAMetalLayer` the caller shows (a
     /// phone's player) and presented there, not read back; and the format frames are drawn in.
     #[cfg(any(target_os = "ios", target_os = "macos"))]
     layer: Option<wgpu::Surface<'static>>,
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    layer_config: Option<wgpu::SurfaceConfiguration>,
+    /// The last frame was for a layer or visual that gave no texture to draw into: it wasn't
+    /// shown, and the caller should draw it again ([`Compositor::missed`]).
+    missed: bool,
     #[cfg(any(target_os = "ios", target_os = "macos"))]
     out_format: wgpu::TextureFormat,
     /// Frames start transparent instead of black (an export that keeps transparency).
@@ -460,9 +467,14 @@ impl Compositor {
             #[cfg(windows)]
             visual: None,
             #[cfg(windows)]
+            visual_config: None,
+            #[cfg(windows)]
             bgra_out: bgra,
             #[cfg(any(target_os = "ios", target_os = "macos"))]
             layer: None,
+            #[cfg(any(target_os = "ios", target_os = "macos"))]
+            layer_config: None,
+            missed: false,
             #[cfg(any(target_os = "ios", target_os = "macos"))]
             out_format,
             transparent: false,
@@ -745,6 +757,7 @@ impl Compositor {
         };
         surface.configure(&self.device, &config);
         self.layer = Some(surface);
+        self.layer_config = Some(config);
         true
     }
 
@@ -752,6 +765,14 @@ impl Compositor {
     #[cfg(any(target_os = "ios", target_os = "macos"))]
     pub fn detach_layer(&mut self) {
         self.layer = None;
+        self.layer_config = None;
+    }
+
+    /// Whether the last frame drawn for a layer (or Windows visual) couldn't be presented: the
+    /// screen still shows the one before, so draw it again (after a moment, as with any frame
+    /// the screen isn't ready for).
+    pub fn missed(&self) -> bool {
+        self.missed
     }
 
     /// iOS, macOS: whether frames are presented into a layer.
@@ -797,6 +818,7 @@ impl Compositor {
         surface.configure(&self.device, &config);
         tracing::info!(size = ?self.size, mode = ?config.present_mode, "the Editor's frames are presented under the UI");
         self.visual = Some(surface);
+        self.visual_config = Some(config);
         VISUAL_CHANGED.store(true, std::sync::atomic::Ordering::Release);
         true
     }
@@ -812,10 +834,14 @@ impl Compositor {
     fn draw(&mut self, draws: Vec<([f32; 60], Tex)>) -> Vec<u8> {
         // a layer's drawable, when frames are presented into one
         #[cfg(any(target_os = "ios", target_os = "macos"))]
-        let drawable = self.layer.as_ref().and_then(|s| match s.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(t) | wgpu::CurrentSurfaceTexture::Suboptimal(t) => Some(t),
+        let drawable = match (&self.layer, &self.layer_config) {
+            (Some(s), Some(c)) => acquire(s, &self.device, c),
             _ => None,
-        });
+        };
+        #[cfg(any(target_os = "ios", target_os = "macos"))]
+        {
+            self.missed = self.layer.is_some() && drawable.is_none();
+        }
         #[cfg(target_os = "macos")]
         let view = match (&drawable, &self.surface) {
             (Some(d), _) => d.texture.create_view(&Default::default()),
@@ -828,10 +854,14 @@ impl Compositor {
             None => self.target.create_view(&Default::default()),
         };
         #[cfg(windows)]
-        let presented = self.visual.as_ref().and_then(|s| match s.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(t) | wgpu::CurrentSurfaceTexture::Suboptimal(t) => Some(t),
+        let presented = match (&self.visual, &self.visual_config) {
+            (Some(s), Some(c)) => acquire(s, &self.device, c),
             _ => None,
-        });
+        };
+        #[cfg(windows)]
+        {
+            self.missed = self.visual.is_some() && presented.is_none();
+        }
         #[cfg(windows)]
         let view = match &presented {
             Some(frame) => frame.texture.create_view(&Default::default()),
@@ -940,6 +970,33 @@ impl Compositor {
         self.readback.unmap();
         out
     }
+}
+
+/// A texture to draw a frame into from a layer's or visual's surface. A frame mustn't be lost
+/// quietly: the screen would keep the one before (as when a clip's first effect is added, its
+/// passes built while the layer waits). So it asks again after a timeout, and reconfigures and
+/// asks again when the surface is outdated; `None` only when there's still none.
+#[cfg(any(target_os = "ios", target_os = "macos", windows))]
+fn acquire(
+    surface: &wgpu::Surface<'static>,
+    device: &wgpu::Device,
+    config: &wgpu::SurfaceConfiguration,
+) -> Option<wgpu::SurfaceTexture> {
+    use wgpu::CurrentSurfaceTexture as C;
+    for _ in 0..3 {
+        match surface.get_current_texture() {
+            C::Success(t) => return Some(t),
+            C::Suboptimal(t) => return Some(t),
+            C::Timeout => continue,
+            C::Outdated => surface.configure(device, config),
+            other => {
+                tracing::warn!(?other, "no texture to present the frame into");
+                return None;
+            }
+        }
+    }
+    tracing::warn!("no texture to present the frame into after three tries");
+    None
 }
 
 /// Rows in a buffer copy are padded to 256 bytes.

@@ -429,6 +429,71 @@ impl SequenceRenderer {
         }
     }
 
+    /// The sequence's background (`Sequence::background`) as pictures to draw first; `main` is
+    /// the main track's picture now, if there is one.
+    fn background(&self, main: Option<&Pic>) -> Vec<Pic> {
+        use crate::sequence::Background;
+        // (in the frame's pixels: a preview's are fewer)
+        let (w, h) = (self.seq.size.0 as f32 * self.k(), self.seq.size.1 as f32 * self.k());
+        let full = |picture: Picture, size: (u32, u32)| Pic {
+            picture,
+            size,
+            center: (w / 2.0, h / 2.0),
+            draw: (w, h),
+            rotation: 0.0,
+            opacity: 1.0,
+            premultiplied: false,
+            filter: Default::default(),
+            masks: Vec::new(),
+            effects: Vec::new(),
+            time: 0.0,
+            uv: (0.0, 0.0, 1.0, 1.0),
+        };
+        let rgb = |c: u32| [(c >> 16) as u8, (c >> 8) as u8, c as u8, 255];
+        match &self.seq.background {
+            None => vec![],
+            Some(Background::Color { color }) => vec![full(Picture::Rgba(rgb(*color).repeat(4)), (2, 2))],
+            Some(Background::Backdrop { name }) => {
+                let Some((top, bottom)) = Background::backdrop(name) else { return vec![] };
+                // a tall strip, stretched (the sampler smooths it)
+                const ROWS: u32 = 64;
+                let (a, b) = (rgb(top), rgb(bottom));
+                let mut px = Vec::with_capacity(ROWS as usize * 2 * 4);
+                for y in 0..ROWS {
+                    let f = y as f32 / (ROWS - 1) as f32;
+                    let c: Vec<u8> = (0..4).map(|i| (a[i] as f32 + (b[i] as f32 - a[i] as f32) * f).round() as u8).collect();
+                    px.extend_from_slice(&c);
+                    px.extend_from_slice(&c);
+                }
+                vec![full(Picture::Rgba(px), (2, ROWS))]
+            }
+            Some(Background::Blur { amount, dim }) => {
+                let Some(m) = main else { return vec![] };
+                // the picture as shown (its crop), scaled to cover the frame
+                let (dw, dh) = (m.draw.0.abs().max(1.0), m.draw.1.abs().max(1.0));
+                let s = (w / dw).max(h / dh);
+                let mut filter = m.filter;
+                filter.blur = amount.clamp(0.0, 1.0);
+                filter.brightness = (filter.brightness - dim.clamp(0.0, 1.0)).max(-1.0);
+                filter.vignette = 0.0;
+                vec![Pic {
+                    picture: m.picture.clone(),
+                    size: m.size,
+                    center: (w / 2.0, h / 2.0),
+                    draw: (dw * s * m.draw.0.signum(), dh * s * m.draw.1.signum()),
+                    rotation: 0.0,
+                    opacity: 1.0,
+                    premultiplied: m.premultiplied,
+                    filter,
+                    masks: Vec::new(),
+                    effects: Vec::new(),
+                    time: m.time,
+                    uv: m.uv,
+                }]
+            }
+        }
+    }
+
     /// One clip as a layer at `t`, with its animations, shifted by a transition.
     fn layer_of(&mut self, clip: &Clip, t: u64, sh: Shift, out: &mut Vec<Pic>) {
         let Some((picture, size, premultiplied)) = self.picture(clip, t) else { return };
@@ -485,24 +550,48 @@ impl SequenceRenderer {
         });
     }
 
-    /// The frame at timeline time `t`: RGBA at the sequence's size.
     /// Where each clip's picture landed in the last frame.
     pub fn placed(&self) -> &[Placed] {
         &self.placed
     }
 
+    /// The frame at timeline time `t`: RGBA at the sequence's size (nothing when presented into
+    /// a layer). A presented frame the layer had no drawable for is drawn once more, so the
+    /// screen doesn't keep the frame before (a clip's first effect, its passes built while the
+    /// layer waited, showed only once the playhead moved).
     pub fn frame(&mut self, t: u64) -> Vec<u8> {
+        let out = self.draw_frame(t);
+        if self.compositor.missed() {
+            return self.draw_frame(t);
+        }
+        out
+    }
+
+    /// Whether the last frame couldn't be presented into the layer even when drawn again (the
+    /// screen shows the one before): draw it again later.
+    pub fn missed(&self) -> bool {
+        self.compositor.missed()
+    }
+
+    fn draw_frame(&mut self, t: u64) -> Vec<u8> {
         self.placed.clear();
-        let tracks: Vec<Vec<Clip>> = self
+        let main = self.seq.main_track();
+        let tracks: Vec<(usize, Vec<Clip>)> = self
             .seq
             .tracks
             .iter()
-            .filter(|tr| tr.kind == TrackKind::Video && !tr.hidden)
+            .enumerate()
+            .filter(|(_, tr)| tr.kind == TrackKind::Video && !tr.hidden)
             .rev()
-            .map(|tr| tr.clips.clone())
+            .map(|(i, tr)| (i, tr.clips.clone()))
             .collect();
         let mut pics: Vec<Pic> = Vec::new();
-        for clips in tracks {
+        // the main track's first picture (what a blurred background is made of)
+        let mut main_pic: Option<usize> = None;
+        for (track, clips) in tracks {
+            if Some(track) == main && main_pic.is_none() {
+                main_pic = Some(pics.len());
+            }
             let Some(i) = clips.iter().position(|c| c.start_ms <= t && t < c.end_ms()) else { continue };
             let c = &clips[i];
             // a transition across a cut: half in the clip before it, half in the clip after
@@ -554,6 +643,9 @@ impl SequenceRenderer {
                 }
             }
         }
+        let main_pic = main_pic.filter(|i| *i < pics.len()).map(|i| &pics[i]);
+        let fill = self.background(main_pic);
+        pics.splice(0..0, fill);
         let layers: Vec<Layer> = pics
             .iter()
             .map(|p| Layer {
