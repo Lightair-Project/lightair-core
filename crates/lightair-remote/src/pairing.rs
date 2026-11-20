@@ -100,6 +100,7 @@ const READ_ONLY: &[&str] = &[
     "activity.history",
     "record.status",
     "stream.status",
+    "stream.info.get",
     "clip.status",
     "panic.get",
 ];
