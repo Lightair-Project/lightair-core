@@ -982,6 +982,59 @@ pub struct Sequence {
     /// How it was last exported (the export panel opens with it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub export: Option<crate::exporter::ExportSettings>,
+    /// What fills the frame behind the pictures where they don't cover it (a picture fitted
+    /// into another shape; Lightair Editor's ED-18). `None`: black.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background: Option<Background>,
+}
+
+/// A sequence's fill behind its pictures, drawn under every track.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Background {
+    /// One colour (0xRRGGBB).
+    Color { color: u32 },
+    /// The main track's picture under the playhead, scaled to cover the frame, blurred
+    /// (`amount` 0..1) and darkened (`dim` 0..1).
+    Blur {
+        #[serde(default = "Background::default_amount")]
+        amount: f32,
+        #[serde(default = "Background::default_dim")]
+        dim: f32,
+    },
+    /// One of [`Background::BACKDROPS`] by name: a gradient from top to bottom.
+    Backdrop { name: String },
+}
+
+impl Background {
+    /// The built-in backdrops: name, top colour, bottom colour (0xRRGGBB).
+    pub const BACKDROPS: &[(&str, u32, u32)] = &[
+        ("Studio", 0x2C2C2E, 0x111113),
+        ("Dusk", 0x2B1B4A, 0xE0603A),
+        ("Ocean", 0x0B2545, 0x13A3A0),
+        ("Forest", 0x0F2A1D, 0x5E9B6A),
+        ("Sunrise", 0xF6C76A, 0xF08A7A),
+        ("Berry", 0x3A0CA3, 0xD7267A),
+        ("Paper", 0xF4F1EA, 0xDCD6C8),
+    ];
+
+    fn default_amount() -> f32 {
+        0.6
+    }
+
+    fn default_dim() -> f32 {
+        0.2
+    }
+
+    /// The blur's usual settings.
+    pub fn blur() -> Background {
+        Background::Blur { amount: Self::default_amount(), dim: Self::default_dim() }
+    }
+
+    /// A backdrop's two colours (top, bottom), by its name (case doesn't matter).
+    pub fn backdrop(name: &str) -> Option<(u32, u32)> {
+        Self::BACKDROPS.iter().find(|(n, _, _)| n.eq_ignore_ascii_case(name)).map(|(_, a, b)| (*a, *b))
+    }
 }
 
 fn yes() -> bool {
@@ -1098,7 +1151,7 @@ impl Sequence {
 
     /// Empty: one video track and one audio track.
     pub fn new(size: (u32, u32), fps: u32) -> Sequence {
-        Sequence { version: 1, size, fps: fps as f64, media: Vec::new(), tracks: vec![Track::new(TrackKind::Video), Track::new(TrackKind::Audio)], proxies: true, markers: Vec::new(), export: None }
+        Sequence { version: 1, size, fps: fps as f64, media: Vec::new(), tracks: vec![Track::new(TrackKind::Video), Track::new(TrackKind::Audio)], proxies: true, markers: Vec::new(), export: None, background: None }
     }
 
     pub fn load(path: &Path) -> std::io::Result<Sequence> {

@@ -1,5 +1,6 @@
 //! lightair-render's integration tests, one test program (one build and link, not one per file).
 
+mod background;
 mod effects;
 mod export;
 mod exporter;
