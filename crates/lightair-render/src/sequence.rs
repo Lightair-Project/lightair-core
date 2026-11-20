@@ -619,6 +619,94 @@ impl Sequence {
         }
     }
 
+    /// Adds the parts of one thing (a Library item's media; a studio_take's picture, layers and
+    /// sounds, from [`Media::studio_take_layout`]): the first at `at` (on `track` if it's free
+    /// there), or at the main track's end; every other part from the same moment. Made layers
+    /// last as long as the longest part. A studio_take's look is `look_dir/<item>.json` when
+    /// given (a workspace keeps them there). Each video's sound goes on an audio track of its own
+    /// (muted where the scene had it muted); a studio_take without a scene shows its second picture
+    /// small, bottom right; the parts are linked. The clips placed.
+    pub fn add_parts(
+        &mut self,
+        parts: Vec<Part>,
+        at: Option<u64>,
+        track: Option<usize>,
+        look_dir: Option<&Path>,
+    ) -> Vec<Id> {
+        let len = parts.iter().filter_map(|p| p.media.as_ref()).map(|m| m.duration_ms).max().unwrap_or(5_000);
+        let mut start: Option<u64> = None;
+        let mut pictures = 0;
+        let mut placed_all: Vec<Id> = Vec::new();
+        for mut part in parts {
+            if let Some(m) = &mut part.media
+                && m.studio_take.is_some()
+                && let (Some(dir), Some(item)) = (look_dir, m.item)
+            {
+                m.look = Some(dir.join(format!("{item}.json")));
+            }
+            let video = part.media.as_ref().is_some_and(|m| m.kind == MediaKind::Video);
+            let unplaced = part.place.is_none();
+            let quiet = part.mute_own_sound;
+            let placed = match start {
+                Some(t) => self.place_part(part, t, len, None),
+                // the first: where it was dropped (or the main track's end)
+                None => match part.media.take() {
+                    Some(m) => {
+                        let id = self.add_media(m);
+                        let c = match at {
+                            Some(t) => self.place(id, t, track),
+                            None => self.append(id),
+                        };
+                        if let (Some(c), Some(p)) = (c, part.place) {
+                            let tr = self.transform_for(self.media(id), None, p);
+                            if let Some(cl) = self.clip_mut(c) {
+                                cl.transform = tr;
+                            }
+                        }
+                        c
+                    }
+                    None => self.place_part(part, at.unwrap_or(0), len, track),
+                },
+            };
+            let Some(c) = placed else { continue };
+            if start.is_none() {
+                start = self.clip(c).map(|c| c.start_ms);
+            }
+            placed_all.push(c);
+            // a video's sound on an audio track of its own, linked (one per audio track of its file)
+            let sounds = self.detach_sounds(c);
+            if quiet {
+                for a in &sounds {
+                    if let Some(a) = self.clip_mut(*a) {
+                        a.muted = true;
+                    }
+                }
+            }
+            placed_all.extend(sounds);
+            // a studio_take without a scene: its second picture (the camera beside the screen)
+            // small, bottom right
+            if video && unplaced {
+                pictures += 1;
+                if pictures > 1 {
+                    let (w, h) = (self.size.0 as f32, self.size.1 as f32);
+                    if let Some(cl) = self.clip_mut(c) {
+                        cl.transform = Transform { x: w * 0.34, y: h * 0.31, scale: 0.25, ..Transform::default() };
+                    }
+                }
+            }
+        }
+        // the parts of one thing go together (linkage)
+        if placed_all.len() > 1 {
+            let link = Id::new();
+            for c in &placed_all {
+                if let Some(c) = self.clip_mut(*c) {
+                    c.link = Some(link);
+                }
+            }
+        }
+        placed_all
+    }
+
     /// The transform that puts `clip`'s picture (a medium fitted to the frame, or made content
     /// `made` pixels big) in the box `p`.
     pub fn transform_for(&self, media: Option<&Media>, made: Option<(f32, f32)>, p: Placement) -> Transform {
@@ -1566,6 +1654,67 @@ impl Project {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn medium(name: &str, kind: MediaKind, ms: u64, sound: bool) -> Media {
+        let path = PathBuf::from(format!("/m/{name}"));
+        Media {
+            id: Id::new(),
+            name: name.into(),
+            kind,
+            path: path.clone(),
+            duration_ms: ms,
+            width: 1920,
+            height: 1080,
+            audio: if sound { vec![path] } else { Vec::new() },
+            studio_take: None,
+            item: Some(Id::nil()),
+            look: None,
+            transcript: None,
+            tracks: Vec::new(),
+            zooms: None,
+        }
+    }
+
+    #[test]
+    fn the_parts_of_one_thing_start_together_their_sounds_apart_and_linked() {
+        let mut s = Sequence::new((1920, 1080), 30);
+        let mut screen = medium("screen.mp4", MediaKind::Video, 6_000, true);
+        screen.studio_take = Some("/takes/a.lightair-take".into());
+        // a camera whose sound the scene had muted
+        let camera = Part { mute_own_sound: true, ..Part::of(medium("camera.mp4", MediaKind::Video, 6_000, true)) };
+        let mic = Part::of(medium("mic.wav", MediaKind::Audio, 6_000, false));
+        let title = Part {
+            name: "Title".into(),
+            media: None,
+            content: Some(Content::Text(TextStyle::title("Hi"))),
+            place: None,
+            mute_own_sound: false,
+        };
+        let placed =
+            s.add_parts(vec![Part::of(screen), camera, mic, title], Some(2_000), None, Some(Path::new("/ws/looks")));
+        // the screen and its sound, the camera and its sound, the mic, the title
+        assert_eq!(placed.len(), 6);
+        assert!(placed.iter().all(|c| s.clip(*c).unwrap().start_ms == 2_000), "together, from where it was dropped");
+        let link = s.clip(placed[0]).unwrap().link;
+        assert!(link.is_some() && placed.iter().all(|c| s.clip(*c).unwrap().link == link), "linked");
+        // the screen's look kept in the workspace, its sound on a track of its own
+        let screen = s.clip(placed[0]).unwrap();
+        assert_eq!(
+            s.media(screen.media).unwrap().look.as_deref(),
+            Some(Path::new(&format!("/ws/looks/{}.json", Id::nil())))
+        );
+        let (t, _) = s.find(placed[1]).unwrap();
+        assert_eq!(s.tracks[t].kind, TrackKind::Audio);
+        // the second picture small, bottom right, its sound muted as the scene had it; the screen's
+        // and the mic's not; the title as long as the longest part
+        assert_eq!(s.clip(placed[2]).unwrap().transform.scale, 0.25);
+        assert!(s.clip(placed[3]).unwrap().muted);
+        assert!(!s.clip(placed[1]).unwrap().muted && !s.clip(placed[4]).unwrap().muted);
+        assert_eq!(s.clip(placed[5]).unwrap().len_ms(), 6_000);
+        // dropped nowhere in particular: at the main track's end
+        let more = s.add_parts(vec![Part::of(medium("b.mp4", MediaKind::Video, 1_000, false))], None, None, None);
+        assert_eq!(s.clip(more[0]).unwrap().start_ms, 8_000);
+    }
 
     #[test]
     fn projects_are_files_in_the_workspace() {
