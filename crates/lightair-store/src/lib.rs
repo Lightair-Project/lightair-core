@@ -19,6 +19,7 @@
 pub mod import_obs;
 
 pub mod input_log;
+pub mod portable;
 pub mod recordings;
 pub mod studio_take_scene;
 pub use import_obs::{EstimatedObject, ImportError, ImportReport, import_obs_collection};
