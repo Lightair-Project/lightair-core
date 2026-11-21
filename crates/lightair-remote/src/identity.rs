@@ -51,12 +51,15 @@ impl Identity {
 
 #[cfg(test)]
 mod tests {
+    use base64::Engine as _;
+
     #[test]
-    fn generates_a_pinnable_identity() {
+    fn every_desktop_gets_its_own_identity_and_the_link_carries_its_whole_fingerprint() {
         let a = super::Identity::generate("7f3c").unwrap();
         let b = super::Identity::generate("7f3c").unwrap();
-        assert_ne!(a.fingerprint(), b.fingerprint());
-        assert_eq!(a.fingerprint_b64().len(), 43);
-        assert_eq!(a.short_fingerprint().len(), 8);
+        assert_ne!(a.fingerprint(), b.fingerprint(), "a new key each time, even for the same id");
+        let carried = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(a.fingerprint_b64()).unwrap();
+        assert_eq!(carried, a.fingerprint(), "what the phone pins is the certificate's SHA-256");
+        assert!(!a.fingerprint_b64().contains(['+', '/', '=']), "safe in a link as it is");
     }
 }

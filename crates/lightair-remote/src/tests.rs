@@ -35,7 +35,9 @@ fn server(password: Option<&str>) -> (Server, Calls) {
             })),
             "app.version" => Ok(json!({"version": "0.1.0", "workspace": "Test"})),
             "screenshot" => Ok(json!({"mime": "image/png", "data": "iVBORw0KGgo=", "width": 2, "height": 2})),
-            "record.start" | "scene.switch" | "object.update" | "audio.set" | "output.start" | "output.stop" => Ok(json!({})),
+            "record.start" | "scene.switch" | "object.update" | "audio.set" | "output.start" | "output.stop" => {
+                Ok(json!({}))
+            }
             _ => Err(ApiError::new(crate::ErrorKind::Unknown, "no such method")),
         }
     });
@@ -53,52 +55,52 @@ fn post(port: u16, path: &str, body: &str, auth: Option<&str>) -> (u16, String) 
     (status, out.split_once("\r\n\r\n").map(|(_, b)| b.to_string()).unwrap_or_default())
 }
 
+fn mcp(port: u16, body: &str) -> Value {
+    let (status, body) = post(port, "/mcp", body, Some("pw"));
+    assert_eq!(status, 200, "{body}");
+    serde_json::from_str(&body).unwrap()
+}
+
 #[test]
-fn mcp_lists_and_calls_tools() {
+fn mcp_asks_for_the_password() {
     let (srv, calls) = server(Some("pw"));
     let port = srv.addr().port();
-    let (status, _) = post(port, "/mcp", r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#, None);
-    assert_eq!(status, 401, "the password is asked");
-    let (status, body) = post(
-        port,
-        "/mcp",
-        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
-        Some("pw"),
-    );
-    assert_eq!(status, 200);
-    let v: Value = serde_json::from_str(&body).unwrap();
-    assert_eq!(v["result"]["protocolVersion"], "2025-06-18");
+    let init = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#;
+    assert_eq!(post(port, "/mcp", init, None).0, 401);
+    assert_eq!(post(port, "/mcp", init, Some("wrong")).0, 401);
+    let call = r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"recording","arguments":{"action":"start"}}}"#;
+    assert_eq!(post(port, "/mcp", call, None).0, 401);
+    assert!(calls.lock().is_empty(), "nothing reached the app");
+    assert_eq!(mcp(port, init)["result"]["protocolVersion"], "2025-06-18");
     let (status, _) = post(port, "/mcp", r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#, Some("pw"));
     assert_eq!(status, 202);
-    let (_, body) = post(port, "/mcp", r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#, Some("pw"));
-    let v: Value = serde_json::from_str(&body).unwrap();
+}
+
+#[test]
+fn mcp_lists_every_tool_with_a_schema_that_parses() {
+    let (srv, _) = server(Some("pw"));
+    let v = mcp(srv.addr().port(), r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#);
     assert_eq!(v["result"]["tools"].as_array().unwrap().len(), crate::mcp::tool_names().len());
     assert!(crate::mcp::schemas_parse());
-    let (_, body) = post(
-        port,
-        "/mcp",
-        r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"recording","arguments":{"action":"start"}}}"#,
-        Some("pw"),
-    );
-    let v: Value = serde_json::from_str(&body).unwrap();
+}
+
+#[test]
+fn mcp_tools_call_the_app_and_its_errors_are_the_tools() {
+    let (srv, calls) = server(Some("pw"));
+    let port = srv.addr().port();
+    let call = |name: &str, args: &str| {
+        mcp(
+            port,
+            &format!(
+                r#"{{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{{"name":"{name}","arguments":{args}}}}}"#
+            ),
+        )
+    };
+    let v = call("recording", r#"{"action":"start"}"#);
     assert!(v["result"]["isError"].is_null(), "{v}");
     assert_eq!(calls.lock().last().unwrap().0, "record.start");
-    let (_, body) = post(
-        port,
-        "/mcp",
-        r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"screenshot","arguments":{}}}"#,
-        Some("pw"),
-    );
-    let v: Value = serde_json::from_str(&body).unwrap();
-    assert_eq!(v["result"]["content"][0]["type"], "image");
-    let (_, body) = post(
-        port,
-        "/mcp",
-        r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"get_stats","arguments":{}}}"#,
-        Some("pw"),
-    );
-    let v: Value = serde_json::from_str(&body).unwrap();
-    assert_eq!(v["result"]["isError"], true, "the method's error is the tool's");
+    assert_eq!(call("screenshot", "{}")["result"]["content"][0]["type"], "image");
+    assert_eq!(call("get_stats", "{}")["result"]["isError"], true, "the method's error is the tool's");
 }
 
 #[test]
@@ -179,8 +181,10 @@ fn obs_websocket_has_each_destination_as_an_output() {
     ws.send(Message::text(json!({"op": 1, "d": {"rpcVersion": 1}}).to_string())).unwrap();
     assert_eq!(read_json(&mut ws)["op"], 2);
     let mut ask = |kind: &str, data: Value| {
-        ws.send(Message::text(json!({"op": 6, "d": {"requestType": kind, "requestId": "x", "requestData": data}}).to_string()))
-            .unwrap();
+        ws.send(Message::text(
+            json!({"op": 6, "d": {"requestType": kind, "requestId": "x", "requestData": data}}).to_string(),
+        ))
+        .unwrap();
         read_json(&mut ws)["d"].clone()
     };
     let list = ask("GetOutputList", json!({}));
@@ -241,9 +245,14 @@ fn stopping_disconnects() {
     let mut ws = connect(&format!("ws://127.0.0.1:{port}/rpc"));
     drop(srv);
     let closed = (0..50).any(|_| matches!(ws.read(), Ok(Message::Close(_)) | Err(_)));
-    assert!(closed);
-    std::thread::sleep(std::time::Duration::from_millis(100));
-    assert!(TcpStream::connect(("127.0.0.1", port)).is_err() || post(port, "/mcp", "{}", None).0 != 200);
+    assert!(closed, "an open session is closed");
+    // and nothing new is served: refused, or met with silence
+    if let Ok(mut s) = TcpStream::connect(("127.0.0.1", port)) {
+        let _ = write!(s, "GET / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
+        let mut out = String::new();
+        let _ = s.read_to_string(&mut out);
+        assert!(!out.starts_with("HTTP/1.1 200"), "{out}");
+    }
 }
 
 #[test]

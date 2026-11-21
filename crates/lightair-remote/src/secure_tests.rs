@@ -628,8 +628,15 @@ fn control_phones_manage_devices_and_at_most_eight_connect() {
     assert_eq!(sign_in(8).unwrap_err().0, 503);
     // one leaves: room again
     drop(held.pop());
-    std::thread::sleep(std::time::Duration::from_millis(300));
-    let mut ninth = sign_in(8).expect("room after one left");
+    // (the server notices the closed socket on its own time: wait for it, not a guessed delay)
+    let start = std::time::Instant::now();
+    let mut ninth = loop {
+        match sign_in(8) {
+            Ok(ws) => break ws,
+            Err(e) => assert!(start.elapsed() < std::time::Duration::from_secs(5), "no room after one left: {}", e.0),
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
 
     // a control device removes another: its session stops working
     assert_eq!(call(&mut first, 2, "pair.remove", json!({"device": "phone-8"}))["result"]["removed"], true);

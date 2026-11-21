@@ -540,13 +540,17 @@ mod tests {
     }
 
     #[test]
-    fn locks_out_after_too_many_claims() {
+    fn too_many_wrong_claims_lock_the_guesser_out_even_with_the_right_code() {
         let p = Pairing::new(vec![], |_| true, |_| {});
-        let peer: IpAddr = "10.0.0.2".parse().unwrap();
+        let key = SigningKey::from_bytes(&[7; 32]);
+        let guesser: IpAddr = "10.0.0.2".parse().unwrap();
         for _ in 0..CLAIMS_PER_MINUTE {
-            let _ = p.claim(&json!({"secret": "AAAA"}), peer, &desktop());
+            let _ = p.claim(&json!({"secret": "AAAA"}), guesser, &desktop());
         }
-        assert!(p.claim(&json!({"secret": "AAAA"}), peer, &desktop()).unwrap_err().0.contains("15 minutes"));
+        let offer = p.offer(Scope::Control);
+        assert!(p.claim(&claim_params(&offer.secret, &key), guesser, &desktop()).is_err(), "locked out");
+        let phone: IpAddr = "10.0.0.3".parse().unwrap();
+        assert!(p.claim(&claim_params(&offer.secret, &key), phone, &desktop()).is_ok(), "others still pair");
     }
 
     #[test]
