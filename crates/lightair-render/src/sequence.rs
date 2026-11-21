@@ -1035,6 +1035,9 @@ pub struct Track {
     /// Its height on the timeline (points), when it's been changed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub height: Option<f32>,
+    /// The name it was given (none: named for what's on it, as the editors show it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 impl Track {
@@ -1053,6 +1056,7 @@ impl Track {
             locked: false,
             captions: false,
             height: None,
+            name: None,
         }
     }
 
