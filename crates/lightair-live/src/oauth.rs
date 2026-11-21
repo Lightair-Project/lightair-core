@@ -35,7 +35,29 @@ struct App {
     secret: Option<String>,
 }
 
+/// Apps set by the program itself (a phone app's own registrations): before the environment,
+/// the person's own and the build's.
+static SET_APPS: parking_lot::Mutex<Vec<(String, String, Option<String>)>> = parking_lot::Mutex::new(Vec::new());
+
+/// Uses `client_id` (and `secret`, where the platform wants one) for `provider` from now on, in
+/// this process: a program with its own registration (Lightair Live's phone apps). Empty
+/// forgets it.
+pub fn set_app(provider: &str, client_id: &str, secret: Option<&str>) {
+    let mut apps = SET_APPS.lock();
+    apps.retain(|(p, _, _)| p != provider);
+    if !client_id.trim().is_empty() {
+        apps.push((
+            provider.into(),
+            client_id.trim().into(),
+            secret.map(str::trim).filter(|s| !s.is_empty()).map(String::from),
+        ));
+    }
+}
+
 fn app(provider: &str) -> Option<App> {
+    if let Some((_, id, secret)) = SET_APPS.lock().iter().find(|(p, _, _)| p == provider) {
+        return Some(App { client_id: id.clone(), secret: secret.clone() });
+    }
     let (id, secret) = match provider {
         "youtube" => (option_env!("LIGHTAIR_YOUTUBE_CLIENT_ID"), option_env!("LIGHTAIR_YOUTUBE_CLIENT_SECRET")),
         "twitch" => (option_env!("LIGHTAIR_TWITCH_CLIENT_ID"), None),
@@ -265,11 +287,84 @@ pub fn sign_in(provider: &str, prompt: Prompt) -> Result<String, String> {
     let app = app(provider).ok_or_else(|| {
         format!("this copy of Lightair has no {provider} app to sign in with (docs/official-apis.md)")
     })?;
-    let token = match provider {
-        "twitch" => twitch_device(&app, &prompt)?,
-        "youtube" | "kick" | "x" | "spotify" => code_flow(provider, &app, &prompt)?,
-        other => return Err(format!("no official sign-in for {other}")),
+    let _ = app;
+    match provider {
+        "twitch" => twitch_device(&prompt),
+        "youtube" | "kick" | "x" | "spotify" => code_flow(provider, &prompt),
+        other => Err(format!("no official sign-in for {other}")),
+    }
+}
+
+/// A sign-in under way by the authorization code flow: what's needed to finish it.
+#[derive(Debug, Clone)]
+pub struct Pending {
+    pub provider: String,
+    pub redirect: String,
+    pub state: String,
+    verifier: String,
+}
+
+/// The first step of the authorization code flow with PKCE: the page to open (in the browser,
+/// or a phone's sign-in sheet) and what finishing it needs. `redirect` is where the platform
+/// sends the browser back (registered with the app).
+pub fn authorize(provider: &str, redirect: &str) -> Result<(String, Pending), String> {
+    let app = app(provider).ok_or_else(|| format!("no {provider} app to sign in with (docs/official-apis.md)"))?;
+    let verifier = b64url(&random(48));
+    let challenge = {
+        use sha2::Digest;
+        b64url(&sha2::Sha256::digest(verifier.as_bytes()))
     };
+    let state = b64url(&random(16));
+    let (auth, scope) = match provider {
+        "youtube" => ("https://accounts.google.com/o/oauth2/v2/auth", "https://www.googleapis.com/auth/youtube"),
+        "x" => {
+            ("https://x.com/i/oauth2/authorize", "broadcast.read broadcast.write tweet.read users.read offline.access")
+        }
+        "spotify" => ("https://accounts.spotify.com/authorize", "user-read-currently-playing user-read-playback-state"),
+        "kick" => {
+            ("https://id.kick.com/oauth/authorize", "user:read channel:read channel:write chat:write moderation:ban")
+        }
+        other => return Err(format!("no sign-in page for {other}")),
+    };
+    let mut url = format!(
+        "{auth}?response_type=code&client_id={}&redirect_uri={}&scope={}&code_challenge={challenge}&code_challenge_method=S256&state={state}",
+        encode(&app.client_id),
+        encode(redirect),
+        encode(scope)
+    );
+    if provider == "youtube" {
+        url.push_str("&access_type=offline&prompt=consent");
+    }
+    Ok((url, Pending { provider: provider.into(), redirect: redirect.into(), state, verifier }))
+}
+
+/// Finishes a sign-in with the code the platform sent back (checked against its state):
+/// exchanges it, finds who signed in and keeps the token. The account's name.
+pub fn complete(pending: &Pending, code: &str, state: &str) -> Result<String, String> {
+    if state != pending.state {
+        return Err("that sign-in came back for another request; try again".into());
+    }
+    let provider = pending.provider.as_str();
+    let app = app(provider).ok_or_else(|| format!("no {provider} app to sign in with"))?;
+    let fields = vec![
+        ("grant_type", "authorization_code"),
+        ("client_id", app.client_id.as_str()),
+        ("code", code),
+        ("code_verifier", pending.verifier.as_str()),
+        ("redirect_uri", pending.redirect.as_str()),
+    ];
+    let v = exchange(provider, &app, token_url(provider), fields)?;
+    if v["access_token"].as_str().is_none() {
+        return Err(format!(
+            "{provider} didn't give a token: {}",
+            v["error_description"].as_str().or(v["error"].as_str()).unwrap_or("")
+        ));
+    }
+    keep_token(provider, v)
+}
+
+/// A token answer kept, with when it runs out and who it's for: the account's name.
+fn keep_token(provider: &str, token: Value) -> Result<String, String> {
     let mut record = token;
     record["expires_at"] = json!(now() + record["expires_in"].as_i64().unwrap_or(3600));
     let (id, name) = whoami(provider, record["access_token"].as_str().unwrap_or(""))?;
@@ -279,7 +374,7 @@ pub fn sign_in(provider: &str, prompt: Prompt) -> Result<String, String> {
     Ok(name)
 }
 
-fn code_flow(provider: &str, app: &App, prompt: &Prompt) -> Result<Value, String> {
+fn code_flow(provider: &str, prompt: &Prompt) -> Result<String, String> {
     let fixed = match provider {
         "kick" => Some(47801),
         "x" => Some(47802),
@@ -297,77 +392,66 @@ fn code_flow(provider: &str, app: &App, prompt: &Prompt) -> Result<Value, String
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let redirect =
         if fixed.is_some() { format!("http://127.0.0.1:{port}/callback") } else { format!("http://127.0.0.1:{port}") };
-    let verifier = b64url(&random(48));
-    let challenge = {
-        use sha2::Digest;
-        b64url(&sha2::Sha256::digest(verifier.as_bytes()))
-    };
-    let state = b64url(&random(16));
-    let (auth, scope) = match provider {
-        "youtube" => ("https://accounts.google.com/o/oauth2/v2/auth", "https://www.googleapis.com/auth/youtube"),
-        "x" => {
-            ("https://x.com/i/oauth2/authorize", "broadcast.read broadcast.write tweet.read users.read offline.access")
-        }
-        "spotify" => ("https://accounts.spotify.com/authorize", "user-read-currently-playing user-read-playback-state"),
-        _ => ("https://id.kick.com/oauth/authorize", "user:read channel:read channel:write chat:write moderation:ban"),
-    };
-    let mut url = format!(
-        "{auth}?response_type=code&client_id={}&redirect_uri={}&scope={}&code_challenge={challenge}&code_challenge_method=S256&state={state}",
-        encode(&app.client_id),
-        encode(&redirect),
-        encode(scope)
-    );
-    if provider == "youtube" {
-        url.push_str("&access_type=offline&prompt=consent");
-    }
+    let (url, pending) = authorize(provider, &redirect)?;
     prompt("Finish signing in in your browser…");
     open_browser(&url);
-    let code = wait_for_code(&listener, &state, Duration::from_secs(300))?;
-    let token_url = token_url(provider);
-    let fields = vec![
-        ("grant_type", "authorization_code"),
-        ("client_id", app.client_id.as_str()),
-        ("code", code.as_str()),
-        ("code_verifier", verifier.as_str()),
-        ("redirect_uri", redirect.as_str()),
-    ];
-    let v = exchange(provider, app, token_url, fields)?;
-    if v["access_token"].as_str().is_none() {
-        return Err(format!(
-            "{provider} didn't give a token: {}",
-            v["error_description"].as_str().or(v["error"].as_str()).unwrap_or("")
-        ));
-    }
-    Ok(v)
+    let code = wait_for_code(&listener, &pending.state, Duration::from_secs(300))?;
+    complete(&pending, &code, &pending.state.clone())
 }
 
-fn twitch_device(app: &App, prompt: &Prompt) -> Result<Value, String> {
-    let scopes = "channel:manage:broadcast user:write:chat user:read:chat moderator:manage:banned_users moderator:manage:chat_messages \
+/// Twitch's device code flow, started: the code to show and the page to open.
+#[derive(Debug, Clone)]
+pub struct Device {
+    pub user_code: String,
+    pub uri: String,
+    device_code: String,
+    every: Duration,
+    until: Instant,
+}
+
+const TWITCH_SCOPES: &str = "channel:manage:broadcast user:write:chat user:read:chat moderator:manage:banned_users moderator:manage:chat_messages \
                   channel:read:redemptions channel:edit:commercial channel:manage:polls channel:manage:predictions channel:manage:raids \
                   moderator:manage:shoutouts clips:edit";
-    let v = post_form("https://id.twitch.tv/oauth2/device", &[("client_id", &app.client_id), ("scopes", scopes)])?;
+
+/// Starts Twitch's device code flow (its flow for public clients: no redirect, no secret).
+pub fn device_start() -> Result<Device, String> {
+    let app = app("twitch").ok_or("no twitch app to sign in with (docs/official-apis.md)")?;
+    let v =
+        post_form("https://id.twitch.tv/oauth2/device", &[("client_id", &app.client_id), ("scopes", TWITCH_SCOPES)])?;
     let (Some(device), Some(code), Some(uri)) =
         (v["device_code"].as_str(), v["user_code"].as_str(), v["verification_uri"].as_str())
     else {
         return Err(format!("Twitch didn't start the sign-in: {}", v["message"].as_str().unwrap_or("")));
     };
-    prompt(&format!("Check that Twitch shows the code {code}, then Authorize"));
-    open_browser(uri);
-    let every = Duration::from_secs(v["interval"].as_u64().unwrap_or(5));
-    let until = Instant::now() + Duration::from_secs(v["expires_in"].as_u64().unwrap_or(1800).min(1800));
-    while Instant::now() < until {
-        std::thread::sleep(every);
+    Ok(Device {
+        user_code: code.into(),
+        uri: uri.into(),
+        device_code: device.into(),
+        every: Duration::from_secs(v["interval"].as_u64().unwrap_or(5)),
+        until: Instant::now() + Duration::from_secs(v["expires_in"].as_u64().unwrap_or(1800).min(1800)),
+    })
+}
+
+/// Waits for the person to authorize the device code (blocks; up to 30 min): the account's
+/// name. `go_on` false stops waiting.
+pub fn device_wait(d: &Device, go_on: &dyn Fn() -> bool) -> Result<String, String> {
+    let app = app("twitch").ok_or("no twitch app to sign in with")?;
+    while Instant::now() < d.until {
+        std::thread::sleep(d.every);
+        if !go_on() {
+            return Err("stopped".into());
+        }
         let t = post_form(
             "https://id.twitch.tv/oauth2/token",
             &[
                 ("client_id", &app.client_id),
-                ("scopes", scopes),
-                ("device_code", device),
+                ("scopes", TWITCH_SCOPES),
+                ("device_code", &d.device_code),
                 ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
             ],
         )?;
         if t["access_token"].is_string() {
-            return Ok(t);
+            return keep_token("twitch", t);
         }
         match t["message"].as_str().unwrap_or("") {
             "authorization_pending" => continue,
@@ -375,6 +459,13 @@ fn twitch_device(app: &App, prompt: &Prompt) -> Result<Value, String> {
         }
     }
     Err("the sign-in wasn't finished in time".into())
+}
+
+fn twitch_device(prompt: &Prompt) -> Result<String, String> {
+    let d = device_start()?;
+    prompt(&format!("Check that Twitch shows the code {}, then Authorize", d.user_code));
+    open_browser(&d.uri);
+    device_wait(&d, &|| true)
 }
 
 fn token_url(provider: &str) -> &'static str {
