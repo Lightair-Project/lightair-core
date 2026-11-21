@@ -159,3 +159,22 @@ pub fn disc(rgb: [f32; 3]) -> Bitmap {
         (r < 0.48).then_some([rgb[0], rgb[1], rgb[2], 1.0])
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The pointer is drawn where it points: the arrow's tip at its hot spot (the live filter and
+    /// the renderer both place it by the hot spot).
+    #[test]
+    fn the_arrows_tip_is_at_its_hot_spot() {
+        let a = arrow();
+        let px = |x: f32, y: f32| {
+            let i = (((y * RES as f32) as usize) * RES + (x * RES as f32) as usize) * 4;
+            [a.rgba[i], a.rgba[i + 1], a.rgba[i + 2], a.rgba[i + 3]]
+        };
+        assert!(px(a.hot.0 + 0.01, a.hot.1 + 0.02)[3] > 0, "something at the tip");
+        assert_eq!(px(0.2, 0.4), [255, 255, 255, 255], "white body");
+        assert_eq!(px(0.95, 0.1)[3], 0, "nothing far from it");
+    }
+}
