@@ -783,6 +783,7 @@ mod imp {
 #[cfg(test)]
 mod tests {
     #[test]
+    #[ignore = "reads this computer's pointer and races a thread start (cargo test -- --ignored)"]
     fn the_pointer_is_logged_without_any_permission() {
         // the position is read, and the recorder logs it from the start
         let r = super::Recorder::start(120);

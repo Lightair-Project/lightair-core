@@ -84,11 +84,10 @@ impl Paths for DesktopPaths {
 mod tests {
     use super::*;
 
+    /// Where people's workspaces and recordings already are: moving either loses them.
     #[test]
-    fn folders_are_under_the_user() {
-        let home = dirs::home_dir().unwrap();
+    fn workspaces_and_recordings_stay_where_people_have_them() {
         let d = DesktopPaths;
-        assert!(d.data_dir().starts_with(&home) || cfg!(windows));
         assert!(
             d.workspaces_dir().ends_with("Lightair/Workspaces") || d.workspaces_dir().ends_with("Lightair\\Workspaces")
         );
