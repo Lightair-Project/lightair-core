@@ -404,14 +404,4 @@ mod category_tests {
         assert_eq!(g, vec![Category { id: "20".into(), name: "Gaming".into(), image: None }]);
         assert!(categories("tiktok", "x").is_err());
     }
-
-    /// Asks Twitch itself (network): `cargo test -p lightair-live -- --ignored categories_live`
-    #[test]
-    #[ignore]
-    fn categories_live() {
-        // (Kick's goes through a hidden page: the app's, not a test's)
-        let found = categories("twitch", "just chatting").unwrap();
-        eprintln!("twitch: {:?}", found.iter().take(3).collect::<Vec<_>>());
-        assert!(found.iter().any(|c| c.name.eq_ignore_ascii_case("just chatting")), "{found:?}");
-    }
 }

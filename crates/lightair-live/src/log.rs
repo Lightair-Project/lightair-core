@@ -97,7 +97,12 @@ mod tests {
             crate::Channel { platform: "twitch".into(), channel: "x".into() },
             ChatEvent::new("twitch", "x", crate::Kind::Message),
         );
-        std::thread::sleep(Duration::from_millis(900));
+        // the writer batches for a moment: wait for the file, not a guessed time
+        let start = std::time::Instant::now();
+        while recent(&dir, 10).is_empty() {
+            assert!(start.elapsed() < Duration::from_secs(5), "never written");
+            std::thread::sleep(Duration::from_millis(10));
+        }
         let again = Hub::new();
         again.restore(recent(&dir, 10));
         assert_eq!(again.history().len(), 1);

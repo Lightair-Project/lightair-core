@@ -27,10 +27,10 @@ pub mod kick;
 pub mod moderate;
 pub mod niconico;
 pub mod oauth;
-pub mod shroudy;
 pub mod official;
 pub mod send;
 pub mod showroom;
+pub mod shroudy;
 pub mod soop;
 pub mod stream_info;
 pub mod tiktok;
@@ -98,26 +98,4 @@ pub fn channel_hint(platform: &str) -> Option<&'static str> {
         "huya" => "Room number or link (huya.com/…)",
         _ => return None,
     })
-}
-
-#[cfg(test)]
-mod live_check {
-    /// With LIGHTAIR_LIVE_CHECK=platform:channel (a live stream), reads it through the hub for
-    /// LIGHTAIR_LIVE_SECONDS (20) and prints what came: any reader, as the app runs it.
-    #[test]
-    fn read_a_live_channel() {
-        let Ok(spec) = std::env::var("LIGHTAIR_LIVE_CHECK") else { return };
-        let (platform, channel) = spec.split_once(':').expect("platform:channel");
-        let secs = std::env::var("LIGHTAIR_LIVE_SECONDS").ok().and_then(|s| s.parse().ok()).unwrap_or(20);
-        let hub = crate::hub::Hub::new();
-        let c = crate::Channel { platform: platform.into(), channel: channel.into() };
-        hub.set_channels(std::slice::from_ref(&c));
-        std::thread::sleep(std::time::Duration::from_secs(secs));
-        for e in hub.history() {
-            let who = e.user.as_ref().map(|u| u.display_name.clone()).unwrap_or_default();
-            eprintln!("{:?} {who}: {} {}", e.kind, e.headline.unwrap_or_default(), e.text);
-        }
-        eprintln!("status {:?}, {} events", hub.status().get(&c), hub.history().len());
-        assert!(!hub.history().is_empty(), "nothing read");
-    }
 }

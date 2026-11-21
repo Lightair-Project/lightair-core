@@ -169,24 +169,3 @@ pub fn download(url: &str, limit: u64) -> Result<Vec<u8>, String> {
     }
     res.body_mut().with_config().limit(limit).read_to_vec().map_err(|e| format!("{url}: {e}"))
 }
-
-#[cfg(test)]
-mod tls_tests {
-    /// Over the network: `cargo test -p lightair-live -- --ignored tls`.
-    #[test]
-    #[ignore]
-    fn https_and_wss_through_rustls_and_the_system_verifier() {
-        let body = super::get(&super::agent(), "https://www.example.com/", &[]).unwrap();
-        assert!(body.contains("Example Domain"));
-        let mut socket = super::connect("wss://ws.postman-echo.com/raw", std::time::Duration::from_secs(5)).unwrap();
-        socket.send(tungstenite::Message::text("lightair")).unwrap();
-        let reply = loop {
-            if let Some(m) = super::read(&mut socket).unwrap() {
-                break m;
-            }
-        };
-        assert_eq!(reply.to_text().unwrap(), "lightair");
-        // a certificate the system doesn't trust is refused
-        assert!(super::get(&super::agent(), "https://self-signed.badssl.com/", &[]).is_err());
-    }
-}

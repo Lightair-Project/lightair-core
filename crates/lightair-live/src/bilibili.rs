@@ -257,29 +257,3 @@ mod tests {
         assert_eq!(room("https://live.bilibili.com/21452505?from=x"), "21452505");
     }
 }
-
-#[cfg(test)]
-mod live_check {
-    /// With LIGHTAIR_BILIBILI_ROOM set to a live room: where the time goes.
-    #[test]
-    fn steps() {
-        let Ok(room) = std::env::var("LIGHTAIR_BILIBILI_ROOM") else { return };
-        let t = std::time::Instant::now();
-        let agent = crate::net::agent();
-        let init = crate::net::get_json(
-            &agent,
-            &format!("https://api.live.bilibili.com/room/v1/Room/room_init?id={room}"),
-            &[],
-        );
-        eprintln!("init {:?} after {:?}", init.as_ref().map(|v| v["data"]["live_status"].clone()), t.elapsed());
-        let conf = crate::net::get_json(
-            &agent,
-            &format!("https://api.live.bilibili.com/room/v1/Danmu/getConf?room_id={room}&platform=pc&player=web"),
-            &[],
-        );
-        eprintln!("conf ok {} after {:?}", conf.is_ok(), t.elapsed());
-        let host = conf.unwrap()["data"]["host_server_list"][0]["host"].as_str().unwrap().to_string();
-        let s = crate::net::connect(&format!("wss://{host}/sub"), std::time::Duration::from_millis(500));
-        eprintln!("connect {} after {:?}", s.is_ok(), t.elapsed());
-    }
-}

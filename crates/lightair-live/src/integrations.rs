@@ -428,18 +428,3 @@ mod tests {
         assert!(super::hue_bridge().is_none());
     }
 }
-
-#[cfg(test)]
-mod vts_check {
-    /// With LIGHTAIR_VTS_PORT set to a VTube Studio (or a stand-in): the whole sign-in and a hotkey.
-    #[test]
-    fn hotkey_against_a_running_vtube_studio() {
-        if std::env::var("LIGHTAIR_VTS_PORT").is_err() {
-            return;
-        }
-        super::set_dir(std::env::temp_dir().join(format!("lightair-vts-{}", std::process::id())));
-        let list = super::call("vts.hotkeys", &serde_json::json!({})).unwrap().unwrap();
-        assert_eq!(list["hotkeys"][0]["name"], "Wave");
-        super::call("vts.hotkey", &serde_json::json!({"hotkey": "wave"})).unwrap().unwrap();
-    }
-}

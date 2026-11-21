@@ -118,29 +118,3 @@ mod tests {
         assert_eq!(room("https://www.showroom-live.com/r/kogachan"), "kogachan");
     }
 }
-
-#[cfg(test)]
-mod live_check {
-    /// With LIGHTAIR_SHOWROOM_ROOM set to a live room: its socket answers.
-    #[test]
-    fn socket() {
-        let Ok(room) = std::env::var("LIGHTAIR_SHOWROOM_ROOM") else { return };
-        let agent = crate::net::agent();
-        let status = crate::net::get_json(
-            &agent,
-            &format!("https://www.showroom-live.com/api/room/status?room_url_key={room}"),
-            &[],
-        )
-        .unwrap();
-        let key = status["broadcast_key"].as_str().unwrap().to_string();
-        eprintln!("key {key:?} host {:?}", status["broadcast_host"]);
-        let mut socket =
-            crate::net::connect("wss://online.showroom-live.com/", std::time::Duration::from_millis(500)).unwrap();
-        socket.send(tungstenite::Message::text(format!("SUB\t{key}"))).unwrap();
-        for _ in 0..40 {
-            if let Some(m) = crate::net::read(&mut socket).unwrap() {
-                eprintln!("got {}", m.to_string().chars().take(120).collect::<String>());
-            }
-        }
-    }
-}

@@ -684,7 +684,8 @@ mod tests {
     #[test]
     fn the_code_is_exchanged_at_shroudy_with_its_verifier() {
         use sha2::Digest;
-        let (base, got) = shroudy::fake::shroudy(200, r#"{"access_token":"a1","refresh_token":"r1","expires_in":3600}"#);
+        let (base, got) =
+            shroudy::fake::shroudy(200, r#"{"access_token":"a1","refresh_token":"r1","expires_in":3600}"#);
         let (url, pending) = authorize_via("kick", &Broker::at(&base), DESKTOP).unwrap();
         let (_, q) = page(&url);
         let token = exchange_code(&pending, "c0de", get(&q, "state")).unwrap();
@@ -705,7 +706,8 @@ mod tests {
     #[test]
     fn a_code_for_another_sign_in_is_refused_before_asking_shroudy() {
         // nothing listens here: asking would fail differently
-        let (_, pending) = authorize_via("kick", &Broker::at("http://127.0.0.1:9/v1/lightair/oauth/kick"), DESKTOP).unwrap();
+        let (_, pending) =
+            authorize_via("kick", &Broker::at("http://127.0.0.1:9/v1/lightair/oauth/kick"), DESKTOP).unwrap();
         let err = exchange_code(&pending, "c0de", "desktop.someone-else").unwrap_err();
         assert!(err.contains("another request"), "{err}");
     }
