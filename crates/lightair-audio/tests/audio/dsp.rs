@@ -152,17 +152,31 @@ fn noise_suppression_takes_down_noise() {
     assert_eq!(proc.latency(), 480, "10 ms frames");
 }
 
-#[test]
-fn reverb_tail_and_delay_echo() {
+fn impulse() -> Vec<f32> {
     let mut impulse = vec![0f32; 48_000];
     impulse[0] = 1.0;
-    let (wet, _) = run(Params::Reverb(ReverbParams { mix: 1.0, ..ReverbParams::default() }), &impulse);
+    impulse
+}
+
+#[test]
+fn a_reverb_leaves_a_tail() {
+    let (wet, _) = run(Params::Reverb(ReverbParams { mix: 1.0, ..ReverbParams::default() }), &impulse());
     let energy = |x: &[f32]| x.iter().map(|v| v * v).sum::<f32>();
     assert!(energy(&wet[4_800..24_000]) > 1e-4, "a tail between 100 and 500 ms");
-    let (dry, _) = run(Params::Reverb(ReverbParams { mix: 0.0, ..ReverbParams::default() }), &impulse);
-    assert_eq!(dry, impulse, "dry: untouched");
-    let (echo, _) =
-        run(Params::Delay(DelayParams { time_ms: 250.0, feedback: 0.0, mix: 0.5, ..DelayParams::default() }), &impulse);
+}
+
+#[test]
+fn a_dry_reverb_leaves_the_sound_untouched() {
+    let (dry, _) = run(Params::Reverb(ReverbParams { mix: 0.0, ..ReverbParams::default() }), &impulse());
+    assert_eq!(dry, impulse());
+}
+
+#[test]
+fn a_delay_echoes_after_its_time() {
+    let (echo, _) = run(
+        Params::Delay(DelayParams { time_ms: 250.0, feedback: 0.0, mix: 0.5, ..DelayParams::default() }),
+        &impulse(),
+    );
     let at = (1..echo.len()).max_by(|&a, &b| echo[a].abs().total_cmp(&echo[b].abs())).unwrap();
     assert!((at as i32 - 12_000).abs() <= 2, "the echo 250 ms later (at {at})");
 }

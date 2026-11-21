@@ -1,13 +1,11 @@
 //! What the mixer costs: a podcast-sized graph (eight mics with Voice Clarity, EQ and a
 //! compressor, a music track ducked under them with reverb, a bus, two mixes), timed per block.
-//! Run optimised: `cargo test -p lightair-audio --release --test audio cost -- --ignored --nocapture`.
+//! A measurement, not a test. Run optimised: `cargo run -p lightair-audio --release --example podcast_cost`.
 
 use lightair_audio::dsp::*;
 use lightair_audio::{Channels, Dest, EffectSpec, Engine, GraphSpec, InputBlock, Mix, Send, Strip};
 
-#[test]
-#[ignore = "a measurement; run optimised"]
-fn podcast_graph_cost() {
+fn main() {
     let e = |id, params| EffectSpec { id, enabled: true, params };
     let mut strips: Vec<Strip> = (0..8u128)
         .map(|i| {

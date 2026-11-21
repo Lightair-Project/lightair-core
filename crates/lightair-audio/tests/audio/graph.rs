@@ -316,3 +316,22 @@ fn mixes_and_program_can_be_cued_and_trimmed() {
     assert!(close(last(r.graph().program().0), 0.25), "Program's trim");
     assert!(close(last(r.graph().mix(99).unwrap().0), 0.5), "the cue hears both, trimmed");
 }
+
+#[test]
+fn a_garbage_block_from_a_device_doesnt_silence_the_mix_for_good() {
+    use lightair_audio::dsp::{CompressorParams, EqParams};
+    let mut t = Strip::track(1, MIC, Channels::Mono(0));
+    let e = |id, params| EffectSpec { id, enabled: true, params };
+    t.inserts = vec![e(7, Params::Eq(EqParams::default())), e(8, Params::Compressor(CompressorParams::default()))];
+    let (_, mut r) = run(GraphSpec { strips: vec![t], ..Default::default() }, 2);
+    // a driver hands over one block of NaN and infinity
+    let bad: Vec<f32> = (0..BLOCK).map(|i| if i % 2 == 0 { f32::NAN } else { f32::INFINITY }).collect();
+    r.process(&[InputBlock { id: MIC, channels: &[&bad] }], BLOCK);
+    let good = dc(0.5);
+    for _ in 0..20 {
+        r.process(&[InputBlock { id: MIC, channels: &[&good] }], BLOCK);
+    }
+    let (l, rr) = r.graph().program();
+    assert!(l.iter().chain(rr).all(|v| v.is_finite()), "program still finite after the bad block");
+    assert!(last(l).abs() > 0.1, "and the mic is heard again ({})", last(l));
+}
