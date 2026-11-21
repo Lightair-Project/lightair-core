@@ -108,8 +108,10 @@ fn take_tags(page: &mut String, tag: &str) -> Vec<String> {
 /// Without the indent every line shares, and the blank lines around it.
 fn dedent(text: &str) -> String {
     let lines: Vec<&str> = text.trim_matches('\n').lines().collect();
-    let indent = lines.iter().filter(|l| !l.trim().is_empty()).map(|l| l.len() - l.trim_start().len()).min().unwrap_or(0);
-    let mut out: Vec<&str> = lines.iter().map(|l| if l.len() >= indent { &l[indent..] } else { l.trim_start() }).collect();
+    let indent =
+        lines.iter().filter(|l| !l.trim().is_empty()).map(|l| l.len() - l.trim_start().len()).min().unwrap_or(0);
+    let mut out: Vec<&str> =
+        lines.iter().map(|l| if l.len() >= indent { &l[indent..] } else { l.trim_start() }).collect();
     while out.last().is_some_and(|l| l.trim().is_empty()) {
         out.pop();
     }
@@ -120,7 +122,8 @@ fn dedent(text: &str) -> String {
 /// `fields.json`, the names a package uses.
 pub fn write_folder(c: &Custom, dir: &std::path::Path) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    for (file, text) in [("index.html", &c.html), ("style.css", &c.css), ("main.js", &c.js), ("fields.json", &c.fields)] {
+    for (file, text) in [("index.html", &c.html), ("style.css", &c.css), ("main.js", &c.js), ("fields.json", &c.fields)]
+    {
         let path = dir.join(file);
         // (unchanged files are left alone, so an editor showing them isn't told they changed)
         if std::fs::read_to_string(&path).ok().as_deref() != Some(text.as_str()) {
@@ -145,7 +148,14 @@ impl Instance {
 
     /// A new widget of `kind`.
     pub fn new(kind: &str, custom: Option<Custom>) -> Instance {
-        Instance { id: random_hex(8), kind: kind.into(), key: random_hex(16), fields: Value::Object(Default::default()), custom, platforms: Vec::new() }
+        Instance {
+            id: random_hex(8),
+            kind: kind.into(),
+            key: random_hex(16),
+            fields: Value::Object(Default::default()),
+            custom,
+            platforms: Vec::new(),
+        }
     }
 
     /// Whether it gets events from `platform`.
@@ -212,7 +222,8 @@ pub fn export(c: &Custom, name: &str, size: (u32, u32), path: &std::path::Path) 
     let file = std::fs::File::create(path).map_err(|e| e.to_string())?;
     let mut zip = zip::ZipWriter::new(file);
     let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-    let manifest = serde_json::json!({"name": name, "version": "1.0.0", "size": [size.0, size.1], "format": "lightair-widget/1"});
+    let manifest =
+        serde_json::json!({"name": name, "version": "1.0.0", "size": [size.0, size.1], "format": "lightair-widget/1"});
     for (file, text) in [
         ("manifest.json", serde_json::to_string_pretty(&manifest).unwrap_or_default()),
         ("index.html", c.html.clone()),
@@ -258,7 +269,13 @@ mod tests {
 
     #[test]
     fn packages_round_trip() {
-        let c = Custom { html: "<div>{{title}}</div>".into(), css: "div{}".into(), js: "1".into(), fields: r#"{"title":{"type":"text","value":"x"}}"#.into(), folder: None };
+        let c = Custom {
+            html: "<div>{{title}}</div>".into(),
+            css: "div{}".into(),
+            js: "1".into(),
+            fields: r#"{"title":{"type":"text","value":"x"}}"#.into(),
+            folder: None,
+        };
         let path = std::env::temp_dir().join(format!("lightair-{}.lwidget", std::process::id()));
         export(&c, "Test", (400, 200), &path).unwrap();
         assert_eq!(import(&path).unwrap(), c);

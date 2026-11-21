@@ -18,20 +18,20 @@ pub mod exporter;
 pub mod fx;
 pub mod generate;
 pub mod keys;
-pub mod sound;
 pub mod media;
 pub mod mix;
 pub mod motion;
 pub mod pointer;
+pub mod scene;
 pub mod seqrender;
 pub mod sequence;
 pub mod shapes;
+pub mod sound;
+pub mod speech;
 #[cfg(target_os = "macos")]
 pub mod surface;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub mod texture;
 pub mod thumbs;
-pub mod scene;
-pub mod speech;
 pub mod timeline;
 pub mod zoom;

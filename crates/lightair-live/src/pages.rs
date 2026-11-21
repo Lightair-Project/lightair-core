@@ -42,9 +42,12 @@ pub trait Host: Send + Sync {
 pub fn cookies(url: &str) -> Vec<(String, String)> {
     let Ok(host) = host() else { return Vec::new() };
     let (tx, rx) = mpsc::channel();
-    host.cookies(url, Box::new(move |c| {
-        let _ = tx.send(c);
-    }));
+    host.cookies(
+        url,
+        Box::new(move |c| {
+            let _ = tx.send(c);
+        }),
+    );
     rx.recv_timeout(Duration::from_secs(5)).unwrap_or_default()
 }
 
@@ -66,7 +69,8 @@ pub fn host() -> Result<Arc<dyn Host>, String> {
 
 /// What every script can call to send a message: `lightair("text")`. The host defines how it
 /// gets out (Chromium: a console line with a marker).
-pub const PRELUDE: &str = "window.lightair = window.lightair || function (m) { console.log('\\u0001lightair:' + m); };\n";
+pub const PRELUDE: &str =
+    "window.lightair = window.lightair || function (m) { console.log('\\u0001lightair:' + m); };\n";
 
 /// Opens `url` with `script` (which can call `lightair(text)`) and gives back the first message
 /// it sends, within `timeout`, or sooner if `stop` is set. The page is closed after.
@@ -74,9 +78,13 @@ pub fn run(url: &str, script: &str, timeout: Duration, stop: &AtomicBool) -> Res
     let host = host()?;
     let (tx, rx) = mpsc::channel::<String>();
     let tx = parking_lot::Mutex::new(tx);
-    let page = host.open(url, &format!("{PRELUDE}{script}"), Arc::new(move |m| {
-        let _ = tx.lock().send(m);
-    }));
+    let page = host.open(
+        url,
+        &format!("{PRELUDE}{script}"),
+        Arc::new(move |m| {
+            let _ = tx.lock().send(m);
+        }),
+    );
     let started = Instant::now();
     let out = loop {
         if stop.load(Ordering::Acquire) {
@@ -118,13 +126,17 @@ pub fn run_script(code: &str, ctx: &serde_json::Value, timeout: Duration) -> Res
         if s.as_ref().is_none_or(|s| s.used.elapsed() > Duration::from_secs(600)) {
             let answers: Arc<parking_lot::Mutex<std::collections::HashMap<u64, String>>> = Default::default();
             let store = answers.clone();
-            let page = host()?.open("data:text/html,<title>Lightair scripts</title>", &format!("{PRELUDE}lightair('0:ready');"), Arc::new(move |m: String| {
-                if let Some((id, rest)) = m.split_once(':')
-                    && let Ok(id) = id.parse::<u64>()
-                {
-                    store.lock().insert(id, rest.to_string());
-                }
-            }));
+            let page = host()?.open(
+                "data:text/html,<title>Lightair scripts</title>",
+                &format!("{PRELUDE}lightair('0:ready');"),
+                Arc::new(move |m: String| {
+                    if let Some((id, rest)) = m.split_once(':')
+                        && let Ok(id) = id.parse::<u64>()
+                    {
+                        store.lock().insert(id, rest.to_string());
+                    }
+                }),
+            );
             // the page says when it's loaded and can run something
             let started = Instant::now();
             while answers.lock().remove(&0).is_none() {
@@ -148,7 +160,11 @@ pub fn run_script(code: &str, ctx: &serde_json::Value, timeout: Duration) -> Res
     while started.elapsed() < timeout {
         if let Some(a) = answers.lock().remove(&n) {
             let v: serde_json::Value = serde_json::from_str(&a).map_err(|e| e.to_string())?;
-            return if v["ok"].as_bool() == Some(true) { Ok(v["result"].clone()) } else { Err(v["error"].as_str().unwrap_or("the script failed").to_string()) };
+            return if v["ok"].as_bool() == Some(true) {
+                Ok(v["result"].clone())
+            } else {
+                Err(v["error"].as_str().unwrap_or("the script failed").to_string())
+            };
         }
         std::thread::sleep(Duration::from_millis(20));
     }

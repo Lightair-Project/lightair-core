@@ -93,7 +93,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let hub = Hub::new();
         start(&hub, dir.clone());
-        hub.inject(crate::Channel { platform: "twitch".into(), channel: "x".into() }, ChatEvent::new("twitch", "x", crate::Kind::Message));
+        hub.inject(
+            crate::Channel { platform: "twitch".into(), channel: "x".into() },
+            ChatEvent::new("twitch", "x", crate::Kind::Message),
+        );
         std::thread::sleep(Duration::from_millis(900));
         let again = Hub::new();
         again.restore(recent(&dir, 10));

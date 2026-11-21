@@ -8,7 +8,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use crate::model::{Canvas, Id, Source, Object, Workspace, Scene, Track};
+use crate::model::{Canvas, Id, Object, Scene, Source, Track, Workspace};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Patch {

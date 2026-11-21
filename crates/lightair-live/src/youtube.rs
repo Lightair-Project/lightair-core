@@ -35,13 +35,15 @@ pub fn target(channel: &str) -> Target {
     if path.len() == 11 && !path.starts_with('@') && !path.contains('/') {
         return Target::Video(path.to_string());
     }
-    let path = if path.starts_with('@') || path.starts_with("channel/") || path.starts_with("c/") || path.starts_with("user/") {
-        path.to_string()
-    } else if path.starts_with("UC") && path.len() == 24 {
-        format!("channel/{path}")
-    } else {
-        format!("@{path}")
-    };
+    let path =
+        if path.starts_with('@') || path.starts_with("channel/") || path.starts_with("c/") || path.starts_with("user/")
+        {
+            path.to_string()
+        } else if path.starts_with("UC") && path.len() == 24 {
+            format!("channel/{path}")
+        } else {
+            format!("@{path}")
+        };
     Target::Page(format!("https://www.youtube.com/{path}/live"))
 }
 
@@ -73,7 +75,11 @@ pub fn read(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
     let channel = sink.channel().channel.clone();
     while !stop.load(Ordering::Acquire) {
         let body = json!({"context": {"client": {"clientName": "WEB", "clientVersion": version}}, "continuation": continuation});
-        let answer = net::post_json(&agent, "https://www.youtube.com/youtubei/v1/live_chat/get_live_chat?prettyPrint=false", &body)?;
+        let answer = net::post_json(
+            &agent,
+            "https://www.youtube.com/youtubei/v1/live_chat/get_live_chat?prettyPrint=false",
+            &body,
+        )?;
         let chat = at(&answer, "continuationContents.liveChatContinuation");
         if chat.is_null() {
             sink.status(Status::Offline);
@@ -137,24 +143,37 @@ fn between(s: &str, a: &str, b: &str) -> Option<String> {
 /// One action from the feed → an event.
 pub fn parse_action(action: &Value, channel: &str) -> Option<ChatEvent> {
     if let Some(del) = action.get("markChatItemAsDeletedAction") {
-        let mut e = ChatEvent::new("youtube", channel, Kind::Deletion { native_id: del["targetItemId"].as_str().map(String::from), user_id: None });
+        let mut e = ChatEvent::new(
+            "youtube",
+            channel,
+            Kind::Deletion { native_id: del["targetItemId"].as_str().map(String::from), user_id: None },
+        );
         e.native_id = None;
         return Some(e);
     }
     if let Some(del) = action.get("markChatItemsByAuthorAsDeletedAction") {
-        return Some(ChatEvent::new("youtube", channel, Kind::Deletion { native_id: None, user_id: del["externalChannelId"].as_str().map(String::from) }));
+        return Some(ChatEvent::new(
+            "youtube",
+            channel,
+            Kind::Deletion { native_id: None, user_id: del["externalChannelId"].as_str().map(String::from) },
+        ));
     }
     // another channel raiding: YouTube says so with a banner ("@name and their viewers just
     // joined")
-    if let Some(r) = action["addBannerToLiveChatCommand"]["bannerRenderer"]["liveChatBannerRenderer"]["contents"].get("liveChatBannerRedirectRenderer") {
+    if let Some(r) = action["addBannerToLiveChatCommand"]["bannerRenderer"]["liveChatBannerRenderer"]["contents"]
+        .get("liveChatBannerRedirectRenderer")
+    {
         let text = yt_text(&r["bannerMessage"]);
         let lower = text.to_lowercase();
         if lower.contains("joined") || lower.contains("raid") {
-            let who = r["bannerMessage"]["runs"][0]["text"].as_str().unwrap_or("").trim().trim_start_matches('@').to_string();
+            let who =
+                r["bannerMessage"]["runs"][0]["text"].as_str().unwrap_or("").trim().trim_start_matches('@').to_string();
             let mut e = ChatEvent::new("youtube", channel, Kind::Raid { viewers: 0 });
             e.user = Some(User { id: who.clone(), login: who.clone(), display_name: who, ..Default::default() });
             e.headline = Some(text);
-            e.native_id = action["addBannerToLiveChatCommand"]["bannerRenderer"]["liveChatBannerRenderer"]["actionId"].as_str().map(String::from);
+            e.native_id = action["addBannerToLiveChatCommand"]["bannerRenderer"]["liveChatBannerRenderer"]["actionId"]
+                .as_str()
+                .map(String::from);
             return Some(e);
         }
         return None;
@@ -218,11 +237,22 @@ fn user(r: &Value, id: Option<&str>) -> User {
         badges.push(Badge {
             set: if icon.is_empty() { "member".into() } else { icon.to_lowercase() },
             version: b["tooltip"].as_str().unwrap_or("").into(),
-            image: b["customThumbnail"]["thumbnails"].as_array().and_then(|t| t.last()).and_then(|t| t["url"].as_str()).map(String::from),
+            image: b["customThumbnail"]["thumbnails"]
+                .as_array()
+                .and_then(|t| t.last())
+                .and_then(|t| t["url"].as_str())
+                .map(String::from),
         });
     }
     let name = yt_text(&r["authorName"]);
-    User { id: id.unwrap_or("").into(), login: name.clone(), display_name: name.trim_start_matches('@').to_string(), color: None, roles, badges }
+    User {
+        id: id.unwrap_or("").into(),
+        login: name.clone(),
+        display_name: name.trim_start_matches('@').to_string(),
+        color: None,
+        roles,
+        badges,
+    }
 }
 
 /// A message's runs: text, and emoji (YouTube's own and channels' custom ones).
@@ -232,9 +262,22 @@ fn runs(message: &Value) -> Vec<Fragment> {
         if let Some(t) = run["text"].as_str() {
             out.extend(text_fragments(t));
         } else if let Some(emoji) = run.get("emoji") {
-            let code = emoji["shortcuts"][0].as_str().map(String::from).unwrap_or_else(|| emoji["emojiId"].as_str().unwrap_or("").to_string());
-            let image = emoji["image"]["thumbnails"].as_array().and_then(|t| t.last()).and_then(|t| t["url"].as_str()).unwrap_or("").to_string();
-            out.push(Fragment::Emote { provider: "youtube".into(), id: emoji["emojiId"].as_str().unwrap_or("").into(), code, image });
+            let code = emoji["shortcuts"][0]
+                .as_str()
+                .map(String::from)
+                .unwrap_or_else(|| emoji["emojiId"].as_str().unwrap_or("").to_string());
+            let image = emoji["image"]["thumbnails"]
+                .as_array()
+                .and_then(|t| t.last())
+                .and_then(|t| t["url"].as_str())
+                .unwrap_or("")
+                .to_string();
+            out.push(Fragment::Emote {
+                provider: "youtube".into(),
+                id: emoji["emojiId"].as_str().unwrap_or("").into(),
+                code,
+                image,
+            });
         }
     }
     out
@@ -318,6 +361,9 @@ mod tests {
         let r = parse_action(&raid, "x").unwrap();
         assert_eq!((r.kind.clone(), r.name()), (Kind::Raid { viewers: 0 }, "Friendly Streamer"));
         let del = serde_json::json!({"markChatItemAsDeletedAction": {"targetItemId": "m1"}});
-        assert_eq!(parse_action(&del, "@x").unwrap().kind, Kind::Deletion { native_id: Some("m1".into()), user_id: None });
+        assert_eq!(
+            parse_action(&del, "@x").unwrap().kind,
+            Kind::Deletion { native_id: Some("m1".into()), user_id: None }
+        );
     }
 }

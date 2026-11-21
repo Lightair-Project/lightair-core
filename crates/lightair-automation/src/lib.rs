@@ -188,7 +188,8 @@ impl Automations {
         let file = dir.join("automations.json");
         let viewers_file = dir.join("viewers.json");
         let doc: Doc = std::fs::read(&file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-        let viewers: Viewers = std::fs::read(&viewers_file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        let viewers: Viewers =
+            std::fs::read(&viewers_file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
         let a = Automations {
             inner: Arc::new(Inner {
                 file,
@@ -376,7 +377,8 @@ impl Automations {
                 "messages": v.as_ref().map_or(0, |v| v.messages),
                 "first_seen": v.as_ref().map_or(0, |v| v.first_seen),
             });
-            ctx["user_vars"] = self.inner.doc.lock().vars.get(&format!("user:{}:{}", u.0, u.1)).cloned().unwrap_or(json!({}));
+            ctx["user_vars"] =
+                self.inner.doc.lock().vars.get(&format!("user:{}:{}", u.0, u.1)).cloned().unwrap_or(json!({}));
         }
         ctx
     }
@@ -414,14 +416,16 @@ impl Automations {
                         continue;
                     }
                     let Some(first) = words.first() else { continue };
-                    let hit = first.eq_ignore_ascii_case(name) || aliases.iter().any(|al| first.eq_ignore_ascii_case(al));
+                    let hit =
+                        first.eq_ignore_ascii_case(name) || aliases.iter().any(|al| first.eq_ignore_ascii_case(al));
                     (hit && allowed(*who, &roles), words[1..].to_vec(), format!("{}: {}", e.name(), e.text))
                 }
                 Trigger::Chat { contains, first_time: only_first } => {
                     if e.kind != Kind::Message {
                         continue;
                     }
-                    let ok = (contains.is_empty() || e.text.to_lowercase().contains(&contains.to_lowercase())) && (!only_first || first_time);
+                    let ok = (contains.is_empty() || e.text.to_lowercase().contains(&contains.to_lowercase()))
+                        && (!only_first || first_time);
                     (ok, words.clone(), format!("{}: {}", e.name(), e.text))
                 }
                 Trigger::Timer { .. }
@@ -498,23 +502,37 @@ impl Automations {
 
     /// The files automations watch.
     pub fn watched_files(&self) -> Vec<String> {
-        self.list().into_iter().filter(|a| a.enabled).filter_map(|a| match a.trigger {
-            Trigger::File { path } if !path.trim().is_empty() => Some(path),
-            _ => None,
-        }).collect()
+        self.list()
+            .into_iter()
+            .filter(|a| a.enabled)
+            .filter_map(|a| match a.trigger {
+                Trigger::File { path } if !path.trim().is_empty() => Some(path),
+                _ => None,
+            })
+            .collect()
     }
 
     /// Whether any automation listens to MIDI / game controllers (devices are opened only then).
     pub fn wants(&self, what: &str) -> bool {
         self.list().iter().any(|a| {
-            a.enabled && matches!((&a.trigger, what), (Trigger::Midi { .. }, "midi") | (Trigger::Controller { .. }, "controller") | (Trigger::Voice { .. }, "voice"))
+            a.enabled
+                && matches!(
+                    (&a.trigger, what),
+                    (Trigger::Midi { .. }, "midi")
+                        | (Trigger::Controller { .. }, "controller")
+                        | (Trigger::Voice { .. }, "voice")
+                )
         })
     }
 
     /// `path` changed; `text`: what it holds now (the start of it).
     pub fn file_changed(&self, path: &str, text: &str) {
         let name = std::path::Path::new(path).file_name().and_then(|n| n.to_str()).unwrap_or(path).to_string();
-        self.signal(|t| matches!(t, Trigger::File { path: p } if p == path), json!({"file": {"path": path, "name": name, "text": text}}), &format!("{name} changed"));
+        self.signal(
+            |t| matches!(t, Trigger::File { path: p } if p == path),
+            json!({"file": {"path": path, "name": name, "text": text}}),
+            &format!("{name} changed"),
+        );
     }
 
     /// A MIDI message: `kind` "note" (pressed) or "cc", `channel` 1–16.
@@ -616,7 +634,15 @@ impl Automations {
         let Job { automation, mut ctx, cause } = job;
         let index = {
             let mut h = self.inner.history.lock();
-            h.push_back(Run { automation: automation.id.clone(), name: automation.name.clone(), started_ms: now_ms(), cause, steps: Vec::new(), ok: true, done: false });
+            h.push_back(Run {
+                automation: automation.id.clone(),
+                name: automation.name.clone(),
+                started_ms: now_ms(),
+                cause,
+                steps: Vec::new(),
+                ok: true,
+                done: false,
+            });
             while h.len() > HISTORY {
                 h.pop_front();
             }
@@ -676,9 +702,16 @@ impl Automations {
             }
             Step::Chat { text, platform } => {
                 let text = render(text, ctx);
-                let platform = if platform.is_empty() { ctx["platform"].as_str().unwrap_or("").to_string() } else { platform.clone() };
+                let platform = if platform.is_empty() {
+                    ctx["platform"].as_str().unwrap_or("").to_string()
+                } else {
+                    platform.clone()
+                };
                 let reply = ctx["event"]["native_id"].clone();
-                self.call("chat.send", json!({"text": text, "platform": platform, "channel": ctx["channel"], "reply_to": reply}))?;
+                self.call(
+                    "chat.send",
+                    json!({"text": text, "platform": platform, "channel": ctx["channel"], "reply_to": reply}),
+                )?;
                 Ok(Some(text))
             }
             Step::Speak { text } => {
@@ -697,7 +730,11 @@ impl Automations {
             Step::Var { name, op, value, user } => {
                 let value = render(value, ctx);
                 let key = if *user {
-                    format!("user:{}:{}", ctx["platform"].as_str().unwrap_or(""), ctx["user"]["id"].as_str().unwrap_or(""))
+                    format!(
+                        "user:{}:{}",
+                        ctx["platform"].as_str().unwrap_or(""),
+                        ctx["user"]["id"].as_str().unwrap_or("")
+                    )
                 } else {
                     String::new()
                 };
@@ -713,7 +750,10 @@ impl Automations {
                 };
                 let next = match op.as_str() {
                     "add" => {
-                        let now = vars.get(name).and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))).unwrap_or(0.0);
+                        let now = vars
+                            .get(name)
+                            .and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                            .unwrap_or(0.0);
                         Some(json!(now + value.trim().parse::<f64>().unwrap_or(0.0)))
                     }
                     "clear" => None,
@@ -744,8 +784,13 @@ impl Automations {
                 Ok(Some(format!("{name} = {shown}")))
             }
             Step::Points { amount } => {
-                let amount: f64 = render(amount, ctx).trim().parse().map_err(|_| StepError::Failed("not a number".into()))?;
-                let (p, id, name) = (ctx["platform"].as_str().unwrap_or("").to_string(), ctx["user"]["id"].as_str().unwrap_or("").to_string(), ctx["name"].as_str().unwrap_or("").to_string());
+                let amount: f64 =
+                    render(amount, ctx).trim().parse().map_err(|_| StepError::Failed("not a number".into()))?;
+                let (p, id, name) = (
+                    ctx["platform"].as_str().unwrap_or("").to_string(),
+                    ctx["user"]["id"].as_str().unwrap_or("").to_string(),
+                    ctx["name"].as_str().unwrap_or("").to_string(),
+                );
                 if id.is_empty() {
                     return Err(StepError::Failed("no one to give points to".into()));
                 }
@@ -769,7 +814,9 @@ impl Automations {
                 Ok(Some(format!("choice {}", i + 1)))
             }
             Step::Run { automation } => {
-                let a = self.get(&render(automation, ctx)).ok_or_else(|| StepError::Failed(format!("no automation “{automation}”")))?;
+                let a = self
+                    .get(&render(automation, ctx))
+                    .ok_or_else(|| StepError::Failed(format!("no automation “{automation}”")))?;
                 self.steps(&a.steps, ctx, count, started).map_err(|_| StepError::Stop)?;
                 Ok(Some(a.name))
             }
@@ -856,7 +903,8 @@ mod tests {
         });
         let channel = Channel { platform: "twitch".into(), channel: "me".into() };
         let msg = |roles: Vec<Role>| {
-            let mut e = ChatEvent::new("twitch", "me", Kind::Message).with_fragments(lightair_live::event::text_fragments("!so @pal"));
+            let mut e = ChatEvent::new("twitch", "me", Kind::Message)
+                .with_fragments(lightair_live::event::text_fragments("!so @pal"));
             e.user = Some(User { id: "1".into(), display_name: "Mod".into(), roles, ..Default::default() });
             e
         };
@@ -904,7 +952,10 @@ mod tests {
         a.controller("start", "Pad");
         wait_for(|| ["file", "pad", "fader", "start"].iter().all(|k| a.vars().contains_key(*k)));
         let v = a.vars();
-        assert_eq!((v["file"].clone(), v["pad"].clone(), v["fader"].clone(), v["start"].clone()), (json!(7.0), json!(90.0), json!(7.0), json!("Pad")));
+        assert_eq!(
+            (v["file"].clone(), v["pad"].clone(), v["fader"].clone(), v["start"].clone()),
+            (json!(7.0), json!(90.0), json!(7.0), json!("Pad"))
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 

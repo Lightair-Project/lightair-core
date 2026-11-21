@@ -41,7 +41,12 @@ fn xtask(dir: &Path, args: &[&str]) -> Command {
     let mut c = Command::new("cargo");
     c.current_dir(dir).arg("xtask").args(args);
     for (k, _) in std::env::vars() {
-        if k == "RUSTUP_TOOLCHAIN" || k == "CARGO" || k.starts_with("CARGO_PKG") || k == "CARGO_MANIFEST_DIR" || k == "CARGO_MANIFEST_PATH" {
+        if k == "RUSTUP_TOOLCHAIN"
+            || k == "CARGO"
+            || k.starts_with("CARGO_PKG")
+            || k == "CARGO_MANIFEST_DIR"
+            || k == "CARGO_MANIFEST_PATH"
+        {
             c.env_remove(k);
         }
     }
@@ -49,7 +54,11 @@ fn xtask(dir: &Path, args: &[&str]) -> Command {
 }
 
 fn run(name: &str, cmd: &mut Command) -> anyhow::Result<()> {
-    let line = format!("{} {}", cmd.get_program().to_string_lossy(), cmd.get_args().map(|a| a.to_string_lossy()).collect::<Vec<_>>().join(" "));
+    let line = format!(
+        "{} {}",
+        cmd.get_program().to_string_lossy(),
+        cmd.get_args().map(|a| a.to_string_lossy()).collect::<Vec<_>>().join(" ")
+    );
     eprintln!("[{name}] $ {line}");
     let status = cmd.status().with_context(|| format!("[{name}] {line} didn't start"))?;
     ensure!(status.success(), "[{name}] {line} failed");
@@ -58,7 +67,13 @@ fn run(name: &str, cmd: &mut Command) -> anyhow::Result<()> {
 
 fn git(dir: &Path, args: &[&str]) -> anyhow::Result<String> {
     let out = Command::new("git").arg("-C").arg(dir).args(args).output()?;
-    ensure!(out.status.success(), "git {} in {}: {}", args.join(" "), dir.display(), String::from_utf8_lossy(&out.stderr).trim());
+    ensure!(
+        out.status.success(),
+        "git {} in {}: {}",
+        args.join(" "),
+        dir.display(),
+        String::from_utf8_lossy(&out.stderr).trim()
+    );
     // only the end: `git status --porcelain` lines start with a meaningful space
     Ok(String::from_utf8_lossy(&out.stdout).trim_end().to_string())
 }
@@ -125,7 +140,10 @@ pub fn dev(args: &[String]) -> anyhow::Result<()> {
                 run(app.name, &mut xtask(&app.dir, &["core-link"]))?;
                 install_hook(&app)?;
             }
-            eprintln!("\nevery app builds against {} now; `cargo xtask ship` when the change is done", root().display());
+            eprintln!(
+                "\nevery app builds against {} now; `cargo xtask ship` when the change is done",
+                root().display()
+            );
             Ok(())
         }
         Some("off") => {
@@ -154,7 +172,11 @@ fn status() -> anyhow::Result<()> {
         let at = if pin == head { "at HEAD".to_string() } else { format!("pinned {}", &pin[..pin.len().min(12)]) };
         let link = if linked(&app) { "linked" } else { "pinned build" };
         let changes = uncommitted(&app)?.len();
-        println!("{:<14} {link}, {at}{}", app.name, if changes > 0 { format!(", {changes} uncommitted") } else { String::new() });
+        println!(
+            "{:<14} {link}, {at}{}",
+            app.name,
+            if changes > 0 { format!(", {changes} uncommitted") } else { String::new() }
+        );
     }
     Ok(())
 }
@@ -218,7 +240,11 @@ pub fn ship(args: &[String]) -> anyhow::Result<()> {
             }
             run(
                 app.name,
-                Command::new("git").arg("-C").arg(&app.dir).args(["commit", "-am", &format!("Pin lightair-core {short}")]),
+                Command::new("git").arg("-C").arg(&app.dir).args([
+                    "commit",
+                    "-am",
+                    &format!("Pin lightair-core {short}"),
+                ]),
             )?;
         }
         if push {

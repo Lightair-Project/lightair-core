@@ -63,7 +63,10 @@ pub fn slug(channel: &str) -> String {
 fn pusher_app(realtime: &Value) -> Option<(String, String)> {
     realtime["data"]["connections"].as_array()?.iter().find(|c| c["provider"] == "pusher").and_then(|c| {
         let cr = &c["credentials"];
-        Some((cr["app_key"].as_str().filter(|k| !k.is_empty())?.to_string(), cr["cluster"].as_str().filter(|k| !k.is_empty())?.to_string()))
+        Some((
+            cr["app_key"].as_str().filter(|k| !k.is_empty())?.to_string(),
+            cr["cluster"].as_str().filter(|k| !k.is_empty())?.to_string(),
+        ))
     })
 }
 
@@ -86,7 +89,8 @@ fn room(slug: &str, stop: &AtomicBool) -> Result<Room, String> {
 pub fn read(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
     let slug = slug(&sink.channel().channel);
     let room = room(&slug, stop)?;
-    let url = format!("wss://ws-{}.pusher.com/app/{}?protocol=7&client=js&version=8.4.0&flash=false", room.cluster, room.key);
+    let url =
+        format!("wss://ws-{}.pusher.com/app/{}?protocol=7&client=js&version=8.4.0&flash=false", room.cluster, room.key);
     let mut socket = net::connect(&url, Duration::from_millis(500))?;
     let mut channels = vec![format!("chatrooms.{}.v2", room.id)];
     if room.channel > 0 {
@@ -175,7 +179,11 @@ fn user(sender: &Value) -> User {
         if let Some(r) = role.filter(|r| !roles.contains(r)) {
             roles.push(r);
         }
-        badges.push(Badge { set: kind.into(), version: b["count"].as_u64().map(|c| c.to_string()).unwrap_or_default(), image: None });
+        badges.push(Badge {
+            set: kind.into(),
+            version: b["count"].as_u64().map(|c| c.to_string()).unwrap_or_default(),
+            image: None,
+        });
     }
     User {
         id,
@@ -213,7 +221,11 @@ pub fn parse(event: &str, d: &Value, channel: &str) -> Option<ChatEvent> {
             let mut e = ChatEvent::new("kick", channel, Kind::Membership);
             let who = d["username"].as_str().unwrap_or("").to_string();
             let months = d["months"].as_u64().unwrap_or(1);
-            e.headline = Some(if months > 1 { format!("{who} subscribed for {months} months") } else { format!("{who} subscribed") });
+            e.headline = Some(if months > 1 {
+                format!("{who} subscribed for {months} months")
+            } else {
+                format!("{who} subscribed")
+            });
             e.user = Some(User { login: who.to_lowercase(), display_name: who, ..Default::default() });
             Some(e)
         }
@@ -226,7 +238,8 @@ pub fn parse(event: &str, d: &Value, channel: &str) -> Option<ChatEvent> {
             Some(e)
         }
         "StreamHostEvent" => {
-            let mut e = ChatEvent::new("kick", channel, Kind::Raid { viewers: d["number_viewers"].as_u64().unwrap_or(0) });
+            let mut e =
+                ChatEvent::new("kick", channel, Kind::Raid { viewers: d["number_viewers"].as_u64().unwrap_or(0) });
             let who = d["host_username"].as_str().unwrap_or("").to_string();
             e.user = Some(User { login: who.to_lowercase(), display_name: who, ..Default::default() });
             Some(e.with_fragments(fragments(d["optional_message"].as_str().unwrap_or(""))))
@@ -236,7 +249,12 @@ pub fn parse(event: &str, d: &Value, channel: &str) -> Option<ChatEvent> {
             let mut e = ChatEvent::new("kick", channel, Kind::Paid);
             let sender = if d["sender"].is_object() { &d["sender"] } else { &d["user"] };
             let who = sender["username"].as_str().or(d["username"].as_str()).unwrap_or("Someone").to_string();
-            e.user = Some(User { id: sender["id"].as_u64().map(|i| i.to_string()).unwrap_or_default(), login: who.to_lowercase(), display_name: who, ..Default::default() });
+            e.user = Some(User {
+                id: sender["id"].as_u64().map(|i| i.to_string()).unwrap_or_default(),
+                login: who.to_lowercase(),
+                display_name: who,
+                ..Default::default()
+            });
             let gift = &d["gift"];
             let amount = gift["amount"].as_f64().or(d["amount"].as_f64()).unwrap_or(0.0);
             let name = gift["name"].as_str().or(d["gift_name"].as_str()).unwrap_or("Kicks");
@@ -272,25 +290,43 @@ mod tests {
         .unwrap();
         let e = parse("App\\Events\\ChatMessageEvent", &d, "viewer").unwrap();
         assert_eq!(e.text, "hi KEKW there");
-        assert!(matches!(&e.fragments[1], Fragment::Emote { id, image, .. } if id == "37226" && image.ends_with("/37226/fullsize")));
+        assert!(
+            matches!(&e.fragments[1], Fragment::Emote { id, image, .. } if id == "37226" && image.ends_with("/37226/fullsize"))
+        );
         let u = e.user.unwrap();
-        assert_eq!((u.display_name.as_str(), u.roles.as_slice()), ("Viewer", [Role::Moderator, Role::Subscriber].as_slice()));
+        assert_eq!(
+            (u.display_name.as_str(), u.roles.as_slice()),
+            ("Viewer", [Role::Moderator, Role::Subscriber].as_slice())
+        );
         assert_eq!(e.reply_to.unwrap().excerpt, "gm wave");
     }
 
     #[test]
     fn subs_gifts_hosts_and_deletions() {
         let gift: Value = serde_json::from_str(r#"{"gifted_usernames":["a","b"],"gifter_username":"fan"}"#).unwrap();
-        assert_eq!(parse("App\\Events\\GiftedSubscriptionsEvent", &gift, "x").unwrap().headline.as_deref(), Some("fan gifted 2 subs"));
-        let kicks: Value = serde_json::from_str(r#"{"sender":{"id":5,"username":"Fan"},"gift":{"name":"Rage Quit","amount":100,"message":"gg"}}"#).unwrap();
+        assert_eq!(
+            parse("App\\Events\\GiftedSubscriptionsEvent", &gift, "x").unwrap().headline.as_deref(),
+            Some("fan gifted 2 subs")
+        );
+        let kicks: Value = serde_json::from_str(
+            r#"{"sender":{"id":5,"username":"Fan"},"gift":{"name":"Rage Quit","amount":100,"message":"gg"}}"#,
+        )
+        .unwrap();
         let k = parse("KicksGifted", &kicks, "x").unwrap();
         assert_eq!((k.kind, k.paid.unwrap().amount, k.text.as_str()), (Kind::Paid, 100.0, "gg"));
-        let host: Value = serde_json::from_str(r#"{"number_viewers":12,"host_username":"pal","optional_message":""}"#).unwrap();
+        let host: Value =
+            serde_json::from_str(r#"{"number_viewers":12,"host_username":"pal","optional_message":""}"#).unwrap();
         assert_eq!(parse("App\\Events\\StreamHostEvent", &host, "x").unwrap().kind, Kind::Raid { viewers: 12 });
         let del: Value = serde_json::from_str(r#"{"id":"d","message":{"id":"m1"}}"#).unwrap();
-        assert_eq!(parse("App\\Events\\MessageDeletedEvent", &del, "x").unwrap().kind, Kind::Deletion { native_id: Some("m1".into()), user_id: None });
+        assert_eq!(
+            parse("App\\Events\\MessageDeletedEvent", &del, "x").unwrap().kind,
+            Kind::Deletion { native_id: Some("m1".into()), user_id: None }
+        );
         assert_eq!(fragments("[emote:x:y] plain"), vec![Fragment::Text { text: "[emote:x:y] plain".into() }]);
-        let rt: Value = serde_json::from_str(r#"{"data":{"connections":[{"provider":"pusher","credentials":{"app_key":"k1","cluster":"us2"}}]}}"#).unwrap();
+        let rt: Value = serde_json::from_str(
+            r#"{"data":{"connections":[{"provider":"pusher","credentials":{"app_key":"k1","cluster":"us2"}}]}}"#,
+        )
+        .unwrap();
         assert_eq!(pusher_app(&rt), Some(("k1".into(), "us2".into())));
         assert_eq!(pusher_app(&Value::Null), None);
         for c in ["https://kick.com/XQC", "kick.com/xqc/videos", "xqc"] {

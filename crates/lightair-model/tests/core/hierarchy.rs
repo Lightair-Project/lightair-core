@@ -1,7 +1,7 @@
 //! Objects inside objects: empties, children placed in their parent's space, and the flat list
 //! the engine draws.
 
-use lightair_model::{Command, CommandError, Document, Id, Source, Object, Layout, Workspace, Scene};
+use lightair_model::{Command, CommandError, Document, Id, Layout, Object, Scene, Source, Workspace};
 
 struct Setup {
     doc: Document,

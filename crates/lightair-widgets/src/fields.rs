@@ -62,12 +62,20 @@ pub fn parse(schema: &str) -> Vec<Field> {
         .filter(|(_, v)| v.is_object())
         .map(|(key, v)| {
             let options = match &v["options"] {
-                Value::Object(o) => o.iter().map(|(k, l)| (k.clone(), l.as_str().map_or_else(|| l.to_string(), String::from))).collect(),
+                Value::Object(o) => {
+                    o.iter().map(|(k, l)| (k.clone(), l.as_str().map_or_else(|| l.to_string(), String::from))).collect()
+                }
                 Value::Array(a) => a
                     .iter()
                     .map(|o| match o {
-                        Value::Object(_) => (o["value"].as_str().unwrap_or("").to_string(), o["label"].as_str().unwrap_or("").to_string()),
-                        other => (other.as_str().map_or_else(|| other.to_string(), String::from), other.as_str().map_or_else(|| other.to_string(), String::from)),
+                        Value::Object(_) => (
+                            o["value"].as_str().unwrap_or("").to_string(),
+                            o["label"].as_str().unwrap_or("").to_string(),
+                        ),
+                        other => (
+                            other.as_str().map_or_else(|| other.to_string(), String::from),
+                            other.as_str().map_or_else(|| other.to_string(), String::from),
+                        ),
                     })
                     .collect(),
                 _ => Vec::new(),

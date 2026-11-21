@@ -12,9 +12,9 @@ use std::time::Duration;
 use serde_json::Value;
 
 use crate::event::{ChatEvent, Fragment, Kind, Paid, Status, User};
-use crate::proto::Msg;
 use crate::hub::{Sink, sleep_unless};
 use crate::pages;
+use crate::proto::Msg;
 
 /// Runs as the page starts: the page's live connection's frames, handed over (base64).
 const EARLY: &str = r#"(function () {
@@ -106,9 +106,14 @@ pub fn read(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
     });
     let script = format!("{}var RULES = {rules};\n{SCRIPT}", pages::PRELUDE);
     let early = format!("{}{EARLY}", pages::PRELUDE);
-    let page = host.open_early(&format!("https://www.tiktok.com/@{name}/live"), &early, &script, Arc::new(move |m| {
-        let _ = tx.lock().send(m);
-    }));
+    let page = host.open_early(
+        &format!("https://www.tiktok.com/@{name}/live"),
+        &early,
+        &script,
+        Arc::new(move |m| {
+            let _ = tx.lock().send(m);
+        }),
+    );
     let channel = sink.channel().channel.clone();
     // once the connection's frames come through, the drawn comments aren't needed
     let mut frames = false;
@@ -155,7 +160,12 @@ pub fn read(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
 fn person(m: &Msg) -> User {
     let nick = m.string(3);
     let unique = m.string(38);
-    User { id: m.int(1).to_string(), login: if unique.is_empty() { nick.clone() } else { unique }, display_name: nick, ..Default::default() }
+    User {
+        id: m.int(1).to_string(),
+        login: if unique.is_empty() { nick.clone() } else { unique },
+        display_name: nick,
+        ..Default::default()
+    }
 }
 
 /// One frame of the page's live connection: its comments, gifts (a combo once, when it ends),
@@ -202,7 +212,11 @@ pub fn decode(frame: &[u8], channel: &str) -> Vec<ChatEvent> {
                 let u = person(&b.msg(7));
                 e.headline = Some(format!("{} sent {gift} ×{repeat}", u.display_name));
                 e.user = Some(u);
-                e.paid = Some(Paid { display: format!("{gift} ×{repeat} ({coins} coin{})", if coins == 1 { "" } else { "s" }), amount: coins as f64, currency: "TIKTOK_COIN".into() });
+                e.paid = Some(Paid {
+                    display: format!("{gift} ×{repeat} ({coins} coin{})", if coins == 1 { "" } else { "s" }),
+                    amount: coins as f64,
+                    currency: "TIKTOK_COIN".into(),
+                });
                 e
             }
             "WebcastSocialMessage" => {
@@ -237,7 +251,12 @@ pub fn parse(v: &Value, channel: &str) -> Option<ChatEvent> {
     let mut fragments: Vec<Fragment> = Vec::new();
     for f in v["f"].as_array()? {
         if let (Some(code), Some(src)) = (f["e"].as_str(), f["src"].as_str()) {
-            fragments.push(Fragment::Emote { provider: "tiktok".into(), id: code.into(), code: code.into(), image: src.into() });
+            fragments.push(Fragment::Emote {
+                provider: "tiktok".into(),
+                id: code.into(),
+                code: code.into(),
+                image: src.into(),
+            });
         } else if let Some(t) = f["t"].as_str() {
             match fragments.last_mut() {
                 Some(Fragment::Text { text }) => text.push_str(t),
@@ -290,7 +309,12 @@ mod tests {
         let gift = [varint(5, 5), field(7, &user), varint(9, 1), field(15, &details)].concat();
         let streaking = [varint(5, 3), field(7, &user), varint(9, 0), field(15, &details)].concat();
         let msg = |name: &[u8], body: &[u8]| field(1, &[field(1, name), field(2, body)].concat());
-        let response = [msg(b"WebcastChatMessage", &chat), msg(b"WebcastGiftMessage", &gift), msg(b"WebcastGiftMessage", &streaking)].concat();
+        let response = [
+            msg(b"WebcastChatMessage", &chat),
+            msg(b"WebcastGiftMessage", &gift),
+            msg(b"WebcastGiftMessage", &streaking),
+        ]
+        .concat();
         let frame = [field(7, b"msg"), field(8, &response)].concat();
         let events = decode(&frame, "x");
         assert_eq!(events.len(), 2);

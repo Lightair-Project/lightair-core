@@ -9,8 +9,7 @@ use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message, WebSocket};
 
 /// What Lightair's requests say they are: the platforms' web pages answer browsers.
-pub const USER_AGENT: &str =
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+pub const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
 /// The TLS every HTTP client here uses: rustls with ring, certificates checked by the system's
 /// verifier.
@@ -99,11 +98,13 @@ pub fn connect_with(url: &str, headers: &[(&'static str, &str)], tick: Duration)
         request.headers_mut().insert(*k, v.parse().map_err(|_| format!("bad header {k}"))?);
     }
     let uri = request.uri();
-    let host = uri.host().ok_or_else(|| format!("{url}: no host"))?.trim_start_matches('[').trim_end_matches(']').to_string();
+    let host =
+        uri.host().ok_or_else(|| format!("{url}: no host"))?.trim_start_matches('[').trim_end_matches(']').to_string();
     let port = uri.port_u16().unwrap_or(if uri.scheme_str() == Some("wss") { 443 } else { 80 });
     let stream = TcpStream::connect((host.as_str(), port)).map_err(|e| format!("{url}: {e}"))?;
     let connector = tungstenite::Connector::Rustls(rustls_client()?);
-    let (socket, _) = tungstenite::client_tls_with_config(request, stream, None, Some(connector)).map_err(|e| format!("{url}: {e}"))?;
+    let (socket, _) = tungstenite::client_tls_with_config(request, stream, None, Some(connector))
+        .map_err(|e| format!("{url}: {e}"))?;
     let tcp = match socket.get_ref() {
         MaybeTlsStream::Plain(s) => s,
         MaybeTlsStream::Rustls(s) => s.get_ref(),
@@ -117,7 +118,11 @@ pub fn connect_with(url: &str, headers: &[(&'static str, &str)], tick: Duration)
 pub fn read(socket: &mut Socket) -> Result<Option<Message>, String> {
     match socket.read() {
         Ok(m) => Ok(Some(m)),
-        Err(tungstenite::Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => Ok(None),
+        Err(tungstenite::Error::Io(e))
+            if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) =>
+        {
+            Ok(None)
+        }
         Err(e) => Err(e.to_string()),
     }
 }

@@ -34,7 +34,8 @@ pub fn studio_take_screen<'a>(videos: &[&'a serde_json::Value]) -> Option<&'a se
 pub fn studio_take_track_name(studio_take: &serde_json::Value, file: &Path) -> String {
     let file_name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     if let Some(tracks) = studio_take["audio_tracks"].as_array()
-        && let Some(name) = tracks.iter().find(|t| t["file"].as_str() == Some(file_name.as_str())).and_then(|t| t["name"].as_str())
+        && let Some(name) =
+            tracks.iter().find(|t| t["file"].as_str() == Some(file_name.as_str())).and_then(|t| t["name"].as_str())
     {
         return name.to_string();
     }
@@ -45,10 +46,14 @@ pub fn studio_take_track_name(studio_take: &serde_json::Value, file: &Path) -> S
 impl Source {
     /// A studio_take folder: its screen, its stems and its input log (from studio_take.json).
     pub fn of_studio_take(folder: &Path) -> Option<Source> {
-        let studio_take: serde_json::Value = serde_json::from_slice(&std::fs::read(folder.join("take.json")).ok()?).ok()?;
+        let studio_take: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(folder.join("take.json")).ok()?).ok()?;
         let videos: Vec<&serde_json::Value> = studio_take["video"].as_array()?.iter().collect();
         let video = studio_take_screen(&videos).or_else(|| videos.first().copied())?;
-        let audio = studio_take["audio"].as_array().map(|a| a.iter().filter_map(|f| f.as_str().map(|f| folder.join(f))).collect()).unwrap_or_default();
+        let audio = studio_take["audio"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|f| f.as_str().map(|f| folder.join(f))).collect())
+            .unwrap_or_default();
         let log = folder.join("input.bin");
         Some(Source { video: folder.join(video["file"].as_str()?), audio, log: log.exists().then_some(log) })
     }
@@ -90,7 +95,17 @@ impl Renderer {
         let k = ((bx.2 * 2.0) / probe.width as f32).min(1.0);
         let decode_size = (even(probe.width as f32 * k), even(probe.height as f32 * k));
         let camera = Self::camera_of(edit, &probe, pointer.as_ref());
-        Ok(Renderer { source, probe, edit: edit.clone(), camera, pointer, compositor, decode_size, subtitles: None, stream: None })
+        Ok(Renderer {
+            source,
+            probe,
+            edit: edit.clone(),
+            camera,
+            pointer,
+            compositor,
+            decode_size,
+            subtitles: None,
+            stream: None,
+        })
     }
 
     fn camera_of(edit: &Edit, probe: &Probe, pointer: Option<&Track>) -> Camera {
@@ -198,7 +213,12 @@ impl Renderer {
 
     /// The result from `from_ms` at `fps`: `each(result_ms, rgba)` for every frame, until it
     /// returns false or the result ends.
-    pub fn frames(&mut self, from_ms: u64, fps: f64, mut each: impl FnMut(u64, Vec<u8>) -> bool) -> Result<(), MediaError> {
+    pub fn frames(
+        &mut self,
+        from_ms: u64,
+        fps: f64,
+        mut each: impl FnMut(u64, Vec<u8>) -> bool,
+    ) -> Result<(), MediaError> {
         let total = self.duration_ms();
         let first = (from_ms as f64 * fps / 1000.0).floor() as u64;
         let frames = (total as f64 * fps / 1000.0).ceil() as u64;
@@ -232,9 +252,23 @@ impl Renderer {
     }
 
     /// Renders the whole result into `out` at `fps`. `progress(fraction)` returns false to stop.
-    pub fn export(&mut self, out: &Path, fps: f64, codec: Codec, mut progress: impl FnMut(f32) -> bool) -> Result<(), MediaError> {
+    pub fn export(
+        &mut self,
+        out: &Path,
+        fps: f64,
+        codec: Codec,
+        mut progress: impl FnMut(f32) -> bool,
+    ) -> Result<(), MediaError> {
         let total = self.duration_ms().max(1);
-        let mut enc = Encoder::start(out, self.edit.size, fps, codec, &self.source.audio, &self.edit.clips, self.subtitles.as_deref())?;
+        let mut enc = Encoder::start(
+            out,
+            self.edit.size,
+            fps,
+            codec,
+            &self.source.audio,
+            &self.edit.clips,
+            self.subtitles.as_deref(),
+        )?;
         let mut failed = None;
         let mut stopped = false;
         self.frames(0, fps, |t, rgba| {

@@ -5,13 +5,18 @@
 
 use std::path::{Path, PathBuf};
 
-use lightair_model::catalog;
 use lightair_model::Id;
-use tiny_skia::{Color, FillRule, GradientStop, IntSize, LinearGradient, Paint, PathBuilder, Pixmap, Point, Shader, SpreadMode, Transform as Tf};
+use lightair_model::catalog;
+use tiny_skia::{
+    Color, FillRule, GradientStop, IntSize, LinearGradient, Paint, PathBuilder, Pixmap, Point, Shader, SpreadMode,
+    Transform as Tf,
+};
 
 use crate::motion::{self, Motion, MotionKind};
 use crate::seqrender::SequenceRenderer;
-use crate::sequence::{Clip, ClipEffect, Filter, Media, Sequence, Track, TrackKind, Transform, Transition, TransitionKind};
+use crate::sequence::{
+    Clip, ClipEffect, Filter, Media, Sequence, Track, TrackKind, Transform, Transition, TransitionKind,
+};
 
 /// The thumbnails' size.
 pub const SIZE: (u32, u32) = (320, 180);
@@ -118,7 +123,14 @@ fn sample(which: usize) -> Pixmap {
         1 => [(0x2F7DE1, 0.0), (0x7EC4F5, 0.6), (0xD8F0FF, 1.0)],
         _ => [(0x1A1D24, 0.0), (0x262A33, 0.6), (0x30343E, 1.0)],
     };
-    let shader = LinearGradient::new(Point::from_xy(0.0, 0.0), Point::from_xy(0.0, h), sky.iter().map(|(c, a)| stop(*c, *a)).collect(), SpreadMode::Pad, Tf::identity()).unwrap_or(Shader::SolidColor(Color::BLACK));
+    let shader = LinearGradient::new(
+        Point::from_xy(0.0, 0.0),
+        Point::from_xy(0.0, h),
+        sky.iter().map(|(c, a)| stop(*c, *a)).collect(),
+        SpreadMode::Pad,
+        Tf::identity(),
+    )
+    .unwrap_or(Shader::SolidColor(Color::BLACK));
     let mut paint = Paint { shader, ..Paint::default() };
     paint.anti_alias = false;
     p.fill_rect(tiny_skia::Rect::from_xywh(0.0, 0.0, w, h).expect("rect"), &paint, Tf::identity(), None);
@@ -269,6 +281,9 @@ mod tests {
         assert!(transition(&dir, TransitionKind::ALL.len() - 1, FRAMES - 1).exists());
         assert!(animation(&dir, Slot::Combo, motion::COMBO.len() - 1, FRAMES - 1).exists());
         // a transition's frames differ
-        assert_ne!(std::fs::read(transition(&dir, 3, 0)).unwrap(), std::fs::read(transition(&dir, 3, FRAMES - 1)).unwrap());
+        assert_ne!(
+            std::fs::read(transition(&dir, 3, 0)).unwrap(),
+            std::fs::read(transition(&dir, 3, FRAMES - 1)).unwrap()
+        );
     }
 }

@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::Path;
 
-use lightair_store::recordings::{File, Index, Item, Kind, mp4_duration_ms, move_item};
+use lightair_store::recordings::{File, Index, Item, Kind, move_item, mp4_duration_ms};
 
 fn item(path: &Path) -> Item {
     Item::new(Kind::Recording, "Show", vec![File::new(path.to_path_buf())], 1_700_000_000_000)

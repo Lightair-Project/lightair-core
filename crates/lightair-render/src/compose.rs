@@ -694,7 +694,12 @@ impl Compositor {
 
     fn upload(queue: &wgpu::Queue, t: &wgpu::Texture, rgba: &[u8], size: (u32, u32)) {
         queue.write_texture(
-            wgpu::TexelCopyTextureInfo { texture: t, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            wgpu::TexelCopyTextureInfo {
+                texture: t,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
             rgba,
             wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4 * size.0), rows_per_image: Some(size.1) },
             wgpu::Extent3d { width: size.0, height: size.1, depth_or_array_layers: 1 },
@@ -746,7 +751,12 @@ impl Compositor {
         screen[12..16].copy_from_slice(&[1.0, radius, 1.0, 0.0]);
         let masks: Vec<_> = f.masks.iter().take(4).collect();
         // blocks about 1/60 of the screen's width
-        screen[40..44].copy_from_slice(&[masks.len() as f32, (f.screen_size.0 as f32 / 60.0).max(4.0), f.sharpen.clamp(0.0, 1.0), 0.0]);
+        screen[40..44].copy_from_slice(&[
+            masks.len() as f32,
+            (f.screen_size.0 as f32 / 60.0).max(4.0),
+            f.sharpen.clamp(0.0, 1.0),
+            0.0,
+        ]);
         for (k, m) in masks.iter().enumerate() {
             screen[44 + k * 4..48 + k * 4].copy_from_slice(&[m.0, m.1, m.2, m.3]);
         }
@@ -766,7 +776,11 @@ impl Compositor {
             if !inside(at) || f.click_style == 0 {
                 continue;
             }
-            let (s, grow, fade) = if f.click_style == 1 { (Sprite::ClickDisc, 0.9 + 0.3 * k, 0.45) } else { (Sprite::ClickRing, 0.6 + 1.4 * k, 0.9) };
+            let (s, grow, fade) = if f.click_style == 1 {
+                (Sprite::ClickDisc, 0.9 + 0.3 * k, 0.45)
+            } else {
+                (Sprite::ClickRing, 0.6 + 1.4 * k, 0.9)
+            };
             draws.push(sprite(s, at, size * 1.6 * grow, (0.5, 0.5), 0.0, fade * (1.0 - k)));
         }
         if let Some(p) = f.pointer {
@@ -859,7 +873,12 @@ impl Compositor {
             .map(|(i, l)| {
                 let mut u = [0f32; 64];
                 u[0..4].copy_from_slice(&[ow, oh, if self.linear { 1.0 } else { 0.0 }, 0.0]);
-                u[4..8].copy_from_slice(&[l.center.0 - l.draw.0 / 2.0, l.center.1 - l.draw.1 / 2.0, l.draw.0, l.draw.1]);
+                u[4..8].copy_from_slice(&[
+                    l.center.0 - l.draw.0 / 2.0,
+                    l.center.1 - l.draw.1 / 2.0,
+                    l.draw.0,
+                    l.draw.1,
+                ]);
                 u[8..12].copy_from_slice(&[l.uv.0, l.uv.1, l.uv.2, l.uv.3]);
                 let mode = if l.premultiplied { 2.0 } else { 3.0 };
                 u[12..16].copy_from_slice(&[mode, 0.0, l.opacity.clamp(0.0, 1.0), l.rotation.to_radians()]);
@@ -986,13 +1005,14 @@ impl Compositor {
         if !self.bgra_out || self.linear || visual.is_null() {
             return false;
         }
-        let surface = match unsafe { instance().create_surface_unsafe(wgpu::SurfaceTargetUnsafe::CompositionVisual(visual)) } {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::warn!(%e, "the player's composition surface");
-                return false;
-            }
-        };
+        let surface =
+            match unsafe { instance().create_surface_unsafe(wgpu::SurfaceTargetUnsafe::CompositionVisual(visual)) } {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!(%e, "the player's composition surface");
+                    return false;
+                }
+            };
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: wgpu::TextureFormat::Bgra8Unorm,
@@ -1008,8 +1028,16 @@ impl Compositor {
         let Some(adapter) = ADAPTER.get() else { return false };
         let caps = surface.get_capabilities(adapter);
         let config = wgpu::SurfaceConfiguration {
-            present_mode: if caps.present_modes.contains(&config.present_mode) { config.present_mode } else { wgpu::PresentMode::Fifo },
-            alpha_mode: if caps.alpha_modes.contains(&config.alpha_mode) { config.alpha_mode } else { caps.alpha_modes[0] },
+            present_mode: if caps.present_modes.contains(&config.present_mode) {
+                config.present_mode
+            } else {
+                wgpu::PresentMode::Fifo
+            },
+            alpha_mode: if caps.alpha_modes.contains(&config.alpha_mode) {
+                config.alpha_mode
+            } else {
+                caps.alpha_modes[0]
+            },
             ..config
         };
         if !configure(&surface, &self.device, &config) {
@@ -1107,7 +1135,11 @@ impl Compositor {
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(if self.transparent { wgpu::Color::TRANSPARENT } else { wgpu::Color::BLACK }),
+                        load: wgpu::LoadOp::Clear(if self.transparent {
+                            wgpu::Color::TRANSPARENT
+                        } else {
+                            wgpu::Color::BLACK
+                        }),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -1147,10 +1179,19 @@ impl Compositor {
         }
         let row = padded_row(self.size.0);
         encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo { texture: &self.target, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.target,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
             wgpu::TexelCopyBufferInfo {
                 buffer: &self.readback,
-                layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(row), rows_per_image: Some(self.size.1) },
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(row),
+                    rows_per_image: Some(self.size.1),
+                },
             },
             wgpu::Extent3d { width: self.size.0, height: self.size.1, depth_or_array_layers: 1 },
         );
@@ -1284,12 +1325,24 @@ mod tests {
         let body = px(&a, 640, (tip.0 + 4.0) as u32, (tip.1 + 9.0) as u32);
         assert!(body[0] > 230 && body[1] > 230, "a white pointer body: {body:?}");
         // zoomed twice, the grey fills the box and the pointer grows
-        let zoomed = c.render(&Frame { view: View { scale: 2.0, x: 0.5, y: 0.5 }, sharpen: 0.6, clicks: Vec::new(), ..frame });
+        let zoomed =
+            c.render(&Frame { view: View { scale: 2.0, x: 0.5, y: 0.5 }, sharpen: 0.6, clicks: Vec::new(), ..frame });
         assert_ne!(zoomed, a);
         // a hidden area: a gradient screen becomes flat blocks there, and stays itself elsewhere
-        let ramp: Vec<u8> = (0..160 * 100).flat_map(|i| { let x = (i % 160) as u8; [x, x, x, 255] }).collect();
+        let ramp: Vec<u8> = (0..160 * 100)
+            .flat_map(|i| {
+                let x = (i % 160) as u8;
+                [x, x, x, 255]
+            })
+            .collect();
         let plain = Frame { screen: &ramp, pointer: None, clicks: Vec::new(), masks: Vec::new(), ..zoomed_frame() };
-        let hidden = Frame { screen: &ramp, pointer: None, clicks: Vec::new(), masks: vec![(0.0, 0.0, 0.5, 1.0)], ..zoomed_frame() };
+        let hidden = Frame {
+            screen: &ramp,
+            pointer: None,
+            clicks: Vec::new(),
+            masks: vec![(0.0, 0.0, 0.5, 1.0)],
+            ..zoomed_frame()
+        };
         let (p, h) = (c.render(&plain), c.render(&hidden));
         let at = |img: &[u8], fx: f32| px(img, 640, (bx.0 + bx.2 * fx) as u32, (bx.1 + bx.3 * 0.5) as u32)[0];
         assert_eq!(at(&p, 0.8), at(&h, 0.8), "outside the area: unchanged");

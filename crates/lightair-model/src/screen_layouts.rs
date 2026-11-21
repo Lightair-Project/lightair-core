@@ -7,7 +7,9 @@
 
 use serde_json::json;
 
-use crate::{Command, Fit, Id, Source, Object, Layout, Workspace, Scene, Shape, ShapeKind, TransitionKind, TransitionSettings};
+use crate::{
+    Command, Fit, Id, Layout, Object, Scene, Shape, ShapeKind, Source, TransitionKind, TransitionSettings, Workspace,
+};
 
 /// Space around the screen, as a fraction of the canvas's height.
 const PADDING: f32 = 0.07;
@@ -53,7 +55,10 @@ pub fn scenes(workspace: &Workspace, s: &Sources) -> Vec<Command> {
                     "shadow_radius": bh.min(bw) * 0.025, "shadow_blur": h * 0.035, "shadow_opacity": 0.5,
                 }),
             );
-            scene.objects.push(Object { link: Some(backdrop_link), ..Object::new("Backdrop", backdrop.id, [(fid, Layout::boxed(0.0, 0.0, w, h))]) });
+            scene.objects.push(Object {
+                link: Some(backdrop_link),
+                ..Object::new("Backdrop", backdrop.id, [(fid, Layout::boxed(0.0, 0.0, w, h))])
+            });
             commands.push(Command::AddSource { source: backdrop });
             let mut l = Layout::boxed(x, y, bw, bh);
             l.fit = Fit::Stretch;

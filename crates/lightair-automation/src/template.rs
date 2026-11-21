@@ -86,7 +86,9 @@ pub fn render_value(v: &Value, ctx: &Value) -> Value {
         Value::String(s) => {
             let r = render(s, ctx);
             // a parameter that's only a number after filling in is a number
-            if s.contains("{{") && let Ok(n) = r.parse::<f64>() {
+            if s.contains("{{")
+                && let Ok(n) = r.parse::<f64>()
+            {
                 return serde_json::json!(n);
             }
             Value::String(r)

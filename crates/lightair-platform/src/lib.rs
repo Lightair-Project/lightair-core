@@ -5,8 +5,8 @@
 pub mod apps;
 pub mod devices;
 pub mod files;
-pub mod net;
 pub mod input;
+pub mod net;
 pub mod paths;
 pub mod pick_color;
 pub mod pointer_badge;

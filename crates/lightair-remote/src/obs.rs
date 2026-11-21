@@ -130,7 +130,10 @@ impl crate::ws::Protocol for Session {
                         break;
                     }
                 }
-                Ok(vec![msg(9, json!({"requestId": d.get("requestId").cloned().unwrap_or(Value::Null), "results": results}))])
+                Ok(vec![msg(
+                    9,
+                    json!({"requestId": d.get("requestId").cloned().unwrap_or(Value::Null), "results": results}),
+                )])
             }
             _ => Ok(vec![]),
         }
@@ -324,7 +327,8 @@ impl Session {
     }
 
     fn item<'a>(&self, scene: &'a Value, d: &Value) -> Result<&'a Value, Status> {
-        let id = field(d, "sceneItemId")?.as_u64().ok_or((INVALID_FIELD, "`sceneItemId` should be a number.".into()))?;
+        let id =
+            field(d, "sceneItemId")?.as_u64().ok_or((INVALID_FIELD, "`sceneItemId` should be a number.".into()))?;
         scene["objects"]
             .as_array()
             .and_then(|o| o.iter().find(|o| item_id(o["id"].as_str().unwrap_or("")) == id))
@@ -440,7 +444,13 @@ impl Session {
                 let sources = s["sources"].as_array().cloned().unwrap_or_default();
                 let items: Vec<Value> = scene["objects"]
                     .as_array()
-                    .map(|o| o.iter().filter(|o| o["parent"].is_null()).enumerate().map(|(i, o)| scene_item(o, i, &sources)).collect())
+                    .map(|o| {
+                        o.iter()
+                            .filter(|o| o["parent"].is_null())
+                            .enumerate()
+                            .map(|(i, o)| scene_item(o, i, &sources))
+                            .collect()
+                    })
                     .unwrap_or_default();
                 json!({"sceneItems": items})
             }
@@ -454,14 +464,19 @@ impl Session {
                         o["name"] == name || sources.iter().any(|src| src["id"] == o["source"] && src["name"] == name)
                     })
                 });
-                let o = found.ok_or((NOT_FOUND, format!("No scene items were found in scene with the name `{name}`.")))?;
+                let o =
+                    found.ok_or((NOT_FOUND, format!("No scene items were found in scene with the name `{name}`.")))?;
                 json!({"sceneItemId": item_id(o["id"].as_str().unwrap_or(""))})
             }
             "GetSceneItemSource" => {
                 let s = self.state()?;
                 let scene = self.scene(&s, d)?;
                 let o = self.item(scene, d)?;
-                let src = named(s["sources"].as_array().map(Vec::as_slice).unwrap_or(&[]), "source", o["source"].as_str().unwrap_or(""));
+                let src = named(
+                    s["sources"].as_array().map(Vec::as_slice).unwrap_or(&[]),
+                    "source",
+                    o["source"].as_str().unwrap_or(""),
+                );
                 json!({"sourceName": src.map(|s| s["name"].clone()), "sourceUuid": o["source"]})
             }
             "GetSceneItemEnabled" => {
@@ -478,7 +493,9 @@ impl Session {
                 } else {
                     ("sceneItemLocked", "locked")
                 };
-                let on = field(d, field_name)?.as_bool().ok_or((INVALID_FIELD, format!("`{field_name}` should be a boolean.")))?;
+                let on = field(d, field_name)?
+                    .as_bool()
+                    .ok_or((INVALID_FIELD, format!("`{field_name}` should be a boolean.")))?;
                 let mut p = json!({"scene": scene["id"], "object": o["id"]});
                 p[key] = on.into();
                 self.call("object.update", p)?;
@@ -493,14 +510,18 @@ impl Session {
                 let s = self.state()?;
                 let scene = self.scene(&s, d)?;
                 let o = self.item(scene, d)?;
-                let i = scene["objects"].as_array().and_then(|l| l.iter().filter(|x| x["parent"].is_null()).position(|x| x["id"] == o["id"]));
+                let i = scene["objects"]
+                    .as_array()
+                    .and_then(|l| l.iter().filter(|x| x["parent"].is_null()).position(|x| x["id"] == o["id"]));
                 json!({"sceneItemIndex": i})
             }
             "SetSceneItemIndex" => {
                 let s = self.state()?;
                 let scene = self.scene(&s, d)?;
                 let o = self.item(scene, d)?;
-                let to = field(d, "sceneItemIndex")?.as_u64().ok_or((INVALID_FIELD, "`sceneItemIndex` should be a number.".into()))?;
+                let to = field(d, "sceneItemIndex")?
+                    .as_u64()
+                    .ok_or((INVALID_FIELD, "`sceneItemIndex` should be a number.".into()))?;
                 self.call("object.move", json!({"scene": scene["id"], "object": o["id"], "to": to}))?;
                 Value::Null
             }
@@ -577,7 +598,9 @@ impl Session {
                     json!({"inputKinds": ["browser_source", "color_source_v3", "ffmpeg_source", "image_source", "text_ft2_source_v2", "screen_capture", "macos-avcapture", "coreaudio_input_capture"]})
                 }
             }
-            "GetSpecialInputs" => json!({"desktop1": Value::Null, "desktop2": Value::Null, "mic1": Value::Null, "mic2": Value::Null, "mic3": Value::Null, "mic4": Value::Null}),
+            "GetSpecialInputs" => {
+                json!({"desktop1": Value::Null, "desktop2": Value::Null, "mic1": Value::Null, "mic2": Value::Null, "mic3": Value::Null, "mic4": Value::Null})
+            }
             "GetInputSettings" => {
                 let src = self.call("source.get", json!({"source": input_ref(d)?}))?;
                 json!({"inputSettings": src["settings"], "inputKind": obs_kind(src["kind"].as_str().unwrap_or(""))})
@@ -585,7 +608,10 @@ impl Session {
             "SetInputSettings" => {
                 let settings = field(d, "inputSettings")?.clone();
                 let overlay = d.get("overlay").and_then(Value::as_bool).unwrap_or(true);
-                self.call("source.update", json!({"source": input_ref(d)?, "settings": settings, "replace": !overlay}))?;
+                self.call(
+                    "source.update",
+                    json!({"source": input_ref(d)?, "settings": settings, "replace": !overlay}),
+                )?;
                 Value::Null
             }
             "SetInputName" => {
@@ -640,7 +666,9 @@ impl Session {
                 Value::Null
             }
             "SetMediaInputCursor" => {
-                let ms = field(d, "mediaCursor")?.as_i64().ok_or((INVALID_FIELD, "`mediaCursor` should be a number.".into()))?;
+                let ms = field(d, "mediaCursor")?
+                    .as_i64()
+                    .ok_or((INVALID_FIELD, "`mediaCursor` should be a number.".into()))?;
                 self.call("media.action", json!({"source": input_ref(d)?, "action": "seek", "ms": ms}))?;
                 Value::Null
             }
@@ -655,7 +683,9 @@ impl Session {
                 let muted = if kind == "ToggleInputMute" {
                     !t["muted"].as_bool().unwrap_or(false)
                 } else {
-                    field(d, "inputMuted")?.as_bool().ok_or((INVALID_FIELD, "`inputMuted` should be a boolean.".into()))?
+                    field(d, "inputMuted")?
+                        .as_bool()
+                        .ok_or((INVALID_FIELD, "`inputMuted` should be a boolean.".into()))?
                 };
                 self.call("audio.set", json!({"track": t["id"], "muted": muted}))?;
                 if kind == "ToggleInputMute" { json!({"inputMuted": muted}) } else { Value::Null }
@@ -669,7 +699,10 @@ impl Session {
             "SetInputVolume" => {
                 let s = self.state()?;
                 let (_, t) = self.track(&s, d)?;
-                let v = match (d.get("inputVolumeDb").and_then(Value::as_f64), d.get("inputVolumeMul").and_then(Value::as_f64)) {
+                let v = match (
+                    d.get("inputVolumeDb").and_then(Value::as_f64),
+                    d.get("inputVolumeMul").and_then(Value::as_f64),
+                ) {
                     (Some(v), _) => v,
                     (None, Some(m)) => db(m),
                     _ => return Err((MISSING_FIELD, "Your request is missing the `inputVolumeDb` field.".into())),
@@ -768,7 +801,9 @@ impl Session {
                 let data = r["data"].as_str().unwrap_or_default();
                 if kind == "SaveSourceScreenshot" {
                     let path = str_field(d, "imageFilePath")?;
-                    let bytes = base64::engine::general_purpose::STANDARD.decode(data).map_err(|e| (ACTION_FAILED, e.to_string()))?;
+                    let bytes = base64::engine::general_purpose::STANDARD
+                        .decode(data)
+                        .map_err(|e| (ACTION_FAILED, e.to_string()))?;
                     std::fs::write(path, bytes).map_err(|e| (ACTION_FAILED, e.to_string()))?;
                     Value::Null
                 } else {
@@ -842,18 +877,75 @@ fn scene_item(o: &Value, index: usize, sources: &[Value]) -> Value {
 
 /// What `GetVersion` says this answers.
 const REQUESTS: &[&str] = &[
-    "GetVersion", "GetStats", "Sleep", "GetSceneList", "GetGroupList", "GetCurrentProgramScene",
-    "SetCurrentProgramScene", "GetStudioModeEnabled", "CreateScene", "RemoveScene", "SetSceneName",
-    "GetSceneItemList", "GetGroupSceneItemList", "GetSceneItemId", "GetSceneItemSource", "GetSceneItemEnabled",
-    "SetSceneItemEnabled", "GetSceneItemLocked", "SetSceneItemLocked", "GetSceneItemIndex", "SetSceneItemIndex",
-    "GetSceneItemTransform", "SetSceneItemTransform", "RemoveSceneItem", "CreateSceneItem", "GetInputList",
-    "GetInputKindList", "GetSpecialInputs", "GetInputSettings", "SetInputSettings", "SetInputName", "CreateInput",
-    "RemoveInput", "GetInputMute", "SetInputMute", "ToggleInputMute", "GetInputVolume", "SetInputVolume",
-    "GetRecordStatus", "StartRecord", "StopRecord", "ToggleRecord", "PauseRecord", "ResumeRecord",
-    "ToggleRecordPause", "SplitRecordFile", "CreateRecordChapter", "GetStreamStatus", "StartStream", "StopStream",
-    "ToggleStream", "GetVirtualCamStatus", "StartVirtualCam", "StopVirtualCam", "ToggleVirtualCam",
-    "GetReplayBufferStatus", "SaveReplayBuffer", "GetLastReplayBufferReplay", "GetSourceScreenshot",
-    "SaveSourceScreenshot", "GetSceneCollectionList", "GetProfileList", "GetCurrentSceneTransition",
-    "GetSceneTransitionList", "GetHotkeyList", "GetSourceActive", "GetVideoSettings", "GetRecordDirectory", "GetMediaInputStatus",
-    "TriggerMediaInputAction", "SetMediaInputCursor",
+    "GetVersion",
+    "GetStats",
+    "Sleep",
+    "GetSceneList",
+    "GetGroupList",
+    "GetCurrentProgramScene",
+    "SetCurrentProgramScene",
+    "GetStudioModeEnabled",
+    "CreateScene",
+    "RemoveScene",
+    "SetSceneName",
+    "GetSceneItemList",
+    "GetGroupSceneItemList",
+    "GetSceneItemId",
+    "GetSceneItemSource",
+    "GetSceneItemEnabled",
+    "SetSceneItemEnabled",
+    "GetSceneItemLocked",
+    "SetSceneItemLocked",
+    "GetSceneItemIndex",
+    "SetSceneItemIndex",
+    "GetSceneItemTransform",
+    "SetSceneItemTransform",
+    "RemoveSceneItem",
+    "CreateSceneItem",
+    "GetInputList",
+    "GetInputKindList",
+    "GetSpecialInputs",
+    "GetInputSettings",
+    "SetInputSettings",
+    "SetInputName",
+    "CreateInput",
+    "RemoveInput",
+    "GetInputMute",
+    "SetInputMute",
+    "ToggleInputMute",
+    "GetInputVolume",
+    "SetInputVolume",
+    "GetRecordStatus",
+    "StartRecord",
+    "StopRecord",
+    "ToggleRecord",
+    "PauseRecord",
+    "ResumeRecord",
+    "ToggleRecordPause",
+    "SplitRecordFile",
+    "CreateRecordChapter",
+    "GetStreamStatus",
+    "StartStream",
+    "StopStream",
+    "ToggleStream",
+    "GetVirtualCamStatus",
+    "StartVirtualCam",
+    "StopVirtualCam",
+    "ToggleVirtualCam",
+    "GetReplayBufferStatus",
+    "SaveReplayBuffer",
+    "GetLastReplayBufferReplay",
+    "GetSourceScreenshot",
+    "SaveSourceScreenshot",
+    "GetSceneCollectionList",
+    "GetProfileList",
+    "GetCurrentSceneTransition",
+    "GetSceneTransitionList",
+    "GetHotkeyList",
+    "GetSourceActive",
+    "GetVideoSettings",
+    "GetRecordDirectory",
+    "GetMediaInputStatus",
+    "TriggerMediaInputAction",
+    "SetMediaInputCursor",
 ];

@@ -156,7 +156,9 @@ pub struct Badge {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Fragment {
-    Text { text: String },
+    Text {
+        text: String,
+    },
     /// An emote: drawn from `image` (a URL), `code` where it can't be.
     Emote {
         provider: String,
@@ -164,8 +166,12 @@ pub enum Fragment {
         code: String,
         image: String,
     },
-    Mention { name: String },
-    Link { url: String },
+    Mention {
+        name: String,
+    },
+    Link {
+        url: String,
+    },
 }
 
 pub fn plain_text(fragments: &[Fragment]) -> String {
@@ -245,5 +251,7 @@ pub enum Status {
     /// Nothing to read: the channel isn't live (the reader looks again now and then).
     Offline,
     /// It failed; it tries again.
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }

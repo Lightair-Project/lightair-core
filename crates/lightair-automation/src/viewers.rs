@@ -69,7 +69,12 @@ impl Viewers {
     }
 
     pub fn add_points(&mut self, platform: &str, id: &str, name: &str, amount: f64) -> f64 {
-        let v = self.by_key.entry(key(platform, id)).or_insert_with(|| Viewer { platform: platform.into(), id: id.into(), name: name.into(), ..Default::default() });
+        let v = self.by_key.entry(key(platform, id)).or_insert_with(|| Viewer {
+            platform: platform.into(),
+            id: id.into(),
+            name: name.into(),
+            ..Default::default()
+        });
         v.points = (v.points + amount).max(0.0);
         v.points
     }

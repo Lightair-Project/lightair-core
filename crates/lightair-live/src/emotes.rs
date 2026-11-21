@@ -52,7 +52,8 @@ impl Emotes {
         }
         // FrankerFaceZ
         let ffz_sets = |v: Option<Value>| -> Vec<Value> {
-            v.map(|v| v["sets"].as_object().map(|s| s.values().cloned().collect()).unwrap_or_default()).unwrap_or_default()
+            v.map(|v| v["sets"].as_object().map(|s| s.values().cloned().collect()).unwrap_or_default())
+                .unwrap_or_default()
         };
         let mut ffz = ffz_sets(get(&format!("https://api.frankerfacez.com/v1/room/id/{twitch_channel_id}")));
         ffz.extend(ffz_sets(get("https://api.frankerfacez.com/v1/set/global")));
@@ -72,7 +73,11 @@ impl Emotes {
                 bttv.extend(u[k].as_array().cloned().unwrap_or_default());
             }
         }
-        bttv.extend(get("https://api.betterttv.net/3/cached/emotes/global").and_then(|g| g.as_array().cloned()).unwrap_or_default());
+        bttv.extend(
+            get("https://api.betterttv.net/3/cached/emotes/global")
+                .and_then(|g| g.as_array().cloned())
+                .unwrap_or_default(),
+        );
         for em in bttv {
             let (Some(id), Some(code)) = (em["id"].as_str(), em["code"].as_str()) else { continue };
             let kind = em["imageType"].as_str().unwrap_or("png");

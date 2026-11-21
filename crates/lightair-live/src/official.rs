@@ -36,7 +36,10 @@ fn call(platform: &str, method: &str, url: &str, body: Option<Value>) -> Result<
     let auth = format!("Bearer {token}");
     let client = oauth::client_id(p).unwrap_or_default();
     let with = |r: ureq::RequestBuilder<ureq::typestate::WithBody>| {
-        let r = r.header("Authorization", &auth).header("Content-Type", "application/json").header("Accept", "application/json");
+        let r = r
+            .header("Authorization", &auth)
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json");
         if p == "twitch" { r.header("Client-Id", &client) } else { r }
     };
     let without = |r: ureq::RequestBuilder<ureq::typestate::WithoutBody>| {
@@ -56,7 +59,11 @@ fn call(platform: &str, method: &str, url: &str, body: Option<Value>) -> Result<
     let text = res.body_mut().read_to_string().unwrap_or_default();
     let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
     if status >= 300 {
-        let why = v["error"]["message"].as_str().or(v["message"].as_str()).map(String::from).unwrap_or_else(|| text.chars().take(200).collect());
+        let why = v["error"]["message"]
+            .as_str()
+            .or(v["message"].as_str())
+            .map(String::from)
+            .unwrap_or_else(|| text.chars().take(200).collect());
         return Err(format!("{p} said no ({status}): {why}"));
     }
     Ok(v)
@@ -69,7 +76,12 @@ const YT: &str = "https://www.googleapis.com/youtube/v3";
 /// The signed-in channel's broadcast: live now, else the next upcoming one.
 fn yt_broadcast() -> Result<Value, String> {
     for status in ["active", "upcoming"] {
-        let v = call("youtube", "GET", &format!("{YT}/liveBroadcasts?part=snippet,status&broadcastStatus={status}&broadcastType=all&maxResults=1"), None)?;
+        let v = call(
+            "youtube",
+            "GET",
+            &format!("{YT}/liveBroadcasts?part=snippet,status&broadcastStatus={status}&broadcastType=all&maxResults=1"),
+            None,
+        )?;
         if let Some(b) = v["items"].as_array().and_then(|a| a.first()) {
             return Ok(b.clone());
         }
@@ -132,7 +144,12 @@ fn yt_edit(title: Option<&str>, description: Option<&str>, category: Option<&str
             .iter()
             .find(|(_, n)| n.to_lowercase() == want)
             .or_else(|| all.iter().find(|(_, n)| n.to_lowercase().contains(&want)))
-            .ok_or_else(|| format!("YouTube's categories are: {}", all.iter().map(|(_, n)| n.as_str()).collect::<Vec<_>>().join(", ")))?;
+            .ok_or_else(|| {
+                format!(
+                    "YouTube's categories are: {}",
+                    all.iter().map(|(_, n)| n.as_str()).collect::<Vec<_>>().join(", ")
+                )
+            })?;
         snippet["categoryId"] = json!(cid);
         found = name.clone();
     }
@@ -147,7 +164,10 @@ fn yt_edit(title: Option<&str>, description: Option<&str>, category: Option<&str
 }
 
 fn yt_chat_id() -> Result<String, String> {
-    yt_broadcast()?["snippet"]["liveChatId"].as_str().map(String::from).ok_or_else(|| "the stream has no live chat".into())
+    yt_broadcast()?["snippet"]["liveChatId"]
+        .as_str()
+        .map(String::from)
+        .ok_or_else(|| "the stream has no live chat".into())
 }
 
 // ---- Twitch ----
@@ -236,7 +256,9 @@ pub fn x_go_live() -> Result<Option<String>, String> {
     let until = std::time::Instant::now() + std::time::Duration::from_secs(90);
     let source = loop {
         let v = call("x", "GET", &format!("{XAPI}/sources"), None)?;
-        if let Some(s) = v["data"].as_array().into_iter().flatten().find(|s| s["is_stream_active"].as_bool() == Some(true)) {
+        if let Some(s) =
+            v["data"].as_array().into_iter().flatten().find(|s| s["is_stream_active"].as_bool() == Some(true))
+        {
             break s["id"].as_str().unwrap_or("").to_string();
         }
         if std::time::Instant::now() > until {
@@ -265,7 +287,12 @@ fn x_info() -> Result<StreamInfo, String> {
     let Some(id) = X_LIVE.lock().clone() else {
         return Ok(StreamInfo { title: x_title().unwrap_or_default(), ..Default::default() });
     };
-    let v = call("x", "GET", &format!("{XAPI}/broadcasts/{id}?broadcast.fields=title,state,total_watching,start_ms"), None)?;
+    let v = call(
+        "x",
+        "GET",
+        &format!("{XAPI}/broadcasts/{id}?broadcast.fields=title,state,total_watching,start_ms"),
+        None,
+    )?;
     let d = &v["data"];
     Ok(StreamInfo {
         live: d["state"].as_str() == Some("RUNNING"),
@@ -293,7 +320,13 @@ pub fn info(platform: &str) -> Option<Result<StreamInfo, String>> {
 }
 
 /// Changes what's set (title, description: YouTube only, category by name).
-pub fn edit(platform: &str, channel: &str, title: Option<&str>, description: Option<&str>, category: Option<&str>) -> Result<String, String> {
+pub fn edit(
+    platform: &str,
+    channel: &str,
+    title: Option<&str>,
+    description: Option<&str>,
+    category: Option<&str>,
+) -> Result<String, String> {
     match provider(platform) {
         "youtube" => yt_edit(title, description, category),
         "twitch" => twitch_edit(channel, title, category),
@@ -301,7 +334,11 @@ pub fn edit(platform: &str, channel: &str, title: Option<&str>, description: Opt
         "x" => {
             let Some(t) = title else { return Ok("Nothing to change (X has no category)".into()) };
             oauth::keep("x-next-title", t);
-            Ok(if X_LIVE.lock().is_some() { "Kept for the next time you go live (X can't rename a live broadcast)".into() } else { "Kept: X uses it when you go live".into() })
+            Ok(if X_LIVE.lock().is_some() {
+                "Kept for the next time you go live (X can't rename a live broadcast)".into()
+            } else {
+                "Kept: X uses it when you go live".into()
+            })
         }
         other => Err(format!("no official API for {other}")),
     }
@@ -322,7 +359,10 @@ pub fn send(platform: &str, channel: &str, text: &str, reply_to: Option<&str>) -
             }
             let v = call("twitch", "POST", &format!("{HELIX}/chat/messages"), Some(body))?;
             match v["data"][0]["is_sent"].as_bool() {
-                Some(false) => Err(format!("Twitch held it back: {}", v["data"][0]["drop_reason"]["message"].as_str().unwrap_or(""))),
+                Some(false) => Err(format!(
+                    "Twitch held it back: {}",
+                    v["data"][0]["drop_reason"]["message"].as_str().unwrap_or("")
+                )),
                 _ => Ok(()),
             }
         }
@@ -350,7 +390,9 @@ pub fn send(platform: &str, channel: &str, text: &str, reply_to: Option<&str>) -
 pub fn moderate(platform: &str, channel: &str, action: crate::moderate::Action) -> Result<(), String> {
     use crate::moderate::Action;
     match (provider(platform), action) {
-        ("youtube", Action::Delete { .. }) => Err("YouTube: delete it in YouTube's chat (its API numbers messages differently)".into()),
+        ("youtube", Action::Delete { .. }) => {
+            Err("YouTube: delete it in YouTube's chat (its API numbers messages differently)".into())
+        }
         ("youtube", Action::Timeout { user_id, seconds, .. }) => yt_ban(user_id, Some(seconds)),
         ("youtube", Action::Ban { user_id, .. }) => yt_ban(user_id, None),
         ("twitch", action) => {
@@ -448,10 +490,17 @@ fn twitch_events(hub: &crate::Hub, stop: &std::sync::atomic::AtomicBool) -> Resu
                             "transport": {"method": "websocket", "session_id": session},
                         })),
                     )
-                    .map_err(|e| format!("couldn't listen for redemptions ({e}): sign in to Twitch again for the newer permissions"))?;
+                    .map_err(|e| {
+                        format!(
+                            "couldn't listen for redemptions ({e}): sign in to Twitch again for the newer permissions"
+                        )
+                    })?;
                 }
                 Some("session_reconnect") => {
-                    url = v["payload"]["session"]["reconnect_url"].as_str().unwrap_or("wss://eventsub.wss.twitch.tv/ws").to_string();
+                    url = v["payload"]["session"]["reconnect_url"]
+                        .as_str()
+                        .unwrap_or("wss://eventsub.wss.twitch.tv/ws")
+                        .to_string();
                     continue 'connect;
                 }
                 Some("notification") => {
@@ -474,7 +523,12 @@ fn redemption(ev: &Value, channel: &str) -> Option<crate::ChatEvent> {
     let cost = ev["reward"]["cost"].as_u64().unwrap_or(0);
     let mut e = crate::ChatEvent::new("twitch", channel, crate::Kind::Notice);
     let name = ev["user_name"].as_str().unwrap_or("").to_string();
-    e.user = Some(crate::User { id: ev["user_id"].as_str().unwrap_or("").into(), login: ev["user_login"].as_str().unwrap_or("").into(), display_name: name.clone(), ..Default::default() });
+    e.user = Some(crate::User {
+        id: ev["user_id"].as_str().unwrap_or("").into(),
+        login: ev["user_login"].as_str().unwrap_or("").into(),
+        display_name: name.clone(),
+        ..Default::default()
+    });
     e.headline = Some(format!("{name} redeemed {reward}"));
     e.paid = Some(crate::Paid { display: reward, amount: cost as f64, currency: "CHANNEL_POINTS".into() });
     e.native_id = ev["id"].as_str().map(String::from);
@@ -490,14 +544,22 @@ pub fn spotify_now() -> Option<Value> {
     if !signed_in("spotify") {
         return None;
     }
-    let v = call("spotify", "GET", "https://api.spotify.com/v1/me/player/currently-playing?additional_types=episode", None).ok()?;
+    let v =
+        call("spotify", "GET", "https://api.spotify.com/v1/me/player/currently-playing?additional_types=episode", None)
+            .ok()?;
     if v["is_playing"].as_bool() != Some(true) {
         return None;
     }
     let item = &v["item"];
-    let names = |list: &Value| list.as_array().into_iter().flatten().filter_map(|a| a["name"].as_str()).collect::<Vec<_>>().join(", ");
+    let names = |list: &Value| {
+        list.as_array().into_iter().flatten().filter_map(|a| a["name"].as_str()).collect::<Vec<_>>().join(", ")
+    };
     let (artist, album, images) = if item["type"].as_str() == Some("episode") {
-        (item["show"]["publisher"].as_str().unwrap_or("").to_string(), item["show"]["name"].as_str().unwrap_or("").to_string(), &item["images"])
+        (
+            item["show"]["publisher"].as_str().unwrap_or("").to_string(),
+            item["show"]["name"].as_str().unwrap_or("").to_string(),
+            &item["images"],
+        )
     } else {
         (names(&item["artists"]), item["album"]["name"].as_str().unwrap_or("").to_string(), &item["album"]["images"])
     };
@@ -520,19 +582,34 @@ pub fn spotify_now() -> Option<Value> {
 /// seconds}, `twitch.raid` {channel}, `twitch.shoutout` {channel}, `twitch.clip`,
 /// `twitch.marker` {description}.
 pub fn is_action(method: &str) -> bool {
-    matches!(method, "stream.edit" | "twitch.ad" | "twitch.poll" | "twitch.prediction" | "twitch.raid" | "twitch.shoutout" | "twitch.clip" | "twitch.marker")
+    matches!(
+        method,
+        "stream.edit"
+            | "twitch.ad"
+            | "twitch.poll"
+            | "twitch.prediction"
+            | "twitch.raid"
+            | "twitch.shoutout"
+            | "twitch.clip"
+            | "twitch.marker"
+    )
 }
 
 fn list(v: &Value) -> Vec<String> {
     match v {
-        Value::Array(a) => a.iter().filter_map(|x| x.as_str().map(|s| s.trim().to_string())).filter(|s| !s.is_empty()).collect(),
+        Value::Array(a) => {
+            a.iter().filter_map(|x| x.as_str().map(|s| s.trim().to_string())).filter(|s| !s.is_empty()).collect()
+        }
         Value::String(s) => s.split([',', '\n']).map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect(),
         _ => vec![],
     }
 }
 
 fn number(v: &Value, default: u64) -> u64 {
-    v.as_u64().or_else(|| v.as_f64().map(|f| f as u64)).or_else(|| v.as_str().and_then(|s| s.trim().parse().ok())).unwrap_or(default)
+    v.as_u64()
+        .or_else(|| v.as_f64().map(|f| f as u64))
+        .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+        .unwrap_or(default)
 }
 
 pub fn action(method: &str, p: &Value) -> Result<Value, String> {
@@ -543,7 +620,13 @@ pub fn action(method: &str, p: &Value) -> Result<Value, String> {
             return Err(format!("sign in to {platform} officially first (Settings › Connections)"));
         }
         let channel = oauth::account(provider(&platform)).map(|(_, name)| name).unwrap_or_default();
-        let said = edit(&platform, &channel, text("title").as_deref(), text("description").as_deref(), text("category").as_deref())?;
+        let said = edit(
+            &platform,
+            &channel,
+            text("title").as_deref(),
+            text("description").as_deref(),
+            text("category").as_deref(),
+        )?;
         return Ok(json!({"result": said}));
     }
     if !signed_in("twitch") {
@@ -554,7 +637,12 @@ pub fn action(method: &str, p: &Value) -> Result<Value, String> {
     match method {
         "twitch.ad" => {
             let length = number(&p["seconds"], 60).clamp(30, 180);
-            call("twitch", "POST", &format!("{HELIX}/channels/commercial"), Some(json!({"broadcaster_id": me, "length": length})))
+            call(
+                "twitch",
+                "POST",
+                &format!("{HELIX}/channels/commercial"),
+                Some(json!({"broadcaster_id": me, "length": length})),
+            )
         }
         "twitch.poll" => {
             let choices: Vec<Value> = list(&p["choices"]).into_iter().take(5).map(|c| json!({"title": c})).collect();
@@ -572,8 +660,21 @@ pub fn action(method: &str, p: &Value) -> Result<Value, String> {
             let body = json!({"broadcaster_id": me, "title": text("title").unwrap_or_else(|| "Prediction".into()), "outcomes": outcomes, "prediction_window": number(&p["seconds"], 120).clamp(30, 1800)});
             call("twitch", "POST", &format!("{HELIX}/predictions"), Some(body))
         }
-        "twitch.raid" => call("twitch", "POST", &format!("{HELIX}/raids?from_broadcaster_id={me}&to_broadcaster_id={}", other("channel")?), None),
-        "twitch.shoutout" => call("twitch", "POST", &format!("{HELIX}/chat/shoutouts?from_broadcaster_id={me}&to_broadcaster_id={}&moderator_id={me}", other("channel")?), None),
+        "twitch.raid" => call(
+            "twitch",
+            "POST",
+            &format!("{HELIX}/raids?from_broadcaster_id={me}&to_broadcaster_id={}", other("channel")?),
+            None,
+        ),
+        "twitch.shoutout" => call(
+            "twitch",
+            "POST",
+            &format!(
+                "{HELIX}/chat/shoutouts?from_broadcaster_id={me}&to_broadcaster_id={}&moderator_id={me}",
+                other("channel")?
+            ),
+            None,
+        ),
         "twitch.clip" => {
             let v = call("twitch", "POST", &format!("{HELIX}/clips?broadcaster_id={me}"), None)?;
             let id = v["data"][0]["id"].as_str().unwrap_or("");
@@ -608,6 +709,9 @@ mod tests {
             "reward": {"title": "Song request", "cost": 500}});
         let e = super::redemption(&ev, "me").unwrap();
         assert_eq!(e.alert_kind(), Some("redeem"));
-        assert_eq!((e.headline.as_deref(), e.text.as_str(), e.paid.unwrap().amount), (Some("Fan redeemed Song request"), "play lofi", 500.0));
+        assert_eq!(
+            (e.headline.as_deref(), e.text.as_str(), e.paid.unwrap().amount),
+            (Some("Fan redeemed Song request"), "play lofi", 500.0)
+        );
     }
 }

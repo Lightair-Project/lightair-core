@@ -7,8 +7,8 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    ClipSettings, VirtualCameraSettings, Destination, Effect, Canvas, Id, Source, Object, Layout, Workspace, Reconnect, RecordingSettings, Scene,
-    Stinger, Track, TransitionSettings, AudioMix, Bus, Master, Route, MixerStrip,
+    AudioMix, Bus, Canvas, ClipSettings, Destination, Effect, Id, Layout, Master, MixerStrip, Object, Reconnect,
+    RecordingSettings, Route, Scene, Source, Stinger, Track, TransitionSettings, VirtualCameraSettings, Workspace,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -31,7 +31,6 @@ pub enum Command {
     },
 
     #[serde(alias = "AddInput")]
-
     AddSource {
         #[serde(alias = "input")]
         source: Source,
@@ -315,7 +314,6 @@ pub enum Command {
     },
 
     #[serde(alias = "AddInputEffect")]
-
     AddSourceEffect {
         #[serde(alias = "input")]
         source: Id,
@@ -534,8 +532,11 @@ impl Command {
                 }
             }
             Command::UpdateCanvas { canvas } => {
-                let f =
-                    workspace.canvases.iter_mut().find(|f| f.id == canvas.id).ok_or(CommandError::NoCanvas(canvas.id))?;
+                let f = workspace
+                    .canvases
+                    .iter_mut()
+                    .find(|f| f.id == canvas.id)
+                    .ok_or(CommandError::NoCanvas(canvas.id))?;
                 let fps = canvas.fps_num as f32 / canvas.fps_den.max(1) as f32;
                 if !(16..=7680).contains(&canvas.width)
                     || !(16..=7680).contains(&canvas.height)
@@ -560,15 +561,16 @@ impl Command {
                 if !workspace.sources.contains_key(source) {
                     return Err(CommandError::NoSource(*source));
                 }
-                let users =
-                    workspace.objects_using(*source).count() + workspace.tracks.iter().filter(|t| t.source == *source).count();
+                let users = workspace.objects_using(*source).count()
+                    + workspace.tracks.iter().filter(|t| t.source == *source).count();
                 if users > 0 {
                     return Err(CommandError::SourceInUse(users));
                 }
                 workspace.sources.remove(source);
             }
             Command::RenameSource { source, name } => {
-                Arc::make_mut(workspace.sources.get_mut(source).ok_or(CommandError::NoSource(*source))?).name = name.clone();
+                Arc::make_mut(workspace.sources.get_mut(source).ok_or(CommandError::NoSource(*source))?).name =
+                    name.clone();
             }
             Command::SetSourceSettings { source, settings } => {
                 Arc::make_mut(workspace.sources.get_mut(source).ok_or(CommandError::NoSource(*source))?).settings =
@@ -631,7 +633,9 @@ impl Command {
                 // With everything under it.
                 scene_mut(workspace, *scene)?.take_subtree(*object).ok_or(CommandError::NoObject(*object))?;
             }
-            Command::RenameObject { scene, object, name } => object_mut(workspace, *scene, *object)?.name = name.clone(),
+            Command::RenameObject { scene, object, name } => {
+                object_mut(workspace, *scene, *object)?.name = name.clone()
+            }
             Command::MoveObject { scene, object, to } => {
                 // Among its siblings, with everything under it.
                 let s = scene_mut(workspace, *scene)?;
@@ -670,7 +674,9 @@ impl Command {
                     layout.visible = *visible;
                 }
             }
-            Command::SetObjectLocked { scene, object, locked } => object_mut(workspace, *scene, *object)?.locked = *locked,
+            Command::SetObjectLocked { scene, object, locked } => {
+                object_mut(workspace, *scene, *object)?.locked = *locked
+            }
             Command::SetObjectPrefab { scene, object, prefab, prefab_id } => {
                 let o = object_mut(workspace, *scene, *object)?;
                 o.prefab = prefab.clone();
@@ -702,10 +708,12 @@ impl Command {
                     t.named = true;
                 }
                 MixerStrip::Bus(id) => {
-                    workspace.audio.buses.iter_mut().find(|b| b.id == id).ok_or(CommandError::NoBus(id))?.name = name.clone()
+                    workspace.audio.buses.iter_mut().find(|b| b.id == id).ok_or(CommandError::NoBus(id))?.name =
+                        name.clone()
                 }
                 MixerStrip::Mix(id) => {
-                    workspace.audio.mixes.iter_mut().find(|m| m.id == id).ok_or(CommandError::NoMix(id))?.name = name.clone()
+                    workspace.audio.mixes.iter_mut().find(|m| m.id == id).ok_or(CommandError::NoMix(id))?.name =
+                        name.clone()
                 }
                 MixerStrip::Master => {}
             },

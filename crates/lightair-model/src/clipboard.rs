@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, HashMap};
 use serde::{Deserialize, Serialize};
 
 use crate::command::Command;
-use crate::model::{Id, Source, Object, Workspace, Scene};
+use crate::model::{Id, Object, Scene, Source, Workspace};
 
 /// What the clipboard holds: whole subtrees (each root first, roots in their list order) and
 /// the sources they show. Roots' layouts are in canvas terms; the rest stay in their parent's.
@@ -93,7 +93,8 @@ impl Clip {
                 source.settings = settings;
             }
             let source = &source;
-            let shared = is_device(&source.kind) && workspace.sources.get(&source.id).is_some_and(|i| i.kind == source.kind);
+            let shared =
+                is_device(&source.kind) && workspace.sources.get(&source.id).is_some_and(|i| i.kind == source.kind);
             if shared {
                 source_ids.insert(source.id, source.id);
             } else {
@@ -204,7 +205,8 @@ impl SceneAsset {
     pub fn of(workspace: &Workspace, scene: Id) -> Option<SceneAsset> {
         let sc = workspace.scene(scene)?;
         let roots: Vec<Id> = sc.objects.iter().filter(|l| l.parent.is_none()).map(|l| l.id).collect();
-        let clip = Clip::copy(workspace, scene, &roots).unwrap_or(Clip { objects: vec![], sources: vec![], prefab_id: None });
+        let clip =
+            Clip::copy(workspace, scene, &roots).unwrap_or(Clip { objects: vec![], sources: vec![], prefab_id: None });
         Some(SceneAsset { name: sc.name.clone(), clip })
     }
 

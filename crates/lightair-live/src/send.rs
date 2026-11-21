@@ -33,9 +33,21 @@ pub fn send(platform: &str, channel: &str, text: &str, reply_to: Option<&str>) -
         "twitch" => twitch(channel, &text, reply_to),
         "youtube" | "youtube-shorts" => {
             let video = crate::youtube::video_of(channel)?.ok_or("the channel isn't live")?;
-            page_send(platform, &format!("https://www.youtube.com/live_chat?is_popout=1&v={video}"), &rule("youtube.send_input", "#input[contenteditable]"), &rule("youtube.send_button", "#send-button button"), &text)
+            page_send(
+                platform,
+                &format!("https://www.youtube.com/live_chat?is_popout=1&v={video}"),
+                &rule("youtube.send_input", "#input[contenteditable]"),
+                &rule("youtube.send_button", "#send-button button"),
+                &text,
+            )
         }
-        "kick" => page_send(platform, &format!("https://kick.com/{}", crate::kick::slug(channel)), &rule("kick.send_input", "[data-testid=\"chat-input\"]"), &rule("kick.send_button", "#send-message-button"), &text),
+        "kick" => page_send(
+            platform,
+            &format!("https://kick.com/{}", crate::kick::slug(channel)),
+            &rule("kick.send_input", "[data-testid=\"chat-input\"]"),
+            &rule("kick.send_button", "#send-message-button"),
+            &text,
+        ),
         "tiktok" => page_send(
             platform,
             &format!("https://www.tiktok.com/@{}/live", crate::tiktok::handle(channel)),
@@ -53,7 +65,9 @@ pub fn check_twitch(channel: &str) -> Result<String, String> {
     let token = pages::cookie("https://www.twitch.tv", "auth-token").ok_or("no Twitch sign-in")?;
     let nick = pages::cookie("https://www.twitch.tv", "login").unwrap_or_else(|| "lightair".into());
     let mut socket = net::connect("wss://irc-ws.chat.twitch.tv:443", Duration::from_millis(500))?;
-    for line in [format!("PASS oauth:{token}"), format!("NICK {nick}"), format!("JOIN #{}", crate::twitch::login(channel))] {
+    for line in
+        [format!("PASS oauth:{token}"), format!("NICK {nick}"), format!("JOIN #{}", crate::twitch::login(channel))]
+    {
         socket.send(Message::text(line)).map_err(|e| e.to_string())?;
     }
     let mut heard = Vec::new();
@@ -68,7 +82,8 @@ pub fn check_twitch(channel: &str) -> Result<String, String> {
 }
 
 fn twitch(channel: &str, text: &str, reply_to: Option<&str>) -> Result<(), String> {
-    let token = pages::cookie("https://www.twitch.tv", "auth-token").ok_or("sign in to Twitch first (Outputs › the destination › Sign in)")?;
+    let token = pages::cookie("https://www.twitch.tv", "auth-token")
+        .ok_or("sign in to Twitch first (Outputs › the destination › Sign in)")?;
     let nick = pages::cookie("https://www.twitch.tv", "login").unwrap_or_else(|| "lightair".into());
     let mut socket = net::connect("wss://irc-ws.chat.twitch.tv:443", Duration::from_millis(500))?;
     for line in [format!("PASS oauth:{token}"), format!("NICK {nick}")] {
@@ -183,10 +198,17 @@ pub(crate) fn page_send(platform: &str, url: &str, input: &str, button: &str, te
         None => {
             let (tx, rx) = mpsc::channel::<String>();
             let tx = Mutex::new(tx);
-            let page = pages::host()?.open(url, &format!("{}{script}", pages::PRELUDE), Arc::new(move |m| {
-                let _ = tx.lock().send(m);
-            }));
-            map.insert(url.to_string(), ChatPage { page, rx: Arc::new(Mutex::new(rx)), ready: false, used: Instant::now() });
+            let page = pages::host()?.open(
+                url,
+                &format!("{}{script}", pages::PRELUDE),
+                Arc::new(move |m| {
+                    let _ = tx.lock().send(m);
+                }),
+            );
+            map.insert(
+                url.to_string(),
+                ChatPage { page, rx: Arc::new(Mutex::new(rx)), ready: false, used: Instant::now() },
+            );
             map.get_mut(url).unwrap()
         }
     };

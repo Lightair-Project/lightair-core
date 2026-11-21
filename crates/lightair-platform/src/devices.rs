@@ -28,7 +28,14 @@ pub fn allow_ios_screens() {
         let address = Address { selector: 0x7965_7320, scope: 0x676C_6F62, element: 0 };
         let allow: u32 = 1;
         let status = unsafe {
-            CMIOObjectSetPropertyData(1, &address, 0, std::ptr::null(), 4, &allow as *const u32 as *const std::ffi::c_void)
+            CMIOObjectSetPropertyData(
+                1,
+                &address,
+                0,
+                std::ptr::null(),
+                4,
+                &allow as *const u32 as *const std::ffi::c_void,
+            )
         };
         if status != 0 {
             tracing::warn!(status, "iPhone and iPad screens won't show as devices");
@@ -117,7 +124,8 @@ mod mac {
         unsafe {
             let Some(centre) = AnyClass::get(c"NSNotificationCenter") else { return };
             let centre: Retained<AnyObject> = msg_send![centre, defaultCenter];
-            let main: Option<Retained<AnyObject>> = AnyClass::get(c"NSOperationQueue").and_then(|q| msg_send![q, mainQueue]);
+            let main: Option<Retained<AnyObject>> =
+                AnyClass::get(c"NSOperationQueue").and_then(|q| msg_send![q, mainQueue]);
             let observer: Option<Retained<AnyObject>> = msg_send![
                 &*centre,
                 addObserverForName: AVCaptureDeviceWasConnectedNotification,

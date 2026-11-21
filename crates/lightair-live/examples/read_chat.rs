@@ -18,7 +18,13 @@ fn main() {
         for e in hub.since(seen) {
             seen = e.id;
             let who = e.user.as_ref().map_or("", |u| u.display_name.as_str());
-            println!("[{}] {:?} {who}: {} {}", e.platform, e.kind, e.text, e.paid.as_ref().map_or(String::new(), |p| p.display.clone()));
+            println!(
+                "[{}] {:?} {who}: {} {}",
+                e.platform,
+                e.kind,
+                e.text,
+                e.paid.as_ref().map_or(String::new(), |p| p.display.clone())
+            );
         }
     }
     for (c, s) in hub.status() {

@@ -13,7 +13,7 @@
 
 use std::ops::Range;
 
-use crate::model::{Id, Object, Layout, Scene};
+use crate::model::{Id, Layout, Object, Scene};
 
 /// A object's own space as seen from its parent's: where its pivot sits, how it is turned and
 /// scaled. Children are placed in it.
@@ -220,7 +220,14 @@ impl Scene {
                 out
             })
             .collect();
-        Scene { id: self.id, name: self.name.clone(), objects, screen: self.screen, transition: self.transition, stinger: self.stinger.clone() }
+        Scene {
+            id: self.id,
+            name: self.name.clone(),
+            objects,
+            screen: self.screen,
+            transition: self.transition,
+            stinger: self.stinger.clone(),
+        }
     }
 
     /// Whether the list keeps every subtree in one run after its parent (for tests and checks).

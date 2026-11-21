@@ -132,29 +132,73 @@ pub struct Condition {
 pub enum Step {
     /// Any Lightair method (`scene.switch`, `source.update`, `record.start`, … as the remote API
     /// has them); text in `params` is filled in as templates.
-    Call { method: String, #[serde(default)] params: Value },
+    Call {
+        method: String,
+        #[serde(default)]
+        params: Value,
+    },
     /// Sends to chat (where the trigger came from, unless `platform` says).
-    Chat { text: String, #[serde(default, skip_serializing_if = "String::is_empty")] platform: String },
+    Chat {
+        text: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        platform: String,
+    },
     /// Says it aloud on stream (the alert box's voice).
-    Speak { text: String },
+    Speak {
+        text: String,
+    },
     /// Plays a sound on stream (the alert box's audio).
-    Sound { file: String, #[serde(default = "full")] volume: f64 },
-    Wait { seconds: f64 },
+    Sound {
+        file: String,
+        #[serde(default = "full")]
+        volume: f64,
+    },
+    Wait {
+        seconds: f64,
+    },
     /// Sets a variable ("set"), adds to it ("add") or removes it ("clear"). `user`: the person's
     /// own (per viewer) rather than everyone's.
-    Var { name: String, #[serde(default = "set")] op: String, #[serde(default)] value: String, #[serde(default)] user: bool },
+    Var {
+        name: String,
+        #[serde(default = "set")]
+        op: String,
+        #[serde(default)]
+        value: String,
+        #[serde(default)]
+        user: bool,
+    },
     /// Changes the person's points (`amount` may be negative; a template).
-    Points { amount: String },
-    If { when: Vec<Condition>, #[serde(default)] then: Vec<Step>, #[serde(default, rename = "else")] otherwise: Vec<Step> },
+    Points {
+        amount: String,
+    },
+    If {
+        when: Vec<Condition>,
+        #[serde(default)]
+        then: Vec<Step>,
+        #[serde(default, rename = "else")]
+        otherwise: Vec<Step>,
+    },
     /// One of the branches, at random.
-    Random { choices: Vec<Vec<Step>> },
+    Random {
+        choices: Vec<Vec<Step>>,
+    },
     /// Runs another automation (by name or id) with this one's context.
-    Run { automation: String },
+    Run {
+        automation: String,
+    },
     /// A web request (`method` GET or POST); its answer is `{{ http }}` after.
-    Http { url: String, #[serde(default = "get")] method: String, #[serde(default)] body: String },
+    Http {
+        url: String,
+        #[serde(default = "get")]
+        method: String,
+        #[serde(default)]
+        body: String,
+    },
     /// JavaScript (a function body): `ctx` is the run's context; what it returns is
     /// `{{ script.… }}` after, and `{stop: true}` ends the run. Ten seconds at most.
-    Script { code: String },
+    Script {
+        code: String,
+    },
     /// Ends the run here.
     Stop,
 }
@@ -223,7 +267,11 @@ impl Trigger {
             }
             Trigger::Voice { phrase } => format!("When you say “{phrase}”"),
             Trigger::Controller { button } => {
-                if button.is_empty() { "Any controller button".into() } else { format!("Controller {button}") }
+                if button.is_empty() {
+                    "Any controller button".into()
+                } else {
+                    format!("Controller {button}")
+                }
             }
             Trigger::Manual => "By hand".into(),
         }

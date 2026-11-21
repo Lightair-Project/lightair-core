@@ -36,8 +36,10 @@ pub fn address() -> Option<String> {
 }
 
 fn key() -> Option<[u8; 32]> {
-    let hex = std::env::var("LIGHTAIR_RULES_KEY").ok().filter(|k| !k.is_empty()).or_else(|| PUBLIC_KEY.map(String::from))?;
-    let bytes: Vec<u8> = (0..hex.len() / 2).filter_map(|i| u8::from_str_radix(hex.get(i * 2..i * 2 + 2)?, 16).ok()).collect();
+    let hex =
+        std::env::var("LIGHTAIR_RULES_KEY").ok().filter(|k| !k.is_empty()).or_else(|| PUBLIC_KEY.map(String::from))?;
+    let bytes: Vec<u8> =
+        (0..hex.len() / 2).filter_map(|i| u8::from_str_radix(hex.get(i * 2..i * 2 + 2)?, 16).ok()).collect();
     bytes.try_into().ok()
 }
 
@@ -107,12 +109,19 @@ pub fn refresh() -> Result<bool, String> {
 
 /// The rule `key` (like "tiktok.chat_container"), or `default`, the built-in one.
 pub fn text(key: &str, default: &str) -> String {
-    RULES.read().as_ref().and_then(|r| r["values"][key].as_str().map(String::from)).unwrap_or_else(|| default.to_string())
+    RULES
+        .read()
+        .as_ref()
+        .and_then(|r| r["values"][key].as_str().map(String::from))
+        .unwrap_or_else(|| default.to_string())
 }
 
 /// Whether `platform`'s reader and sender are on (the rules can turn one off while it's broken).
 pub fn enabled(platform: &str) -> bool {
-    !RULES.read().as_ref().is_some_and(|r| r["off"].as_array().is_some_and(|a| a.iter().any(|p| p.as_str() == Some(platform))))
+    !RULES
+        .read()
+        .as_ref()
+        .is_some_and(|r| r["off"].as_array().is_some_and(|a| a.iter().any(|p| p.as_str() == Some(platform))))
 }
 
 /// The version in use (0: built-in).

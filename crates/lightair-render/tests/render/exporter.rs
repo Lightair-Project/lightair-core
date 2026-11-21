@@ -5,7 +5,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use lightair_render::exporter::{AudioCodec, Container, ExportSettings, Rate, VideoCodec, PRESETS};
+use lightair_render::exporter::{AudioCodec, Container, ExportSettings, PRESETS, Rate, VideoCodec};
 use lightair_render::media;
 use lightair_render::seqrender::SequenceRenderer;
 use lightair_render::sequence::{Media, Sequence, Transform};
@@ -28,12 +28,23 @@ fn probed(path: &Path) -> Probed {
     let ffprobe = media::ffmpeg().unwrap().with_file_name(if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" });
     let ffprobe = if ffprobe.exists() { ffprobe } else { "ffprobe".into() };
     let out = Command::new(ffprobe)
-        .args(["-v", "error", "-show_entries", "stream=codec_type,codec_name,width,height,r_frame_rate,sample_rate,channels:format=duration", "-of", "json"])
+        .args([
+            "-v",
+            "error",
+            "-show_entries",
+            "stream=codec_type,codec_name,width,height,r_frame_rate,sample_rate,channels:format=duration",
+            "-of",
+            "json",
+        ])
         .arg(path)
         .output()
         .unwrap();
     let j: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    let mut p = Probed { duration_ms: (j["format"]["duration"].as_str().and_then(|d| d.parse::<f64>().ok()).unwrap_or(0.0) * 1000.0) as u64, ..Default::default() };
+    let mut p = Probed {
+        duration_ms: (j["format"]["duration"].as_str().and_then(|d| d.parse::<f64>().ok()).unwrap_or(0.0) * 1000.0)
+            as u64,
+        ..Default::default()
+    };
     for s in j["streams"].as_array().cloned().unwrap_or_default() {
         match s["codec_type"].as_str() {
             Some("video") => {
@@ -64,8 +75,22 @@ fn every_kind_of_export() {
     };
     let red = dir.path().join("red.mp4");
     let tone = dir.path().join("tone.wav");
-    assert!(Command::new(&ff).args(["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=640x360:r=30:d=3", "-pix_fmt", "yuv420p"]).arg(&red).status().unwrap().success());
-    assert!(Command::new(&ff).args(["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=3"]).arg(&tone).status().unwrap().success());
+    assert!(
+        Command::new(&ff)
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=640x360:r=30:d=3", "-pix_fmt", "yuv420p"])
+            .arg(&red)
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(
+        Command::new(&ff)
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=3"])
+            .arg(&tone)
+            .status()
+            .unwrap()
+            .success()
+    );
     let mut seq = Sequence::new((640, 360), 30);
     let r = seq.add_media(Media::from_file(&red).unwrap());
     let t = seq.add_media(Media::from_file(&tone).unwrap());
@@ -80,7 +105,8 @@ fn every_kind_of_export() {
     };
     let all = (0, seq.duration_ms());
     let mut export = |name: &str, s: ExportSettings, range: (u64, u64)| {
-        let written = renderer.export_with(&dir.path().join(name), &s, range, |_| true).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let written =
+            renderer.export_with(&dir.path().join(name), &s, range, |_| true).unwrap_or_else(|e| panic!("{name}: {e}"));
         assert!(written.exists(), "{name}: {}", written.display());
         written
     };
@@ -102,7 +128,11 @@ fn every_kind_of_export() {
         ..ExportSettings::default()
     };
     let p = probed(&export("hevc.mp4", s, all));
-    assert_eq!((p.video.as_str(), p.width, p.height, p.sample_rate, p.channels), ("hevc", 1280, 720, 44_100, 1), "{p:?}");
+    assert_eq!(
+        (p.video.as_str(), p.width, p.height, p.sample_rate, p.channels),
+        ("hevc", 1280, 720, 44_100, 1),
+        "{p:?}"
+    );
     assert!((p.fps - 25.0).abs() < 0.01, "{p:?}");
 
     // ProRes 422 HQ with 24-bit PCM, at 29.97
@@ -128,7 +158,11 @@ fn every_kind_of_export() {
     let p = probed(&export("sound", PRESETS[13].2, all));
     assert_eq!((p.video.as_str(), p.audio.as_str()), ("", "pcm_s24le"), "{p:?}");
     assert!((p.duration_ms as i64 - 3_000).abs() < 150, "{p:?}");
-    let mp3 = export("sound", ExportSettings { container: Container::Mp3, audio: Some(AudioCodec::Mp3), ..PRESETS[14].2 }, (0, 1_500));
+    let mp3 = export(
+        "sound",
+        ExportSettings { container: Container::Mp3, audio: Some(AudioCodec::Mp3), ..PRESETS[14].2 },
+        (0, 1_500),
+    );
     let p = probed(&mp3);
     assert_eq!(p.audio, "mp3", "{p:?}");
     assert!((p.duration_ms as i64 - 1_500).abs() < 150, "{p:?}");
@@ -136,7 +170,10 @@ fn every_kind_of_export() {
     // PNG frames: a folder of them, one a frame
     let frames = export("frames", PRESETS[12].2, (0, 500));
     assert!(frames.is_dir());
-    let n = std::fs::read_dir(&frames).unwrap().filter(|e| e.as_ref().is_ok_and(|e| e.path().extension().is_some_and(|x| x == "png"))).count();
+    let n = std::fs::read_dir(&frames)
+        .unwrap()
+        .filter(|e| e.as_ref().is_ok_and(|e| e.path().extension().is_some_and(|x| x == "png")))
+        .count();
     assert!((14..=16).contains(&n), "{n} frames for half a second at 30");
 }
 
@@ -144,11 +181,16 @@ fn every_kind_of_export() {
 fn alpha_of(path: &Path) -> (String, bool) {
     let ffprobe = media::ffmpeg().unwrap().with_file_name(if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" });
     let ffprobe = if ffprobe.exists() { ffprobe } else { "ffprobe".into() };
-    let out = Command::new(ffprobe).args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=pix_fmt:stream_tags", "-of", "json"]).arg(path).output().unwrap();
+    let out = Command::new(ffprobe)
+        .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=pix_fmt:stream_tags", "-of", "json"])
+        .arg(path)
+        .output()
+        .unwrap();
     let j: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     let s = &j["streams"][0];
     let pix = s["pix_fmt"].as_str().unwrap_or("").to_string();
-    let tagged = s["tags"].as_object().is_some_and(|t| t.iter().any(|(k, v)| k.eq_ignore_ascii_case("alpha_mode") && v == "1"));
+    let tagged =
+        s["tags"].as_object().is_some_and(|t| t.iter().any(|(k, v)| k.eq_ignore_ascii_case("alpha_mode") && v == "1"));
     (pix.clone(), pix.contains('a') && pix != "gray" || tagged)
 }
 
@@ -160,7 +202,14 @@ fn transparent_exports_keep_the_background_see_through() {
         return;
     };
     let red = dir.path().join("red.mp4");
-    assert!(Command::new(&ff).args(["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=640x360:r=30:d=1", "-pix_fmt", "yuv420p"]).arg(&red).status().unwrap().success());
+    assert!(
+        Command::new(&ff)
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=640x360:r=30:d=1", "-pix_fmt", "yuv420p"])
+            .arg(&red)
+            .status()
+            .unwrap()
+            .success()
+    );
     // a small red picture in the middle: around it, nothing
     let mut seq = Sequence::new((640, 360), 30);
     let r = seq.add_media(Media::from_file(&red).unwrap());
@@ -175,17 +224,34 @@ fn transparent_exports_keep_the_background_see_through() {
     };
     let range = (0, 500);
     // PNG frames: the corner clear, the middle solid red
-    let frames = renderer.export_with(&dir.path().join("frames"), &ExportSettings { alpha: true, ..PRESETS[12].2 }, range, |_| true).unwrap();
+    let frames = renderer
+        .export_with(&dir.path().join("frames"), &ExportSettings { alpha: true, ..PRESETS[12].2 }, range, |_| true)
+        .unwrap();
     let first = frames.join("frames_00000.png");
-    let raw = Command::new(&ff).args(["-v", "error", "-i"]).arg(&first).args(["-f", "rawvideo", "-pix_fmt", "rgba", "-"]).output().unwrap().stdout;
+    let raw = Command::new(&ff)
+        .args(["-v", "error", "-i"])
+        .arg(&first)
+        .args(["-f", "rawvideo", "-pix_fmt", "rgba", "-"])
+        .output()
+        .unwrap()
+        .stdout;
     assert_eq!(raw.len(), 640 * 360 * 4);
-    let px = |x: usize, y: usize| { let i = (y * 640 + x) * 4; [raw[i], raw[i + 1], raw[i + 2], raw[i + 3]] };
+    let px = |x: usize, y: usize| {
+        let i = (y * 640 + x) * 4;
+        [raw[i], raw[i + 1], raw[i + 2], raw[i + 3]]
+    };
     assert_eq!(px(5, 5)[3], 0, "the corner is see-through");
     let mid = px(320, 180);
     assert!(mid[3] > 250 && mid[0] > 200 && mid[2] < 60, "the middle is solid red: {mid:?}");
     // the same project, not transparent: a black corner, opaque
     let flat = renderer.export_with(&dir.path().join("flat"), &PRESETS[12].2, range, |_| true).unwrap();
-    let raw2 = Command::new(&ff).args(["-v", "error", "-i"]).arg(flat.join("flat_00000.png")).args(["-f", "rawvideo", "-pix_fmt", "rgba", "-"]).output().unwrap().stdout;
+    let raw2 = Command::new(&ff)
+        .args(["-v", "error", "-i"])
+        .arg(flat.join("flat_00000.png"))
+        .args(["-f", "rawvideo", "-pix_fmt", "rgba", "-"])
+        .output()
+        .unwrap()
+        .stdout;
     assert_eq!(&raw2[..4], &[0, 0, 0, 255], "without transparency, black");
 
     // the video formats that carry it

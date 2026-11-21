@@ -165,7 +165,9 @@ impl Widgets {
             for i in list {
                 match instances.get(&i.id) {
                     // its code changed (made its own, edited, put back): the page loads again
-                    Some(old) if !code_matches(&old.custom, &i.custom) || old.platforms != i.platforms => recoded.push(i.id.clone()),
+                    Some(old) if !code_matches(&old.custom, &i.custom) || old.platforms != i.platforms => {
+                        recoded.push(i.id.clone())
+                    }
                     Some(old) if old.fields == i.fields => {}
                     _ => changed.push(i.id.clone()),
                 }
@@ -210,14 +212,27 @@ impl Widgets {
 
     /// Ends the alert showing now (the next one follows).
     pub fn skip(&self) {
-        let boxes: Vec<String> = self.shared.instances.lock().values().filter(|i| catalog::queues_alerts(&i.kind)).map(|i| i.id.clone()).collect();
+        let boxes: Vec<String> = self
+            .shared
+            .instances
+            .lock()
+            .values()
+            .filter(|i| catalog::queues_alerts(&i.kind))
+            .map(|i| i.id.clone())
+            .collect();
         for id in boxes {
             self.shared.send_to(&id, r#"{"type":"skip"}"#);
         }
     }
 
     fn alert_boxes(&self) -> Vec<String> {
-        self.shared.instances.lock().values().filter(|i| catalog::queues_alerts(&i.kind)).map(|i| i.id.clone()).collect()
+        self.shared
+            .instances
+            .lock()
+            .values()
+            .filter(|i| catalog::queues_alerts(&i.kind))
+            .map(|i| i.id.clone())
+            .collect()
     }
 
     /// Says `text` on stream (through the alert boxes, whose sound is in the mix). False when
@@ -353,7 +368,8 @@ impl Shared {
         self.sessions.lock().entry(e.platform.clone()).or_default().add(e);
         let event = json!({"type": "event", "event": e}).to_string();
         // each widget that listens to its platform: the event, and its totals when they changed
-        let hears: HashMap<String, bool> = self.instances.lock().iter().map(|(id, i)| (id.clone(), i.hears(&e.platform))).collect();
+        let hears: HashMap<String, bool> =
+            self.instances.lock().iter().map(|(id, i)| (id.clone(), i.hears(&e.platform))).collect();
         let mut totals: HashMap<String, String> = HashMap::new();
         for c in self.conns.lock().iter() {
             if !hears.get(&c.instance).copied().unwrap_or(true) {
@@ -361,9 +377,9 @@ impl Shared {
             }
             let _ = c.tx.send(event.clone());
             if counted && e.kind != lightair_live::Kind::Message {
-                let m = totals
-                    .entry(c.instance.clone())
-                    .or_insert_with(|| json!({"type": "session", "session": self.session_for(&c.instance)}).to_string());
+                let m = totals.entry(c.instance.clone()).or_insert_with(|| {
+                    json!({"type": "session", "session": self.session_for(&c.instance)}).to_string()
+                });
                 let _ = c.tx.send(m.clone());
             }
         }
@@ -371,7 +387,13 @@ impl Shared {
             return;
         }
         // subathon timers count on whether or not they're on screen
-        let timers: Vec<String> = self.instances.lock().values().filter(|i| i.kind == "subathon" && i.hears(&e.platform)).map(|i| i.id.clone()).collect();
+        let timers: Vec<String> = self
+            .instances
+            .lock()
+            .values()
+            .filter(|i| i.kind == "subathon" && i.hears(&e.platform))
+            .map(|i| i.id.clone())
+            .collect();
         for id in timers {
             let values = self.values(&id).unwrap_or_default();
             if let Some(changes) = catalog::subathon_event(&values, &store::load(&self.store_dir, &id), e) {
@@ -379,7 +401,13 @@ impl Shared {
             }
         }
         // the alert boxes' queues
-        let alert_boxes: Vec<String> = self.instances.lock().values().filter(|i| catalog::queues_alerts(&i.kind) && i.hears(&e.platform)).map(|i| i.id.clone()).collect();
+        let alert_boxes: Vec<String> = self
+            .instances
+            .lock()
+            .values()
+            .filter(|i| catalog::queues_alerts(&i.kind) && i.hears(&e.platform))
+            .map(|i| i.id.clone())
+            .collect();
         let mut queues = self.queues.lock();
         for id in alert_boxes {
             let q = queues.entry(id).or_default();
@@ -474,7 +502,15 @@ fn percent_decode(s: &str) -> String {
 }
 
 fn percent_encode(s: &str) -> String {
-    s.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
+    s.bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) {
+                (b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect()
 }
 
 fn content_type(path: &Path) -> &'static str {
@@ -512,10 +548,18 @@ fn serve(mut stream: TcpStream, shared: &Arc<Shared>) -> io::Result<()> {
         tracing::debug!(%path, "widget request");
         let no_cache = [("Cache-Control", "no-store")];
         match path.as_str() {
-            "/lightair.js" => http::respond(&mut stream, 200, "text/javascript; charset=utf-8", page::BRIDGE.as_bytes(), &no_cache)?,
-            "/jquery.js" => http::respond(&mut stream, 200, "text/javascript; charset=utf-8", page::JQUERY.as_bytes(), &[])?,
-            "/se-shim.js" => http::respond(&mut stream, 200, "text/javascript; charset=utf-8", page::SE_SHIM.as_bytes(), &no_cache)?,
-            "/sl-shim.js" => http::respond(&mut stream, 200, "text/javascript; charset=utf-8", page::SL_SHIM.as_bytes(), &no_cache)?,
+            "/lightair.js" => {
+                http::respond(&mut stream, 200, "text/javascript; charset=utf-8", page::BRIDGE.as_bytes(), &no_cache)?
+            }
+            "/jquery.js" => {
+                http::respond(&mut stream, 200, "text/javascript; charset=utf-8", page::JQUERY.as_bytes(), &[])?
+            }
+            "/se-shim.js" => {
+                http::respond(&mut stream, 200, "text/javascript; charset=utf-8", page::SE_SHIM.as_bytes(), &no_cache)?
+            }
+            "/sl-shim.js" => {
+                http::respond(&mut stream, 200, "text/javascript; charset=utf-8", page::SL_SHIM.as_bytes(), &no_cache)?
+            }
             p if p.starts_with("/run/") => {
                 let name = percent_decode(&p[5..]);
                 let given = query(&req.path, "key").unwrap_or_default();
@@ -532,7 +576,9 @@ fn serve(mut stream: TcpStream, shared: &Arc<Shared>) -> io::Result<()> {
                 let platform = p.trim_start_matches("/icons/").trim_end_matches(".svg");
                 let svg = shared.icons.lock().as_ref().and_then(|f| f(platform));
                 match svg {
-                    Some(svg) => http::respond(&mut stream, 200, "image/svg+xml", &svg, &[("Cache-Control", "max-age=86400")])?,
+                    Some(svg) => {
+                        http::respond(&mut stream, 200, "image/svg+xml", &svg, &[("Cache-Control", "max-age=86400")])?
+                    }
                     None => http::respond(&mut stream, 404, "text/plain", b"no icon", &[])?,
                 }
             }
@@ -540,7 +586,8 @@ fn serve(mut stream: TcpStream, shared: &Arc<Shared>) -> io::Result<()> {
                 let rest = &p[3..];
                 let (id, sub) = rest.split_once('/').unwrap_or((rest, ""));
                 let instance = shared.instances.lock().get(id).cloned();
-                let Some(instance) = instance.filter(|i| query(&req.path, "key").as_deref() == Some(i.key.as_str())) else {
+                let Some(instance) = instance.filter(|i| query(&req.path, "key").as_deref() == Some(i.key.as_str()))
+                else {
                     return http::respond(&mut stream, 404, "text/plain", b"no such widget", &[]);
                 };
                 match sub {
@@ -555,7 +602,9 @@ fn serve(mut stream: TcpStream, shared: &Arc<Shared>) -> io::Result<()> {
                     "file" => {
                         // only a file one of its settings names
                         let wanted = query(&req.path, "path").unwrap_or_default();
-                        let named = shared.values(&instance.id).is_some_and(|v| v.values().any(|x| x.as_str() == Some(wanted.as_str())))
+                        let named = shared
+                            .values(&instance.id)
+                            .is_some_and(|v| v.values().any(|x| x.as_str() == Some(wanted.as_str())))
                             || shared.files.lock().contains(&wanted);
                         let path = PathBuf::from(&wanted);
                         match std::fs::read(&path).ok().filter(|_| named && path.is_absolute()) {
@@ -581,7 +630,9 @@ fn accept(mut stream: TcpStream, req: &Request) -> io::Result<WebSocket<TcpStrea
     sha.update(key.as_bytes());
     sha.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
     let accept = base64::engine::general_purpose::STANDARD.encode(sha.digest().bytes());
-    let head = format!("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n");
+    let head = format!(
+        "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+    );
     stream.write_all(head.as_bytes())?;
     stream.set_read_timeout(Some(Duration::from_millis(50)))?;
     Ok(WebSocket::from_raw_socket(stream, Role::Server, None))
@@ -603,8 +654,15 @@ fn feed(mut ws: WebSocket<TcpStream>, shared: &Arc<Shared>, instance: &str) -> i
                         Some("points") => {
                             let s = |k: &str| m[k].as_str().unwrap_or("").to_string();
                             let delta = m["delta"].as_f64().unwrap_or(0.0);
-                            let balance = shared.points.lock().as_ref().and_then(|hook| hook(&s("platform"), &s("id"), &s("name"), delta));
-                            let _ = me.send(json!({"type": "points", "ref": m["ref"], "ok": balance.is_some(), "balance": balance}).to_string());
+                            let balance = shared
+                                .points
+                                .lock()
+                                .as_ref()
+                                .and_then(|hook| hook(&s("platform"), &s("id"), &s("name"), delta));
+                            let _ = me.send(
+                                json!({"type": "points", "ref": m["ref"], "ok": balance.is_some(), "balance": balance})
+                                    .to_string(),
+                            );
                         }
                         Some("storage.set") => {
                             if let Some(key) = m["key"].as_str() {
@@ -668,9 +726,16 @@ mod tests {
         };
         w.shared.event(&follow("twitch", "tw"));
         w.shared.event(&follow("youtube", "yt"));
-        let got = |rx: &crossbeam_channel::Receiver<String>| -> Vec<Value> { rx.try_iter().map(|m| serde_json::from_str(&m).unwrap()).collect() };
+        let got = |rx: &crossbeam_channel::Receiver<String>| -> Vec<Value> {
+            rx.try_iter().map(|m| serde_json::from_str(&m).unwrap()).collect()
+        };
         let (all, yt) = (got(&rx_every), got(&rx_youtube));
-        let events = |ms: &[Value]| ms.iter().filter(|m| m["type"] == "event").map(|m| m["event"]["platform"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+        let events = |ms: &[Value]| {
+            ms.iter()
+                .filter(|m| m["type"] == "event")
+                .map(|m| m["event"]["platform"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        };
         assert_eq!(events(&all), ["twitch", "youtube"]);
         assert_eq!(events(&yt), ["youtube"]);
         // totals: every platform's, or its own
@@ -679,13 +744,19 @@ mod tests {
         assert_eq!(last(&yt)["counts"]["follow"], 1);
         assert_eq!(last(&yt)["latest"]["follow"]["name"], "yt");
         // its load: its own totals and recent events
-        assert_eq!(serde_json::from_str::<Value>(&w.shared.load_message(&youtube.id)).unwrap()["session"]["counts"]["follow"], 1);
+        assert_eq!(
+            serde_json::from_str::<Value>(&w.shared.load_message(&youtube.id)).unwrap()["session"]["counts"]["follow"],
+            1
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn queries_decode() {
-        assert_eq!(query("/w/a/file?key=k&path=%2FUsers%2Fme%2Fa%20b.png", "path").as_deref(), Some("/Users/me/a b.png"));
+        assert_eq!(
+            query("/w/a/file?key=k&path=%2FUsers%2Fme%2Fa%20b.png", "path").as_deref(),
+            Some("/Users/me/a b.png")
+        );
         assert_eq!(query("/w/a/?key=abc", "key").as_deref(), Some("abc"));
         assert_eq!(query("/w/a/", "key"), None);
     }

@@ -37,7 +37,12 @@ pub fn hue_bridge() -> Option<(String, String)> {
 /// Hue bridges on this network, through Philips' discovery service: their addresses.
 pub fn hue_find() -> Result<Vec<String>, String> {
     let list = net::get_json(&net::agent(), "https://discovery.meethue.com/", &[])?;
-    Ok(list.as_array().into_iter().flatten().filter_map(|b| b["internalipaddress"].as_str().map(String::from)).collect())
+    Ok(list
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|b| b["internalipaddress"].as_str().map(String::from))
+        .collect())
 }
 
 /// Asks the bridge at `address` to let Lightair in: `Ok(false)` until its button was pressed
@@ -47,7 +52,8 @@ pub fn hue_pair(address: &str) -> Result<bool, String> {
     if address.is_empty() {
         return Err("the bridge's address is needed".into());
     }
-    let answer = net::post_json(&net::agent(), &format!("http://{address}/api"), &json!({"devicetype": "lightair#mac"}))?;
+    let answer =
+        net::post_json(&net::agent(), &format!("http://{address}/api"), &json!({"devicetype": "lightair#mac"}))?;
     let first = &answer[0];
     if let Some(name) = first["success"]["username"].as_str() {
         let file = hue_file().ok_or("nowhere to keep the pairing")?;
@@ -59,7 +65,9 @@ pub fn hue_pair(address: &str) -> Result<bool, String> {
     }
     match first["error"]["type"].as_i64() {
         Some(101) => Ok(false),
-        _ => Err(first["error"]["description"].as_str().map_or_else(|| format!("{address} didn't answer like a Hue bridge"), String::from)),
+        _ => Err(first["error"]["description"]
+            .as_str()
+            .map_or_else(|| format!("{address} didn't answer like a Hue bridge"), String::from)),
     }
 }
 
@@ -75,10 +83,12 @@ fn hue_xy(colour: &str) -> Option<[f64; 2]> {
     if hex.len() != 6 {
         return None;
     }
-    let c = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).ok().map(|v| {
-        let v = v as f64 / 255.0;
-        if v > 0.04045 { ((v + 0.055) / 1.055).powf(2.4) } else { v / 12.92 }
-    });
+    let c = |i: usize| {
+        u8::from_str_radix(&hex[i..i + 2], 16).ok().map(|v| {
+            let v = v as f64 / 255.0;
+            if v > 0.04045 { ((v + 0.055) / 1.055).powf(2.4) } else { v / 12.92 }
+        })
+    };
     let (r, g, b) = (c(0)?, c(2)?, c(4)?);
     let x = r * 0.664511 + g * 0.154324 + b * 0.162028;
     let y = r * 0.283881 + g * 0.668433 + b * 0.047685;
@@ -100,7 +110,11 @@ fn hue_call(method: &str, p: &Value) -> Result<Value, String> {
         return Err(format!("the bridge said: {e} (pair again)"));
     }
     let named = |list: &Value, kind: &str| -> Vec<Value> {
-        list.as_object().into_iter().flatten().map(|(id, v)| json!({"id": id, "name": v["name"], "kind": kind})).collect()
+        list.as_object()
+            .into_iter()
+            .flatten()
+            .map(|(id, v)| json!({"id": id, "name": v["name"], "kind": kind}))
+            .collect()
     };
     if method == "hue.lights" {
         let mut all = named(&lights, "light");
@@ -139,8 +153,13 @@ fn hue_call(method: &str, p: &Value) -> Result<Value, String> {
     if let Some(t) = p["transition"].as_f64() {
         state["transitiontime"] = json!((t.max(0.0) * 10.0).round() as u64);
     }
-    let mut res = agent.put(&format!("{base}/{path}")).header("Content-Type", "application/json").send(state.to_string()).map_err(|e| e.to_string())?;
-    let answer: Value = serde_json::from_str(&res.body_mut().read_to_string().unwrap_or_default()).unwrap_or(Value::Null);
+    let mut res = agent
+        .put(&format!("{base}/{path}"))
+        .header("Content-Type", "application/json")
+        .send(state.to_string())
+        .map_err(|e| e.to_string())?;
+    let answer: Value =
+        serde_json::from_str(&res.body_mut().read_to_string().unwrap_or_default()).unwrap_or(Value::Null);
     if let Some(e) = answer.as_array().into_iter().flatten().find_map(|r| r["error"]["description"].as_str()) {
         return Err(format!("the bridge said: {e}"));
     }
@@ -177,12 +196,18 @@ fn vts_connect() -> Result<net::Socket, String> {
     let mut socket = net::connect(&format!("ws://127.0.0.1:{port}"), Duration::from_millis(300))
         .map_err(|_| "VTube Studio isn't running (or its API is off: Settings › Start API)".to_string())?;
     let plugin = json!({"pluginName": "Lightair", "pluginDeveloper": "Lightair"});
-    let saved = token_file().and_then(|f| std::fs::read(f).ok()).and_then(|b| serde_json::from_slice::<Value>(&b).ok()).and_then(|v| v["token"].as_str().map(String::from));
+    let saved = token_file()
+        .and_then(|f| std::fs::read(f).ok())
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .and_then(|v| v["token"].as_str().map(String::from));
     let token = match saved {
         Some(t) => t,
         None => {
             let v = vts_request(&mut socket, "AuthenticationTokenRequest", plugin.clone())?;
-            let t = v["authenticationToken"].as_str().ok_or("VTube Studio gave no token (Allow Lightair in VTube Studio)")?.to_string();
+            let t = v["authenticationToken"]
+                .as_str()
+                .ok_or("VTube Studio gave no token (Allow Lightair in VTube Studio)")?
+                .to_string();
             if let Some(f) = token_file() {
                 let _ = std::fs::create_dir_all(f.parent().unwrap_or(&f));
                 let _ = std::fs::write(f, json!({"token": t}).to_string());
@@ -215,26 +240,38 @@ pub fn call(method: &str, p: &Value) -> Option<Result<Value, String>> {
                 let mut s = vts_connect()?;
                 let list = vts_request(&mut s, "HotkeysInCurrentModelRequest", json!({}))?;
                 let out = match method {
-                    "vts.hotkeys" => Ok(json!({"hotkeys": list["availableHotkeys"].as_array().map(|a| a.iter().map(|h| json!({"name": h["name"], "id": h["hotkeyID"], "type": h["type"]})).collect::<Vec<_>>()).unwrap_or_default()})),
+                    "vts.hotkeys" => Ok(
+                        json!({"hotkeys": list["availableHotkeys"].as_array().map(|a| a.iter().map(|h| json!({"name": h["name"], "id": h["hotkeyID"], "type": h["type"]})).collect::<Vec<_>>()).unwrap_or_default()}),
+                    ),
                     "vts.hotkey" => {
                         let want = p["hotkey"].as_str().unwrap_or("");
                         let id = list["availableHotkeys"]
                             .as_array()
                             .into_iter()
                             .flatten()
-                            .find(|h| h["hotkeyID"] == want || h["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(want)))
+                            .find(|h| {
+                                h["hotkeyID"] == want
+                                    || h["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(want))
+                            })
                             .and_then(|h| h["hotkeyID"].as_str().map(String::from))
                             .ok_or_else(|| format!("the model has no hotkey “{want}”"))?;
                         vts_request(&mut s, "HotkeyTriggerRequest", json!({"hotkeyID": id}))
                     }
-                    _ => vts_request(&mut s, "ExpressionActivationRequest", json!({"expressionFile": p["file"], "active": p["active"].as_bool().unwrap_or(true)})),
+                    _ => vts_request(
+                        &mut s,
+                        "ExpressionActivationRequest",
+                        json!({"expressionFile": p["file"], "active": p["active"].as_bool().unwrap_or(true)}),
+                    ),
                 };
                 let _ = s.close(None);
                 out
             })()
         }
         "light.get" | "light.set" => (|| {
-            let address = p["address"].as_str().filter(|a| !a.is_empty()).ok_or("the light's address is needed (its IP, from Elgato Control Center)")?;
+            let address = p["address"]
+                .as_str()
+                .filter(|a| !a.is_empty())
+                .ok_or("the light's address is needed (its IP, from Elgato Control Center)")?;
             let host = if address.contains(':') { address.to_string() } else { format!("{address}:9123") };
             let url = format!("http://{host}/elgato/lights");
             let agent = net::agent();
@@ -253,7 +290,11 @@ pub fn call(method: &str, p: &Value) -> Option<Result<Value, String>> {
                 light["temperature"] = json!((1_000_000.0 / k.clamp(2900.0, 7000.0)).round() as u64);
             }
             let body = json!({"numberOfLights": 1, "lights": [light]});
-            let mut res = agent.put(&url).header("Content-Type", "application/json").send(body.to_string()).map_err(|e| e.to_string())?;
+            let mut res = agent
+                .put(&url)
+                .header("Content-Type", "application/json")
+                .send(body.to_string())
+                .map_err(|e| e.to_string())?;
             let text = res.body_mut().read_to_string().unwrap_or_default();
             Ok(serde_json::from_str(&text).unwrap_or(Value::Null))
         })(),
@@ -265,12 +306,19 @@ pub fn call(method: &str, p: &Value) -> Option<Result<Value, String>> {
 
 /// Heart rate from Pulsoid (the person's own token from pulsoid.net › Keys): `on_bpm` with each
 /// reading, until `stop`. Reconnects with a pause after a failure.
-pub fn pulsoid(token: String, on_bpm: impl Fn(u32) + Send + 'static, stop: std::sync::Arc<std::sync::atomic::AtomicBool>) {
+pub fn pulsoid(
+    token: String,
+    on_bpm: impl Fn(u32) + Send + 'static,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
     use std::sync::atomic::Ordering;
     let _ = std::thread::Builder::new().name("lightair-heart-rate".into()).spawn(move || {
         while !stop.load(Ordering::Acquire) {
             let result = (|| -> Result<(), String> {
-                let mut socket = net::connect(&format!("wss://dev.pulsoid.net/api/v1/data/real_time?access_token={token}"), Duration::from_millis(500))?;
+                let mut socket = net::connect(
+                    &format!("wss://dev.pulsoid.net/api/v1/data/real_time?access_token={token}"),
+                    Duration::from_millis(500),
+                )?;
                 while !stop.load(Ordering::Acquire) {
                     let Some(Message::Text(t)) = net::read(&mut socket)? else { continue };
                     if let Ok(v) = serde_json::from_str::<Value>(t.as_str())
@@ -323,10 +371,15 @@ mod tests {
                 loop {
                     let n = s.read(&mut buf).unwrap_or(0);
                     req.push_str(&String::from_utf8_lossy(&buf[..n]));
-                    let Some((head, body)) = req.split_once("\r\n\r\n") else {
-                        if n == 0 { break } else { continue }
-                    };
-                    let want = head.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").and_then(|v| v.trim().parse::<usize>().ok())).unwrap_or(0);
+                    let Some((head, body)) = req.split_once("\r\n\r\n") else { if n == 0 { break } else { continue } };
+                    let want = head
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .and_then(|v| v.trim().parse::<usize>().ok())
+                        })
+                        .unwrap_or(0);
                     if n == 0 || body.len() >= want {
                         break;
                     }
@@ -336,7 +389,11 @@ mod tests {
                 log.lock().push(format!("{line} {body}"));
                 let reply = if line.starts_with("POST /api ") {
                     pairs += 1;
-                    if pairs == 1 { r#"[{"error":{"type":101,"description":"link button not pressed"}}]"# } else { r#"[{"success":{"username":"abc"}}]"# }
+                    if pairs == 1 {
+                        r#"[{"error":{"type":101,"description":"link button not pressed"}}]"#
+                    } else {
+                        r#"[{"success":{"username":"abc"}}]"#
+                    }
                 } else if line.contains("/lights ") {
                     r#"{"1":{"name":"Desk"}}"#
                 } else if line.contains("/groups ") {
@@ -344,7 +401,11 @@ mod tests {
                 } else {
                     r#"[{"success":{}}]"#
                 };
-                let _ = write!(s, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}", reply.len());
+                let _ = write!(
+                    s,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                    reply.len()
+                );
             }
         });
         super::set_dir(std::env::temp_dir().join(format!("lightair-hue-{}", std::process::id())));
@@ -353,7 +414,12 @@ mod tests {
         assert_eq!(super::hue_bridge().unwrap().1, "abc");
         let list = super::call("hue.lights", &serde_json::json!({})).unwrap().unwrap();
         assert_eq!(list["lights"].as_array().unwrap().len(), 2);
-        super::call("hue.set", &serde_json::json!({"light": "office", "on": true, "brightness": 50, "colour": "#ff0000"})).unwrap().unwrap();
+        super::call(
+            "hue.set",
+            &serde_json::json!({"light": "office", "on": true, "brightness": 50, "colour": "#ff0000"}),
+        )
+        .unwrap()
+        .unwrap();
         assert!(super::call("hue.set", &serde_json::json!({"light": "Kitchen"})).unwrap().is_err());
         let put = seen.lock().iter().find(|l| l.starts_with("PUT")).cloned().unwrap();
         assert!(put.starts_with("PUT /api/abc/groups/3/action"), "{put}");

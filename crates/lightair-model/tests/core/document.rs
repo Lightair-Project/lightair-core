@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use lightair_model::{
-    Command, CommandError, Document, Source, Object, ObjectPatch, Layout, Patch, Workspace, Scene, diff, diff_objects,
+    Command, CommandError, Document, Layout, Object, ObjectPatch, Patch, Scene, Source, Workspace, diff, diff_objects,
 };
 use proptest::prelude::*;
 
@@ -102,7 +102,12 @@ fn the_virtual_camera_choice_is_kept_and_follows_removals() {
     assert_eq!(doc.workspace().outputs.virtual_camera, Default::default(), "undo brings back the scene on air");
     doc.redo();
     let ghost = lightair_model::Id::new();
-    assert!(doc.apply(&Command::SetVirtualCamera { settings: lightair_model::VirtualCameraSettings { scene: Some(ghost), canvas: None } }).is_err());
+    assert!(
+        doc.apply(&Command::SetVirtualCamera {
+            settings: lightair_model::VirtualCameraSettings { scene: Some(ghost), canvas: None }
+        })
+        .is_err()
+    );
     doc.apply(&Command::RemoveCanvas { canvas: sq }).unwrap();
     assert_eq!(doc.workspace().outputs.virtual_camera.canvas, None, "its canvas gone: the primary");
     doc.apply(&Command::RemoveScene { scene }).unwrap();
@@ -347,7 +352,11 @@ fn removing_a_mix_takes_it_off_destinations() {
 #[test]
 fn a_scene_can_have_its_own_transition() {
     let (mut doc, scene, ..) = setup();
-    let own = lightair_model::TransitionSettings { kind: lightair_model::TransitionKind::Dip, duration_ms: 99_999, ..doc.workspace().transition };
+    let own = lightair_model::TransitionSettings {
+        kind: lightair_model::TransitionKind::Dip,
+        duration_ms: 99_999,
+        ..doc.workspace().transition
+    };
     doc.apply(&Command::SetSceneTransition { scene, transition: Some(own) }).unwrap();
     let t = doc.workspace().scene(scene).unwrap().transition.unwrap();
     assert_eq!(t.kind, lightair_model::TransitionKind::Dip);

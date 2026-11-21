@@ -114,6 +114,9 @@ impl crate::ws::Protocol for Session {
         if event.name == "audio.levels" && self.events.is_none() {
             return None;
         }
-        Some(json!({"jsonrpc": "2.0", "method": "event", "params": {"name": event.name, "data": event.data}}).to_string())
+        Some(
+            json!({"jsonrpc": "2.0", "method": "event", "params": {"name": event.name, "data": event.data}})
+                .to_string(),
+        )
     }
 }

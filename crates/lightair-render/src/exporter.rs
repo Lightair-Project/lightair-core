@@ -228,7 +228,13 @@ impl Default for ExportSettings {
     }
 }
 
-const fn video(container: Container, video: VideoCodec, rate: Rate, audio: Option<AudioCodec>, audio_kbps: u32) -> ExportSettings {
+const fn video(
+    container: Container,
+    video: VideoCodec,
+    rate: Rate,
+    audio: Option<AudioCodec>,
+    audio_kbps: u32,
+) -> ExportSettings {
     ExportSettings {
         container,
         video,
@@ -248,7 +254,11 @@ const fn video(container: Container, video: VideoCodec, rate: Rate, audio: Optio
 
 /// Ready-made settings: (name, what it's for, the settings).
 pub const PRESETS: &[(&str, &str, ExportSettings)] = &[
-    ("Standard", "H.264 MP4: plays anywhere, uploads anywhere", video(Container::Mp4, VideoCodec::H264, Rate::Quality(70), Some(AudioCodec::Aac), 192)),
+    (
+        "Standard",
+        "H.264 MP4: plays anywhere, uploads anywhere",
+        video(Container::Mp4, VideoCodec::H264, Rate::Quality(70), Some(AudioCodec::Aac), 192),
+    ),
     (
         "YouTube",
         "H.264, a high bitrate for YouTube's own encode",
@@ -257,48 +267,86 @@ pub const PRESETS: &[(&str, &str, ExportSettings)] = &[
     (
         "Social (vertical)",
         "1080×1920 H.264 for Reels, TikTok and Shorts",
-        ExportSettings { size: Some((1080, 1920)), ..video(Container::Mp4, VideoCodec::H264, Rate::Bitrate(12_000), Some(AudioCodec::Aac), 192) },
+        ExportSettings {
+            size: Some((1080, 1920)),
+            ..video(Container::Mp4, VideoCodec::H264, Rate::Bitrate(12_000), Some(AudioCodec::Aac), 192)
+        },
     ),
-    ("Small file", "HEVC: half the size of H.264 for the same look", video(Container::Mp4, VideoCodec::Hevc, Rate::Quality(45), Some(AudioCodec::Aac), 128)),
+    (
+        "Small file",
+        "HEVC: half the size of H.264 for the same look",
+        video(Container::Mp4, VideoCodec::Hevc, Rate::Quality(45), Some(AudioCodec::Aac), 128),
+    ),
     (
         "ProRes 422 HQ",
         "For editing elsewhere (Final Cut, Premiere, Resolve)",
-        ExportSettings { profile: 3, ten_bit: true, ..video(Container::Mov, VideoCodec::ProRes, Rate::Quality(100), Some(AudioCodec::Pcm24), 192) },
+        ExportSettings {
+            profile: 3,
+            ten_bit: true,
+            ..video(Container::Mov, VideoCodec::ProRes, Rate::Quality(100), Some(AudioCodec::Pcm24), 192)
+        },
     ),
     (
         "DNxHR HQ",
         "For Avid and Resolve",
-        ExportSettings { hardware: false, ..video(Container::Mov, VideoCodec::DnxHr, Rate::Quality(100), Some(AudioCodec::Pcm24), 192) },
+        ExportSettings {
+            hardware: false,
+            ..video(Container::Mov, VideoCodec::DnxHr, Rate::Quality(100), Some(AudioCodec::Pcm24), 192)
+        },
     ),
     (
         "Web (WebM)",
         "VP9 and Opus, for the web",
-        ExportSettings { hardware: false, ..video(Container::WebM, VideoCodec::Vp9, Rate::Quality(70), Some(AudioCodec::Opus), 160) },
+        ExportSettings {
+            hardware: false,
+            ..video(Container::WebM, VideoCodec::Vp9, Rate::Quality(70), Some(AudioCodec::Opus), 160)
+        },
     ),
     (
         "Archive (lossless)",
         "FFV1 and FLAC in MKV: every pixel, big",
-        ExportSettings { hardware: false, ..video(Container::Mkv, VideoCodec::Ffv1, Rate::Quality(100), Some(AudioCodec::Flac), 192) },
+        ExportSettings {
+            hardware: false,
+            ..video(Container::Mkv, VideoCodec::Ffv1, Rate::Quality(100), Some(AudioCodec::Flac), 192)
+        },
     ),
     (
         "ProRes 4444 (transparent)",
         "Keeps transparency, for compositing in any editor",
-        ExportSettings { profile: 4, ten_bit: true, alpha: true, hardware: false, ..video(Container::Mov, VideoCodec::ProRes, Rate::Quality(100), Some(AudioCodec::Pcm24), 192) },
+        ExportSettings {
+            profile: 4,
+            ten_bit: true,
+            alpha: true,
+            hardware: false,
+            ..video(Container::Mov, VideoCodec::ProRes, Rate::Quality(100), Some(AudioCodec::Pcm24), 192)
+        },
     ),
     (
         "HEVC (transparent)",
         "Keeps transparency, small: Final Cut, Motion, Safari (Mac)",
-        ExportSettings { alpha: true, ..video(Container::Mov, VideoCodec::Hevc, Rate::Quality(85), Some(AudioCodec::Aac), 192) },
+        ExportSettings {
+            alpha: true,
+            ..video(Container::Mov, VideoCodec::Hevc, Rate::Quality(85), Some(AudioCodec::Aac), 192)
+        },
     ),
     (
         "WebM (transparent)",
         "Keeps transparency, VP9: browsers and overlays",
-        ExportSettings { alpha: true, hardware: false, ..video(Container::WebM, VideoCodec::Vp9, Rate::Quality(85), Some(AudioCodec::Opus), 160) },
+        ExportSettings {
+            alpha: true,
+            hardware: false,
+            ..video(Container::WebM, VideoCodec::Vp9, Rate::Quality(85), Some(AudioCodec::Opus), 160)
+        },
     ),
     (
         "GIF",
         "Animated, 15 fps, at most 960 wide, no sound",
-        ExportSettings { size: None, fps: Some(15.0), hardware: false, ..video(Container::Gif, VideoCodec::Gif, Rate::Quality(70), None, 192) },
+        ExportSettings {
+            size: None,
+            fps: Some(15.0),
+            hardware: false,
+            ..video(Container::Gif, VideoCodec::Gif, Rate::Quality(70), None, 192)
+        },
     ),
     (
         "PNG frames",
@@ -308,12 +356,18 @@ pub const PRESETS: &[(&str, &str, ExportSettings)] = &[
     (
         "Audio (WAV)",
         "The sound alone, uncompressed",
-        ExportSettings { hardware: false, ..video(Container::Wav, VideoCodec::H264, Rate::Quality(70), Some(AudioCodec::Pcm24), 192) },
+        ExportSettings {
+            hardware: false,
+            ..video(Container::Wav, VideoCodec::H264, Rate::Quality(70), Some(AudioCodec::Pcm24), 192)
+        },
     ),
     (
         "Audio (MP3)",
         "The sound alone, small",
-        ExportSettings { hardware: false, ..video(Container::Mp3, VideoCodec::H264, Rate::Quality(70), Some(AudioCodec::Mp3), 320) },
+        ExportSettings {
+            hardware: false,
+            ..video(Container::Mp3, VideoCodec::H264, Rate::Quality(70), Some(AudioCodec::Mp3), 320)
+        },
     ),
 ];
 
@@ -322,7 +376,10 @@ impl ExportSettings {
     pub fn alpha_possible(&self) -> bool {
         matches!(
             (self.container, self.video),
-            (Container::Mov, VideoCodec::ProRes) | (Container::WebM | Container::Mkv, VideoCodec::Vp9) | (Container::Mkv, VideoCodec::Ffv1) | (Container::Png, VideoCodec::Png)
+            (Container::Mov, VideoCodec::ProRes)
+                | (Container::WebM | Container::Mkv, VideoCodec::Vp9)
+                | (Container::Mkv, VideoCodec::Ffv1)
+                | (Container::Png, VideoCodec::Png)
         ) || (cfg!(target_os = "macos") && (self.container, self.video) == (Container::Mov, VideoCodec::Hevc))
     }
 
@@ -389,10 +446,18 @@ impl ExportSettings {
             match (self.video, self.rate) {
                 (v, Rate::Bitrate(k)) if v.rate_controlled() => k as f64,
                 (VideoCodec::H264, Rate::Quality(q)) => pixels / 30_000.0 * quality_factor(q),
-                (VideoCodec::Hevc | VideoCodec::Av1 | VideoCodec::Vp9, Rate::Quality(q)) => pixels / 55_000.0 * quality_factor(q),
+                (VideoCodec::Hevc | VideoCodec::Av1 | VideoCodec::Vp9, Rate::Quality(q)) => {
+                    pixels / 55_000.0 * quality_factor(q)
+                }
                 // ProRes (Apple's rates at 1080p30, scaled by pixels)
-                (VideoCodec::ProRes, _) => [45_000.0, 102_000.0, 147_000.0, 220_000.0, 330_000.0][self.profile.min(4) as usize] * pixels / (1920.0 * 1080.0 * 30.0),
-                (VideoCodec::DnxHr, _) => [45_000.0, 145_000.0, 220_000.0, 220_000.0][self.profile.min(3) as usize] * pixels / (1920.0 * 1080.0 * 30.0),
+                (VideoCodec::ProRes, _) => {
+                    [45_000.0, 102_000.0, 147_000.0, 220_000.0, 330_000.0][self.profile.min(4) as usize] * pixels
+                        / (1920.0 * 1080.0 * 30.0)
+                }
+                (VideoCodec::DnxHr, _) => {
+                    [45_000.0, 145_000.0, 220_000.0, 220_000.0][self.profile.min(3) as usize] * pixels
+                        / (1920.0 * 1080.0 * 30.0)
+                }
                 _ => return None,
             }
         };
@@ -419,7 +484,12 @@ impl ExportSettings {
 
     /// FFmpeg's video arguments: the filter that sizes the picture (from frames `source` big)
     /// and the encoder's options. `has(encoder)` says whether this FFmpeg encodes with it.
-    pub fn video_args(&self, source: (u32, u32), fps: f64, has: &dyn Fn(&str) -> bool) -> (Option<String>, Vec<String>) {
+    pub fn video_args(
+        &self,
+        source: (u32, u32),
+        fps: f64,
+        has: &dyn Fn(&str) -> bool,
+    ) -> (Option<String>, Vec<String>) {
         let (w, h) = self.size_for(source);
         let alpha = self.keeps_alpha() && (self.video != VideoCodec::Hevc || has("hevc_videotoolbox"));
         // frames come premultiplied (the GPU blends that way): straight alpha for the encoder
@@ -439,7 +509,14 @@ impl ExportSettings {
         let crf = |best: f64, worst: f64| format!("{:.0}", worst - (worst - best) * q / 100.0);
         let bitrate = |a: &mut Vec<String>| {
             if let Rate::Bitrate(k) = self.rate {
-                a.extend(v(&["-b:v", &format!("{k}k"), "-maxrate", &format!("{}k", k * 3 / 2), "-bufsize", &format!("{}k", k * 2)]));
+                a.extend(v(&[
+                    "-b:v",
+                    &format!("{k}k"),
+                    "-maxrate",
+                    &format!("{}k", k * 3 / 2),
+                    "-bufsize",
+                    &format!("{}k", k * 2),
+                ]));
                 true
             } else {
                 false
@@ -450,27 +527,45 @@ impl ExportSettings {
         let mut filter = fit;
         match self.video {
             VideoCodec::H264 => {
-                let enc = ["h264_videotoolbox", "h264_nvenc", "h264_amf", "h264_qsv"].into_iter().find(|e| hw(e)).unwrap_or("libx264");
+                let enc = ["h264_videotoolbox", "h264_nvenc", "h264_amf", "h264_qsv"]
+                    .into_iter()
+                    .find(|e| hw(e))
+                    .unwrap_or("libx264");
                 a.extend(v(&["-c:v", enc, "-pix_fmt", "yuv420p", "-profile:v", "high"]));
                 if !bitrate(&mut a) {
                     match enc {
                         "libx264" => a.extend(v(&["-crf", &crf(14.0, 34.0), "-preset", "medium"])),
                         "h264_videotoolbox" => a.extend(v(&["-q:v", &format!("{:.0}", 30.0 + q * 0.65)])),
                         "h264_nvenc" => a.extend(v(&["-rc", "vbr", "-cq", &crf(16.0, 36.0)])),
-                        _ => a.extend(v(&["-b:v", &format!("{:.0}k", w as f64 * h as f64 * fps / 30_000.0 * quality_factor(q as u8))])),
+                        _ => a.extend(v(&[
+                            "-b:v",
+                            &format!("{:.0}k", w as f64 * h as f64 * fps / 30_000.0 * quality_factor(q as u8)),
+                        ])),
                     }
                 }
                 a.extend(v(&["-g", &format!("{:.0}", (fps * 2.0).round())]));
             }
             // HEVC with alpha: Apple's encoder, from BGRA
             VideoCodec::Hevc if alpha => {
-                a.extend(v(&["-c:v", "hevc_videotoolbox", "-pix_fmt", "bgra", "-alpha_quality", "0.75", "-tag:v", "hvc1"]));
+                a.extend(v(&[
+                    "-c:v",
+                    "hevc_videotoolbox",
+                    "-pix_fmt",
+                    "bgra",
+                    "-alpha_quality",
+                    "0.75",
+                    "-tag:v",
+                    "hvc1",
+                ]));
                 if !bitrate(&mut a) {
                     a.extend(v(&["-q:v", &format!("{:.0}", 30.0 + q * 0.65)]));
                 }
             }
             VideoCodec::Hevc => {
-                let enc = ["hevc_videotoolbox", "hevc_nvenc", "hevc_amf", "hevc_qsv"].into_iter().find(|e| hw(e)).unwrap_or("libx265");
+                let enc = ["hevc_videotoolbox", "hevc_nvenc", "hevc_amf", "hevc_qsv"]
+                    .into_iter()
+                    .find(|e| hw(e))
+                    .unwrap_or("libx265");
                 let pix = match (self.ten_bit, enc) {
                     (true, "hevc_videotoolbox") => "p010le",
                     (true, _) => "yuv420p10le",
@@ -482,7 +577,10 @@ impl ExportSettings {
                         "libx265" => a.extend(v(&["-crf", &crf(16.0, 36.0), "-preset", "medium"])),
                         "hevc_videotoolbox" => a.extend(v(&["-q:v", &format!("{:.0}", 30.0 + q * 0.65)])),
                         "hevc_nvenc" => a.extend(v(&["-rc", "vbr", "-cq", &crf(18.0, 38.0)])),
-                        _ => a.extend(v(&["-b:v", &format!("{:.0}k", w as f64 * h as f64 * fps / 55_000.0 * quality_factor(q as u8))])),
+                        _ => a.extend(v(&[
+                            "-b:v",
+                            &format!("{:.0}k", w as f64 * h as f64 * fps / 55_000.0 * quality_factor(q as u8)),
+                        ])),
                     }
                 }
                 a.extend(v(&["-g", &format!("{:.0}", (fps * 2.0).round())]));
@@ -490,7 +588,16 @@ impl ExportSettings {
             VideoCodec::ProRes => {
                 let p = self.profile.min(4);
                 if alpha {
-                    a.extend(v(&["-c:v", "prores_ks", "-profile:v", "4", "-pix_fmt", "yuva444p10le", "-alpha_bits", "16"]));
+                    a.extend(v(&[
+                        "-c:v",
+                        "prores_ks",
+                        "-profile:v",
+                        "4",
+                        "-pix_fmt",
+                        "yuva444p10le",
+                        "-alpha_bits",
+                        "16",
+                    ]));
                 } else if hw("prores_videotoolbox") && p < 4 {
                     a.extend(v(&["-c:v", "prores_videotoolbox", "-profile:v", &p.to_string(), "-pix_fmt", "p210le"]));
                 } else if p == 4 {
@@ -510,14 +617,32 @@ impl ExportSettings {
                 a.extend(v(&["-c:v", "dnxhd", "-profile:v", profile, "-pix_fmt", pix]));
             }
             VideoCodec::Av1 => {
-                a.extend(v(&["-c:v", "libsvtav1", "-pix_fmt", if self.ten_bit { "yuv420p10le" } else { "yuv420p" }, "-preset", "8"]));
+                a.extend(v(&[
+                    "-c:v",
+                    "libsvtav1",
+                    "-pix_fmt",
+                    if self.ten_bit { "yuv420p10le" } else { "yuv420p" },
+                    "-preset",
+                    "8",
+                ]));
                 if !bitrate(&mut a) {
                     a.extend(v(&["-crf", &crf(20.0, 50.0)]));
                 }
                 a.extend(v(&["-g", &format!("{:.0}", (fps * 5.0).round())]));
             }
             VideoCodec::Vp9 => {
-                a.extend(v(&["-c:v", "libvpx-vp9", "-pix_fmt", if alpha { "yuva420p" } else { "yuv420p" }, "-row-mt", "1", "-deadline", "good", "-cpu-used", "4"]));
+                a.extend(v(&[
+                    "-c:v",
+                    "libvpx-vp9",
+                    "-pix_fmt",
+                    if alpha { "yuva420p" } else { "yuv420p" },
+                    "-row-mt",
+                    "1",
+                    "-deadline",
+                    "good",
+                    "-cpu-used",
+                    "4",
+                ]));
                 if alpha {
                     a.extend(v(&["-auto-alt-ref", "0"]));
                 }
@@ -525,14 +650,29 @@ impl ExportSettings {
                     a.extend(v(&["-crf", &crf(18.0, 48.0), "-b:v", "0"]));
                 }
             }
-            VideoCodec::Ffv1 => a.extend(v(&["-c:v", "ffv1", "-level", "3", "-g", "1", "-slices", "12", "-pix_fmt", if alpha { "yuva444p10le" } else { "yuv444p10le" }])),
+            VideoCodec::Ffv1 => a.extend(v(&[
+                "-c:v",
+                "ffv1",
+                "-level",
+                "3",
+                "-g",
+                "1",
+                "-slices",
+                "12",
+                "-pix_fmt",
+                if alpha { "yuva444p10le" } else { "yuv444p10le" },
+            ])),
             VideoCodec::Gif => {
                 // one palette for the whole clip, made from its own colours
                 let fit = format!("fps={fps},scale={w}:{h}:flags=lanczos");
-                filter = Some(format!("{fit},split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4"));
+                filter = Some(format!(
+                    "{fit},split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4"
+                ));
                 a.extend(v(&["-loop", "0"]));
             }
-            VideoCodec::Png => a.extend(v(&["-c:v", "png", "-pix_fmt", if alpha { "rgba" } else { "rgb24" }, "-start_number", "0"])),
+            VideoCodec::Png => {
+                a.extend(v(&["-c:v", "png", "-pix_fmt", if alpha { "rgba" } else { "rgb24" }, "-start_number", "0"]))
+            }
         }
         (filter, a)
     }
@@ -542,7 +682,9 @@ impl ExportSettings {
         let Some(codec) = self.audio else { return vec!["-an".into()] };
         let k = format!("{}k", self.audio_kbps.clamp(32, 512));
         let mut a: Vec<String> = match codec {
-            AudioCodec::Aac => vec!["-c:a".into(), if has("aac_at") { "aac_at" } else { "aac" }.into(), "-b:a".into(), k],
+            AudioCodec::Aac => {
+                vec!["-c:a".into(), if has("aac_at") { "aac_at" } else { "aac" }.into(), "-b:a".into(), k]
+            }
             AudioCodec::Pcm16 => vec!["-c:a".into(), "pcm_s16le".into()],
             AudioCodec::Pcm24 => vec!["-c:a".into(), "pcm_s24le".into()],
             AudioCodec::Alac => vec!["-c:a".into(), "alac".into()],

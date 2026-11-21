@@ -146,7 +146,8 @@ impl Processor for Compressor {
             // detector: the high-passed signal's peak, both channels linked
             let kl = self.hpf_state[0].tick(&self.hpf, l[i]);
             let kr = self.hpf_state[1].tick(&self.hpf, r[i]);
-            let target = compression_db(to_db(kl.abs().max(kr.abs())), self.p.threshold_db, self.p.ratio, self.p.knee_db);
+            let target =
+                compression_db(to_db(kl.abs().max(kr.abs())), self.p.threshold_db, self.p.ratio, self.p.knee_db);
             let gr = self.env.tick(target);
             deepest = deepest.min(gr);
             let g = crate::db_to_gain(gr) * makeup * wet + dry;
@@ -319,7 +320,6 @@ impl Limiter {
             reduction: 0.0,
         }
     }
-
 }
 
 impl Processor for Limiter {

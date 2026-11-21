@@ -240,9 +240,14 @@ fn profile(agent: &ureq::Agent, room: &str) -> Result<(bool, String), String> {
         // a letter alias: the page names the number
         let html = net::get(agent, &format!("https://www.huya.com/{room}"), &headers)?;
         let at = html.find("\"profileRoom\"").ok_or("Huya has no such room")?;
-        numeric = html[at + 13..].chars().skip_while(|c| !c.is_ascii_digit()).take_while(char::is_ascii_digit).collect();
+        numeric =
+            html[at + 13..].chars().skip_while(|c| !c.is_ascii_digit()).take_while(char::is_ascii_digit).collect();
     }
-    let v: Value = net::get_json(agent, &format!("https://mp.huya.com/cache.php?m=Live&do=profileRoom&roomid={numeric}"), &headers)?;
+    let v: Value = net::get_json(
+        agent,
+        &format!("https://mp.huya.com/cache.php?m=Live&do=profileRoom&roomid={numeric}"),
+        &headers,
+    )?;
     let data = &v["data"];
     let uid = match &data["profileInfo"]["uid"] {
         Value::Number(n) => n.to_string(),
@@ -302,7 +307,12 @@ pub fn read(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
 
 /// A push → an event: chat (1400), a gift (6501), a noble subscription (1001).
 pub fn parse(uri: i64, m: &Tars, channel: &str) -> Option<ChatEvent> {
-    let user = |id: i64, name: String| User { id: id.to_string(), login: id.to_string(), display_name: name, ..Default::default() };
+    let user = |id: i64, name: String| User {
+        id: id.to_string(),
+        login: id.to_string(),
+        display_name: name,
+        ..Default::default()
+    };
     match uri {
         1400 => {
             let sender = m.get(0);
@@ -320,7 +330,11 @@ pub fn parse(uri: i64, m: &Tars, channel: &str) -> Option<ChatEvent> {
             e.headline = Some(format!("{} sent {name} ×{count}", u.display_name));
             e.user = Some(u);
             if item != 4 {
-                e.paid = Some(Paid { display: format!("{name} ×{count}"), amount: count as f64, currency: format!("HUYA_GIFT_{item}") });
+                e.paid = Some(Paid {
+                    display: format!("{name} ×{count}"),
+                    amount: count as f64,
+                    currency: format!("HUYA_GIFT_{item}"),
+                });
             }
             Some(e)
         }
@@ -329,7 +343,12 @@ pub fn parse(uri: i64, m: &Tars, channel: &str) -> Option<ChatEvent> {
             let mut e = ChatEvent::new("huya", channel, Kind::Membership);
             let u = user(noble.get(0).int(), noble.get(1).text());
             let months = noble.get(13).int();
-            e.headline = Some(format!("{} became {}{}", u.display_name, noble.get(3).text(), if months > 0 { format!(" ({months} months)") } else { String::new() }));
+            e.headline = Some(format!(
+                "{} became {}{}",
+                u.display_name,
+                noble.get(3).text(),
+                if months > 0 { format!(" ({months} months)") } else { String::new() }
+            ));
             e.user = Some(u);
             Some(e)
         }
@@ -357,7 +376,10 @@ mod tests {
         let cmd = decode(&register("1234567890")).unwrap();
         assert_eq!(cmd.get(0).int(), 16);
         let req = cmd.get(1).inner();
-        assert_eq!(req.get(0), &Tars::List(vec![Tars::Str("live:1234567890".into()), Tars::Str("chat:1234567890".into())]));
+        assert_eq!(
+            req.get(0),
+            &Tars::List(vec![Tars::Str("live:1234567890".into()), Tars::Str("chat:1234567890".into())])
+        );
     }
 
     #[test]
@@ -390,7 +412,10 @@ mod tests {
         put_str(&mut gift, 6, "粉丝");
         put_str(&mut gift, 20, "超级火箭");
         let e = parse(6501, &decode(&gift).unwrap(), "x").unwrap();
-        assert_eq!((e.kind.clone(), e.paid.unwrap().amount, e.headline.unwrap().as_str()), (Kind::Paid, 3.0, "粉丝 sent 超级火箭 ×3"));
+        assert_eq!(
+            (e.kind.clone(), e.paid.unwrap().amount, e.headline.unwrap().as_str()),
+            (Kind::Paid, 3.0, "粉丝 sent 超级火箭 ×3")
+        );
     }
 
     #[test]

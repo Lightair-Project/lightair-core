@@ -1,7 +1,7 @@
 //! Copy, paste and duplicate: whole subtrees, new ids, content copied and devices shared, and
 //! the copy lands where the original is.
 
-use lightair_model::{Clip, Command, Document, Id, Source, Object, Layout, Workspace, Scene};
+use lightair_model::{Clip, Command, Document, Id, Layout, Object, Scene, Source, Workspace};
 
 fn close(a: f32, b: f32) -> bool {
     (a - b).abs() < 0.01

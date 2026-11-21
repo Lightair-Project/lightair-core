@@ -160,7 +160,11 @@ impl Slider {
 
     pub fn json(&self, v: f64) -> Value {
         let v = v.clamp(self.min, self.max);
-        if self.int { json!(v.round() as i64) } else { json!(((v / self.step).round() * self.step * 1e6).round() / 1e6) }
+        if self.int {
+            json!(v.round() as i64)
+        } else {
+            json!(((v / self.step).round() * self.step * 1e6).round() / 1e6)
+        }
     }
 
     pub fn display(&self, v: f64) -> String {
@@ -191,14 +195,39 @@ pub enum Control {
     /// Starts a group of controls.
     Heading(&'static str),
     Slider(Slider),
-    Choice { key: &'static str, label: &'static str, options: &'static [(&'static str, Pick)], default: Pick },
+    Choice {
+        key: &'static str,
+        label: &'static str,
+        options: &'static [(&'static str, Pick)],
+        default: Pick,
+    },
     /// An OBS colour (0xAABBGGRR).
-    Colour { key: &'static str, label: &'static str, default: u32 },
-    Presets { key: &'static str, label: &'static str, set: Presets, default: &'static str },
-    File { key: &'static str, label: &'static str, extensions: &'static [&'static str] },
-    Switch { key: &'static str, label: &'static str, default: bool },
+    Colour {
+        key: &'static str,
+        label: &'static str,
+        default: u32,
+    },
+    Presets {
+        key: &'static str,
+        label: &'static str,
+        set: Presets,
+        default: &'static str,
+    },
+    File {
+        key: &'static str,
+        label: &'static str,
+        extensions: &'static [&'static str],
+    },
+    Switch {
+        key: &'static str,
+        label: &'static str,
+        default: bool,
+    },
     /// Another mixer track (a ducker's source), stored as its id.
-    Track { key: &'static str, label: &'static str },
+    Track {
+        key: &'static str,
+        label: &'static str,
+    },
 }
 
 impl Control {
@@ -304,7 +333,8 @@ impl EffectDef {
                 Control::Choice { key, options, default, .. } if parts.is_empty() => {
                     let v = settings.get(*key);
                     let pick = options.iter().find(|(_, p)| v.is_some_and(|v| p.matches(v)));
-                    let (label, _) = pick.or_else(|| options.iter().find(|(_, p)| p == default)).copied().unwrap_or(("", *default));
+                    let (label, _) =
+                        pick.or_else(|| options.iter().find(|(_, p)| p == default)).copied().unwrap_or(("", *default));
                     parts.push(label.to_string());
                 }
                 Control::Slider(s) => {
@@ -323,7 +353,10 @@ impl EffectDef {
 /// The EQ's bands that are on: "High pass 80 Hz · Bell 3.0 kHz +3.0 dB".
 fn eq_summary(def: &EffectDef, settings: &Value) -> String {
     let get = |key: String| {
-        settings.get(&key).cloned().or_else(|| def.controls.iter().find(|c| c.key() == Some(&key)).and_then(|c| c.default_json()))
+        settings
+            .get(&key)
+            .cloned()
+            .or_else(|| def.controls.iter().find(|c| c.key() == Some(&key)).and_then(|c| c.default_json()))
     };
     let slider = |key: &str| def.sliders().find(|s| s.key == key).copied();
     let mut parts = Vec::new();
@@ -334,7 +367,8 @@ fn eq_summary(def: &EffectDef, settings: &Value) -> String {
         let kind = get(format!("b{n}_type")).and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
         let label = EQ_TYPES.iter().find(|(_, p)| p.matches(&json!(kind))).map_or("Band", |(l, _)| *l);
         let freq_key = format!("b{n}_freq");
-        let freq = slider(&freq_key).map(|s| s.display(get(freq_key.clone()).and_then(|v| v.as_f64()).unwrap_or(s.default)));
+        let freq =
+            slider(&freq_key).map(|s| s.display(get(freq_key.clone()).and_then(|v| v.as_f64()).unwrap_or(s.default)));
         let gain = get(format!("b{n}_gain")).and_then(|v| v.as_f64()).unwrap_or(0.0);
         let mut part = format!("{label} {}", freq.unwrap_or_default());
         if matches!(kind.as_str(), "bell" | "ls" | "hs") && gain.abs() > 0.05 {
@@ -347,12 +381,32 @@ fn eq_summary(def: &EffectDef, settings: &Value) -> String {
 
 const fn s(key: &'static str, label: &'static str, default: f64) -> Control {
     // Lightair Effect Stack: 0..100
-    Control::Slider(Slider { key, label, min: 0.0, max: 100.0, step: 1.0, default, unit: Unit::Percent, int: true, log: false })
+    Control::Slider(Slider {
+        key,
+        label,
+        min: 0.0,
+        max: 100.0,
+        step: 1.0,
+        default,
+        unit: Unit::Percent,
+        int: true,
+        log: false,
+    })
 }
 
 const fn sb(key: &'static str, label: &'static str) -> Control {
     // Lightair Effect Stack, bipolar: -100..100
-    Control::Slider(Slider { key, label, min: -100.0, max: 100.0, step: 1.0, default: 0.0, unit: Unit::Percent, int: true, log: false })
+    Control::Slider(Slider {
+        key,
+        label,
+        min: -100.0,
+        max: 100.0,
+        step: 1.0,
+        default: 0.0,
+        unit: Unit::Percent,
+        int: true,
+        log: false,
+    })
 }
 
 const fn f(key: &'static str, label: &'static str, min: f64, max: f64, default: f64, unit: Unit) -> Control {
@@ -658,7 +712,11 @@ pub const CATALOG: &[EffectDef] = &[
         description: "Monochrome, optionally tinted",
         icon: "contrast",
         needs: Nothing,
-        controls: &[amount(1.0), colour("tint_color", "Tint", 0xFFA8DBFF), f("tint", "Tint amount", 0.0, 1.0, 0.0, Unit::Percent)],
+        controls: &[
+            amount(1.0),
+            colour("tint_color", "Tint", 0xFFA8DBFF),
+            f("tint", "Tint amount", 0.0, 1.0, 0.0, Unit::Percent),
+        ],
         fixed: &[],
     },
     EffectDef {
@@ -668,7 +726,11 @@ pub const CATALOG: &[EffectDef] = &[
         description: "Two colours from shadows to highlights",
         icon: "blend",
         needs: Nothing,
-        controls: &[colour("shadow_color", "Shadows", 0xFF520D1C), colour("highlight_color", "Highlights", 0xFF6B9EFF), amount(1.0)],
+        controls: &[
+            colour("shadow_color", "Shadows", 0xFF520D1C),
+            colour("highlight_color", "Highlights", 0xFF6B9EFF),
+            amount(1.0),
+        ],
         fixed: &[],
     },
     EffectDef {
@@ -790,7 +852,11 @@ pub const CATALOG: &[EffectDef] = &[
         description: "Glowing outlines",
         icon: "zap",
         needs: Nothing,
-        controls: &[amount(1.0), colour("glow_color", "Glow", 0xFFE6FF1A), f("keep", "Keep image", 0.0, 1.0, 0.2, Unit::Percent)],
+        controls: &[
+            amount(1.0),
+            colour("glow_color", "Glow", 0xFFE6FF1A),
+            f("keep", "Keep image", 0.0, 1.0, 0.2, Unit::Percent),
+        ],
         fixed: &[],
     },
     EffectDef {
@@ -949,7 +1015,10 @@ pub const CATALOG: &[EffectDef] = &[
         description: "Swell or pinch the middle",
         icon: "circle",
         needs: Nothing,
-        controls: &[f("amount", "Amount", -1.0, 1.0, 0.5, Unit::Percent), f("radius", "Size", 0.1, 1.0, 0.5, Unit::Percent)],
+        controls: &[
+            f("amount", "Amount", -1.0, 1.0, 0.5, Unit::Percent),
+            f("radius", "Size", 0.1, 1.0, 0.5, Unit::Percent),
+        ],
         fixed: &[],
     },
     EffectDef {
@@ -959,7 +1028,10 @@ pub const CATALOG: &[EffectDef] = &[
         description: "A twist around the centre",
         icon: "tornado",
         needs: Nothing,
-        controls: &[f("amount", "Amount", -1.0, 1.0, 0.5, Unit::Percent), f("radius", "Size", 0.1, 1.0, 0.5, Unit::Percent)],
+        controls: &[
+            f("amount", "Amount", -1.0, 1.0, 0.5, Unit::Percent),
+            f("radius", "Size", 0.1, 1.0, 0.5, Unit::Percent),
+        ],
         fixed: &[],
     },
     EffectDef {
@@ -1161,11 +1233,7 @@ pub static PLUGIN: EffectDef = EffectDef {
 
 /// A plugin insert for an installed plugin.
 pub fn plugin_effect(format: &str, id: &str, name: &str, vendor: &str) -> Effect {
-    Effect::new(
-        name,
-        PLUGIN_KIND,
-        serde_json::json!({ "format": format, "id": id, "name": name, "vendor": vendor }),
-    )
+    Effect::new(name, PLUGIN_KIND, serde_json::json!({ "format": format, "id": id, "name": name, "vendor": vendor }))
 }
 
 /// What a plugin format is called.
@@ -1214,7 +1282,12 @@ macro_rules! eq_band {
         [
             Control::Heading(concat!("Band ", $n)),
             Control::Switch { key: concat!("b", $n, "_on"), label: "On", default: false },
-            Control::Choice { key: concat!("b", $n, "_type"), label: "Shape", options: EQ_TYPES, default: Pick::Str($kind) },
+            Control::Choice {
+                key: concat!("b", $n, "_type"),
+                label: "Shape",
+                options: EQ_TYPES,
+                default: Pick::Str($kind),
+            },
             Control::Choice {
                 key: concat!("b", $n, "_slope"),
                 label: "Slope",
@@ -1605,8 +1678,15 @@ pub fn split_camera_studio(e: &Effect) -> Option<Vec<Effect>> {
         }
         // Keep it when it would show something: a chosen preset, or a slider off neutral.
         let active = d.controls.iter().any(|c| match c {
-            Control::Presets { key, .. } => own.get(*key).and_then(Value::as_str).is_some_and(|v| !v.is_empty() && v != "None"),
-            Control::Slider(sl) if d.kind == "studio.beauty" && !sl.key.starts_with("mk_") && sl.key != "makeup_amt" && sl.key != "filter_amt" => {
+            Control::Presets { key, .. } => {
+                own.get(*key).and_then(Value::as_str).is_some_and(|v| !v.is_empty() && v != "None")
+            }
+            Control::Slider(sl)
+                if d.kind == "studio.beauty"
+                    && !sl.key.starts_with("mk_")
+                    && sl.key != "makeup_amt"
+                    && sl.key != "filter_amt" =>
+            {
                 own.get(sl.key).and_then(Value::as_f64).is_some_and(|v| v != 0.0)
             }
             _ => false,
@@ -1833,7 +1913,10 @@ mod tests {
         let angle = def("fx.halftone").unwrap().sliders().find(|s| s.key == "angle").unwrap();
         assert_eq!(angle.display(std::f64::consts::FRAC_PI_4), "45°");
         assert_eq!(skin.summary(&Value::Object(skin.defaults())), "Smooth 50% · Foundation 20% · Bright eyes 30%");
-        assert_eq!(def("studio.light").unwrap().summary(&json!({"light_preset": "Neon", "light_amt": 40})), "Neon · Intensity 40%");
+        assert_eq!(
+            def("studio.light").unwrap().summary(&json!({"light_preset": "Neon", "light_amt": 40})),
+            "Neon · Intensity 40%"
+        );
         assert_eq!(search("blur").count(), 4, "Background blur, Blur, and the Blur & sharpen category");
     }
 }

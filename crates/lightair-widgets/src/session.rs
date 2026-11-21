@@ -54,7 +54,10 @@ impl Session {
         self.latest.insert(kind.into(), summary(e));
         if let Some(p) = &e.paid {
             *self.totals.entry(p.currency.clone()).or_default() += p.amount;
-            let bigger = self.top.as_ref().is_none_or(|t| t["currency"] != p.currency.as_str() || t["amount"].as_f64().unwrap_or(0.0) < p.amount);
+            let bigger = self
+                .top
+                .as_ref()
+                .is_none_or(|t| t["currency"] != p.currency.as_str() || t["amount"].as_f64().unwrap_or(0.0) < p.amount);
             if bigger {
                 self.top = Some(summary(e));
             }
@@ -80,7 +83,11 @@ impl Session {
             }
             if let Some(t) = &s.top {
                 let bigger = out.top.as_ref().is_none_or(|o| {
-                    if o["currency"] == t["currency"] { o["amount"].as_f64() < t["amount"].as_f64() } else { o["ts"].as_i64() < t["ts"].as_i64() }
+                    if o["currency"] == t["currency"] {
+                        o["amount"].as_f64() < t["amount"].as_f64()
+                    } else {
+                        o["ts"].as_i64() < t["ts"].as_i64()
+                    }
                 });
                 if bigger {
                     out.top = Some(t.clone());

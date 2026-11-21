@@ -66,11 +66,7 @@ impl Default for EqParams {
 impl EqParams {
     /// The whole EQ's response at `freq` (dB): what the curve in the editor draws.
     pub fn response_db(&self, freq: f32, sample_rate: f32) -> f32 {
-        self.bands
-            .iter()
-            .flat_map(|b| b.coefs(sample_rate))
-            .map(|c| c.response_db(freq, sample_rate))
-            .sum::<f32>()
+        self.bands.iter().flat_map(|b| b.coefs(sample_rate)).map(|c| c.response_db(freq, sample_rate)).sum::<f32>()
             + self.output_db
     }
 }

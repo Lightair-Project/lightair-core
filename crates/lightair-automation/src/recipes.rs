@@ -12,16 +12,40 @@ pub struct Recipe {
 }
 
 pub const RECIPES: &[Recipe] = &[
-    Recipe { key: "shoutout", name: "!so shoutout", about: "Moderators type !so @name to point chat at another streamer" },
-    Recipe { key: "death-counter", name: "Death counter", about: "!death adds one (moderators), !deaths says how many" },
-    Recipe { key: "timed-message", name: "Timed message", about: "Posts a message every 15 minutes while chat is active" },
-    Recipe { key: "tts-donations", name: "Read donations aloud", about: "Says the message of every donation, cheer or Super Chat on stream" },
+    Recipe {
+        key: "shoutout",
+        name: "!so shoutout",
+        about: "Moderators type !so @name to point chat at another streamer",
+    },
+    Recipe {
+        key: "death-counter",
+        name: "Death counter",
+        about: "!death adds one (moderators), !deaths says how many",
+    },
+    Recipe {
+        key: "timed-message",
+        name: "Timed message",
+        about: "Posts a message every 15 minutes while chat is active",
+    },
+    Recipe {
+        key: "tts-donations",
+        name: "Read donations aloud",
+        about: "Says the message of every donation, cheer or Super Chat on stream",
+    },
     Recipe { key: "raid-welcome", name: "Raid welcome", about: "Thanks raiders in chat and tells them who raided" },
-    Recipe { key: "first-chatter", name: "First-time chatter greeting", about: "Welcomes people the first time they chat" },
+    Recipe {
+        key: "first-chatter",
+        name: "First-time chatter greeting",
+        about: "Welcomes people the first time they chat",
+    },
     Recipe { key: "points", name: "!points", about: "Tells people how many points they have" },
     Recipe { key: "giveaway", name: "Giveaway", about: "!join enters, moderators !draw a winner" },
     Recipe { key: "lurk", name: "!lurk", about: "Thanks people for lurking" },
-    Recipe { key: "follow-scene", name: "Follow → show an object", about: "Shows a scene object for a few seconds on every follow" },
+    Recipe {
+        key: "follow-scene",
+        name: "Follow → show an object",
+        about: "Shows a scene object for a few seconds on every follow",
+    },
     Recipe { key: "blank", name: "Blank", about: "Start from nothing" },
 ];
 
@@ -59,7 +83,12 @@ pub fn make(key: &str) -> Option<Automation> {
             0.0,
         ),
         "tts-donations" => (
-            Trigger::Event { kinds: vec!["paid".into(), "cheer".into()], platforms: vec![], min_amount: 0.0, tests: true },
+            Trigger::Event {
+                kinds: vec!["paid".into(), "cheer".into()],
+                platforms: vec![],
+                min_amount: 0.0,
+                tests: true,
+            },
             vec![Step::Wait { seconds: 2.0 }, Step::Speak { text: "{{ name }} says: {{ message }}".into() }],
             vec![Condition { left: "{{ message }}".into(), op: "is not".into(), right: String::new() }],
             0.0,
@@ -79,7 +108,13 @@ pub fn make(key: &str) -> Option<Automation> {
             0.0,
             0.0,
         ),
-        "points" => (command("!points", Who::Everyone), vec![chat("{{ name }}, you have {{ viewer.points }} {{ points_name }}.")], vec![], 0.0, 10.0),
+        "points" => (
+            command("!points", Who::Everyone),
+            vec![chat("{{ name }}, you have {{ viewer.points }} {{ points_name }}.")],
+            vec![],
+            0.0,
+            10.0,
+        ),
         "giveaway" => (
             command("!join", Who::Everyone),
             vec![Step::If {
@@ -95,13 +130,21 @@ pub fn make(key: &str) -> Option<Automation> {
             0.0,
             0.0,
         ),
-        "lurk" => (command("!lurk", Who::Everyone), vec![chat("Thanks for lurking, {{ name }}! Enjoy 🍿")], vec![], 0.0, 60.0),
+        "lurk" => {
+            (command("!lurk", Who::Everyone), vec![chat("Thanks for lurking, {{ name }}! Enjoy 🍿")], vec![], 0.0, 60.0)
+        }
         "follow-scene" => (
             Trigger::Event { kinds: vec!["follow".into()], platforms: vec![], min_amount: 0.0, tests: true },
             vec![
-                Step::Call { method: "object.update".into(), params: json!({"object": "Follow overlay", "visible": true}) },
+                Step::Call {
+                    method: "object.update".into(),
+                    params: json!({"object": "Follow overlay", "visible": true}),
+                },
                 Step::Wait { seconds: 5.0 },
-                Step::Call { method: "object.update".into(), params: json!({"object": "Follow overlay", "visible": false}) },
+                Step::Call {
+                    method: "object.update".into(),
+                    params: json!({"object": "Follow overlay", "visible": false}),
+                },
             ],
             vec![],
             0.0,

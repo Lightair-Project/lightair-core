@@ -126,8 +126,8 @@ mod imp {
         OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, GWL_EXSTYLE, GetClassNameW, GetWindow, GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId,
-        GW_OWNER, IsWindowVisible, WS_EX_TOOLWINDOW,
+        EnumWindows, GW_OWNER, GWL_EXSTYLE, GetClassNameW, GetWindow, GetWindowLongW, GetWindowTextW,
+        GetWindowThreadProcessId, IsWindowVisible, WS_EX_TOOLWINDOW,
     };
 
     /// libobs's escaping for its `title:class:exe` window strings.
@@ -183,12 +183,19 @@ mod imp {
     }
 
     /// The Windows shell's own programs (the desktop, the taskbar, input and search).
-    const SHELL: [&str; 6] =
-        ["explorer.exe", "textinputhost.exe", "applicationframehost.exe", "shellexperiencehost.exe", "searchhost.exe", "startmenuexperiencehost.exe"];
+    const SHELL: [&str; 6] = [
+        "explorer.exe",
+        "textinputhost.exe",
+        "applicationframehost.exe",
+        "shellexperiencehost.exe",
+        "searchhost.exe",
+        "startmenuexperiencehost.exe",
+    ];
 
     pub fn is_own_window(window: &str) -> bool {
         let exe = window.rsplit(':').next().unwrap_or("").replace("#3A", ":").replace("#22", "#").to_lowercase();
-        std::env::current_exe().ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_lowercase())).as_deref() == Some(exe.as_str())
+        std::env::current_exe().ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_lowercase())).as_deref()
+            == Some(exe.as_str())
     }
 
     pub fn hide_window(window: &str) -> bool {

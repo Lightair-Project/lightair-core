@@ -245,7 +245,12 @@ fn num(v: &Map<String, Value>, k: &str) -> f64 {
 
 /// What a button does to a built-in widget's storage: the changed keys, or `None` (not one
 /// of its buttons: the page gets it).
-pub fn button(kind: &str, name: &str, fields: &Map<String, Value>, stored: &Map<String, Value>) -> Option<Vec<(String, Value)>> {
+pub fn button(
+    kind: &str,
+    name: &str,
+    fields: &Map<String, Value>,
+    stored: &Map<String, Value>,
+) -> Option<Vec<(String, Value)>> {
     match (kind, name) {
         ("counter", "increment" | "decrement" | "reset") => {
             let v = stored.get("value").and_then(Value::as_f64).unwrap_or(0.0);
@@ -261,7 +266,9 @@ pub fn button(kind: &str, name: &str, fields: &Map<String, Value>, stored: &Map<
             let running = stored.get("running").and_then(Value::as_bool).unwrap_or(false);
             let remaining = subathon_remaining(fields, stored);
             Some(match name {
-                "start" if !running => vec![("running".into(), json!(true)), ("endAt".into(), json!(now_ms() + remaining))],
+                "start" if !running => {
+                    vec![("running".into(), json!(true)), ("endAt".into(), json!(now_ms() + remaining))]
+                }
                 "pause" if running => vec![("running".into(), json!(false)), ("remaining".into(), json!(remaining))],
                 "add5" => subathon_add(fields, stored, 5.0 * 60_000.0, "by hand"),
                 "reset" => vec![
@@ -300,7 +307,11 @@ fn subathon_add(fields: &Map<String, Value>, stored: &Map<String, Value>, ms: f6
 }
 
 /// What an event does to a subathon timer (time added), if anything.
-pub fn subathon_event(fields: &Map<String, Value>, stored: &Map<String, Value>, e: &ChatEvent) -> Option<Vec<(String, Value)>> {
+pub fn subathon_event(
+    fields: &Map<String, Value>,
+    stored: &Map<String, Value>,
+    e: &ChatEvent,
+) -> Option<Vec<(String, Value)>> {
     if e.test && !fields.get("countTests").and_then(Value::as_bool).unwrap_or(false) {
         return None;
     }

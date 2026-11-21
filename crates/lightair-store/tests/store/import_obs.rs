@@ -1,6 +1,6 @@
 //! OBS scene-collection import against a synthetic collection.
 
-use lightair_model::{Command, Document, Fit, Workspace, TransitionKind};
+use lightair_model::{Command, Document, Fit, TransitionKind, Workspace};
 use lightair_store::import_obs_collection;
 
 const FIXTURE: &str = include_str!("../fixtures/obs-collection.json");

@@ -53,10 +53,7 @@ pub fn unpack(frame: &[u8]) -> Vec<String> {
 /// `type@=chatmsg/nn@=a@Sb/` → [("type", "chatmsg"), ("nn", "a/b")].
 pub fn fields(body: &str) -> Vec<(String, String)> {
     let unescape = |s: &str| s.replace("@S", "/").replace("@A", "@");
-    body.split('/')
-        .filter_map(|kv| kv.split_once("@="))
-        .map(|(k, v)| (unescape(k), unescape(v)))
-        .collect()
+    body.split('/').filter_map(|kv| kv.split_once("@=")).map(|(k, v)| (unescape(k), unescape(v))).collect()
 }
 
 pub fn read(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
@@ -116,7 +113,11 @@ pub fn parse(body: &str, channel: &str) -> Option<ChatEvent> {
             let u = user();
             e.headline = Some(format!("{} sent a gift ×{count}", u.display_name));
             e.user = Some(u);
-            e.paid = Some(Paid { display: format!("gift ×{count}"), amount: count, currency: format!("DOUYU_GIFT_{}", get("gfid").unwrap_or("")) });
+            e.paid = Some(Paid {
+                display: format!("gift ×{count}"),
+                amount: count,
+                currency: format!("DOUYU_GIFT_{}", get("gfid").unwrap_or("")),
+            });
             Some(e)
         }
         _ => None,

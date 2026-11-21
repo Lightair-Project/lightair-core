@@ -15,7 +15,11 @@ pub struct Account {
 }
 
 pub const ACCOUNTS: &[Account] = &[
-    Account { platform: "twitch", sign_in: "https://www.twitch.tv/login", cookie: ("https://www.twitch.tv", "auth-token") },
+    Account {
+        platform: "twitch",
+        sign_in: "https://www.twitch.tv/login",
+        cookie: ("https://www.twitch.tv", "auth-token"),
+    },
     Account {
         platform: "youtube",
         sign_in: "https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2F",
@@ -23,7 +27,11 @@ pub const ACCOUNTS: &[Account] = &[
         cookie: ("https://accounts.google.com", "SAPISID"),
     },
     Account { platform: "kick", sign_in: "https://kick.com/", cookie: ("https://kick.com", "session_token") },
-    Account { platform: "tiktok", sign_in: "https://www.tiktok.com/login", cookie: ("https://www.tiktok.com", "sessionid") },
+    Account {
+        platform: "tiktok",
+        sign_in: "https://www.tiktok.com/login",
+        cookie: ("https://www.tiktok.com", "sessionid"),
+    },
 ];
 
 pub fn account(platform: &str) -> Option<&'static Account> {

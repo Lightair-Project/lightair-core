@@ -20,8 +20,28 @@ macro_rules! effect_files {
 
 /// Each effect's .effect file (for its uniforms).
 const FILES: &[(&str, &str)] = effect_files!(
-    "blur", "bulge", "chroma", "duotone", "edges", "emboss", "glow", "grain", "halftone", "invert", "kaleido", "mirror", "mono", "pixelate",
-    "posterize", "scanlines", "sketch", "swirl", "tiltshift", "vhs", "vignette", "wave",
+    "blur",
+    "bulge",
+    "chroma",
+    "duotone",
+    "edges",
+    "emboss",
+    "glow",
+    "grain",
+    "halftone",
+    "invert",
+    "kaleido",
+    "mirror",
+    "mono",
+    "pixelate",
+    "posterize",
+    "scanlines",
+    "sketch",
+    "swirl",
+    "tiltshift",
+    "vhs",
+    "vignette",
+    "wave",
 );
 
 /// A uniform of an effect: its name, whether it's a colour, its default.
@@ -48,7 +68,12 @@ pub fn uniforms(name: &str) -> Vec<Uniform> {
                 .collect();
             let colour = ty.starts_with("float4") || ty.starts_with("float3");
             let default = if colour {
-                [nums.first().copied().unwrap_or(1.0), nums.get(1).copied().unwrap_or(1.0), nums.get(2).copied().unwrap_or(1.0), nums.get(3).copied().unwrap_or(1.0)]
+                [
+                    nums.first().copied().unwrap_or(1.0),
+                    nums.get(1).copied().unwrap_or(1.0),
+                    nums.get(2).copied().unwrap_or(1.0),
+                    nums.get(3).copied().unwrap_or(1.0),
+                ]
             } else {
                 [nums.first().copied().unwrap_or(0.0), 0.0, 0.0, 0.0]
             };
@@ -80,7 +105,12 @@ pub fn passes() -> &'static HashMap<String, usize> {
 fn value_of(u: &Uniform, settings: &serde_json::Map<String, serde_json::Value>) -> [f32; 4] {
     match settings.get(&u.name) {
         Some(v) if u.colour => match v.as_u64() {
-            Some(c) => [(c & 0xFF) as f32 / 255.0, ((c >> 8) & 0xFF) as f32 / 255.0, ((c >> 16) & 0xFF) as f32 / 255.0, ((c >> 24) & 0xFF) as f32 / 255.0],
+            Some(c) => [
+                (c & 0xFF) as f32 / 255.0,
+                ((c >> 8) & 0xFF) as f32 / 255.0,
+                ((c >> 16) & 0xFF) as f32 / 255.0,
+                ((c >> 24) & 0xFF) as f32 / 255.0,
+            ],
             None => u.default,
         },
         Some(v) => match v.as_f64().or_else(|| v.as_bool().map(|b| if b { 1.0 } else { 0.0 })) {
@@ -222,17 +252,30 @@ impl Fx {
         let tex = |binding| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false },
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
             count: None,
         };
-        let samp = |binding| wgpu::BindGroupLayoutEntry { binding, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None };
+        let samp = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            count: None,
+        };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
                     count: None,
                 },
                 tex(1),
@@ -241,7 +284,11 @@ impl Fx {
                 samp(4),
             ],
         });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: None, bind_group_layouts: &[Some(&layout)], immediate_size: 0 });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
+        });
         let sampler = |filter| {
             device.create_sampler(&wgpu::SamplerDescriptor {
                 mag_filter: filter,
@@ -391,7 +438,12 @@ impl Fx {
             let p = self.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(entry),
                 layout: Some(&self.pipeline_layout),
-                vertex: wgpu::VertexState { module: &self.module, entry_point: Some("vs"), compilation_options: Default::default(), buffers: &[] },
+                vertex: wgpu::VertexState {
+                    module: &self.module,
+                    entry_point: Some("vs"),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
                 primitive: wgpu::PrimitiveState::default(),
                 depth_stencil: None,
                 multisample: wgpu::MultisampleState::default(),
@@ -399,7 +451,11 @@ impl Fx {
                     module: &self.module,
                     entry_point: Some(entry),
                     compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::Rgba8Unorm, blend: None, write_mask: wgpu::ColorWrites::ALL })],
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
                 }),
                 multiview_mask: None,
                 cache: None,
@@ -411,7 +467,13 @@ impl Fx {
 
     /// Runs `effects` (those switched on and known) on `input` (`size`) at `time` seconds: the
     /// texture holding the result, or `None` when there was nothing to run.
-    pub fn run(&mut self, input: &wgpu::Texture, size: (u32, u32), effects: &[ClipEffect], time: f32) -> Option<wgpu::Texture> {
+    pub fn run(
+        &mut self,
+        input: &wgpu::Texture,
+        size: (u32, u32),
+        effects: &[ClipEffect],
+        time: f32,
+    ) -> Option<wgpu::Texture> {
         let runs: Vec<Run> = effects
             .iter()
             .filter(|e| e.on)
@@ -563,7 +625,10 @@ impl Fx {
                             view: &view,
                             depth_slice: None,
                             resolve_target: None,
-                            ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                                store: wgpu::StoreOp::Store,
+                            },
                         })],
                         depth_stencil_attachment: None,
                         timestamp_writes: None,

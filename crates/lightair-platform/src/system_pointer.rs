@@ -33,9 +33,9 @@ pub fn now() -> Option<Picture> {
 mod imp {
     use super::{Picture, SIDE, Shape};
     use objc2::encode::{Encode, Encoding, RefEncode};
+    use objc2::msg_send;
     use objc2::rc::{Retained, autoreleasepool};
     use objc2::runtime::{AnyClass, AnyObject};
-    use objc2::msg_send;
     use std::ffi::c_void;
     use std::sync::{Arc, Mutex, OnceLock};
     use std::time::{Duration, Instant};
@@ -127,7 +127,8 @@ mod imp {
             }
             let mut rgba = vec![0u8; SIDE * SIDE * 4];
             let space = CGColorSpaceCreateDeviceRGB();
-            let context = CGBitmapContextCreate(rgba.as_mut_ptr().cast(), SIDE, SIDE, 8, SIDE * 4, space, PREMULTIPLIED_LAST);
+            let context =
+                CGBitmapContextCreate(rgba.as_mut_ptr().cast(), SIDE, SIDE, 8, SIDE * 4, space, PREMULTIPLIED_LAST);
             CGColorSpaceRelease(space);
             if context.is_null() {
                 return None;
@@ -186,7 +187,9 @@ mod imp {
     }
 
     pub(super) fn classify(rgba: &[u8], hot: (f32, f32)) -> Option<Shape> {
-        let near = |a: (f32, f32), b: (f32, f32)| (a.0 - b.0).abs() * SIDE as f32 <= 6.0 && (a.1 - b.1).abs() * SIDE as f32 <= 6.0;
+        let near = |a: (f32, f32), b: (f32, f32)| {
+            (a.0 - b.0).abs() * SIDE as f32 <= 6.0 && (a.1 - b.1).abs() * SIDE as f32 <= 6.0
+        };
         standards()
             .iter()
             .filter(|(_, _, h)| near(*h, hot))
@@ -218,7 +221,12 @@ mod imp {
         if (hx - x0).abs() <= 3.0 && (hy - y0).abs() <= 3.0 && h > w && h >= 12.0 {
             return Some(Shape::Arrow);
         }
-        if w <= 12.0 && h >= 12.0 && h > 1.6 * w && (hx - (x0 + x1) / 2.0).abs() <= 2.5 && (hy - (y0 + y1) / 2.0).abs() <= 4.0 {
+        if w <= 12.0
+            && h >= 12.0
+            && h > 1.6 * w
+            && (hx - (x0 + x1) / 2.0).abs() <= 2.5
+            && (hy - (y0 + y1) / 2.0).abs() <= 4.0
+        {
             return Some(Shape::IBeam);
         }
         None

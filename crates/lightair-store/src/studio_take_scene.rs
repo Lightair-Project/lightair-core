@@ -82,9 +82,13 @@ impl StudioTakeScene {
                 kinds::MIC | kinds::DESKTOP_AUDIO | kinds::APP_AUDIO => continue,
                 "image_source" => {
                     let Some(src) = s["file"].as_str().map(PathBuf::from).filter(|p| p.is_file()) else { continue };
-                    let name = format!("{n}-{}", src.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| "image".into()));
+                    let name = format!(
+                        "{n}-{}",
+                        src.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| "image".into())
+                    );
                     let rel = format!("layers/{name}");
-                    let copied = std::fs::create_dir_all(folder.join("layers")).and_then(|_| std::fs::copy(&src, folder.join(&rel)));
+                    let copied = std::fs::create_dir_all(folder.join("layers"))
+                        .and_then(|_| std::fs::copy(&src, folder.join(&rel)));
                     if copied.is_err() {
                         continue;
                     }
@@ -147,7 +151,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let s = StudioTakeScene {
             canvas: (1920, 1080),
-            objects: vec![SceneObject { name: "Logo".into(), x: 0.1, y: 0.1, w: 0.2, h: 0.1, rotation: 0.0, opacity: 1.0, what: What::Text { text: "Hi".into(), size: 64.0, color: 0xFFFFFF, bold: true } }],
+            objects: vec![SceneObject {
+                name: "Logo".into(),
+                x: 0.1,
+                y: 0.1,
+                w: 0.2,
+                h: 0.1,
+                rotation: 0.0,
+                opacity: 1.0,
+                what: What::Text { text: "Hi".into(), size: 64.0, color: 0xFFFFFF, bold: true },
+            }],
         };
         s.write(dir.path()).unwrap();
         assert_eq!(StudioTakeScene::read(dir.path()), Some(s));

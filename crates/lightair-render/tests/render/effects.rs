@@ -7,7 +7,10 @@ use lightair_render::seqrender::SequenceRenderer;
 use lightair_render::sequence::{ClipEffect, Media, Sequence};
 
 fn differ(a: &[u8], b: &[u8]) -> usize {
-    a.chunks(4).zip(b.chunks(4)).filter(|(p, q)| (0..3).map(|i| (p[i] as i32 - q[i] as i32).abs()).sum::<i32>() > 24).count()
+    a.chunks(4)
+        .zip(b.chunks(4))
+        .filter(|(p, q)| (0..3).map(|i| (p[i] as i32 - q[i] as i32).abs()).sum::<i32>() > 24)
+        .count()
 }
 
 #[test]
@@ -18,7 +21,14 @@ fn every_effect_changes_the_picture_and_hidden_areas_pixelate() {
         return;
     };
     let src = dir.path().join("src.mp4");
-    assert!(Command::new(ff).args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=320x180:r=30:d=2", "-pix_fmt", "yuv420p"]).arg(&src).status().unwrap().success());
+    assert!(
+        Command::new(ff)
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=320x180:r=30:d=2", "-pix_fmt", "yuv420p"])
+            .arg(&src)
+            .status()
+            .unwrap()
+            .success()
+    );
     let mut seq = Sequence::new((320, 180), 30);
     let m = seq.add_media(Media::from_file(&src).unwrap());
     let clip = seq.append(m).unwrap();
@@ -30,7 +40,8 @@ fn every_effect_changes_the_picture_and_hidden_areas_pixelate() {
         }
     };
     let plain = r.frame(1_000);
-    let kinds: Vec<&str> = lightair_model::catalog::CATALOG.iter().map(|d| d.kind).filter(|k| k.starts_with("fx.")).collect();
+    let kinds: Vec<&str> =
+        lightair_model::catalog::CATALOG.iter().map(|d| d.kind).filter(|k| k.starts_with("fx.")).collect();
     assert!(kinds.len() >= 20);
     let mut quiet = Vec::new();
     for kind in &kinds {
@@ -49,9 +60,18 @@ fn every_effect_changes_the_picture_and_hidden_areas_pixelate() {
     // two in a row, and one switched off
     let mut s = seq.clone();
     s.clip_mut(clip).unwrap().effects = vec![
-        ClipEffect { on: true, ..ClipEffect::new("fx.blur", lightair_model::catalog::def("fx.blur").unwrap().defaults()) },
-        ClipEffect { on: false, ..ClipEffect::new("fx.invert", lightair_model::catalog::def("fx.invert").unwrap().defaults()) },
-        ClipEffect { on: true, ..ClipEffect::new("fx.mono", lightair_model::catalog::def("fx.mono").unwrap().defaults()) },
+        ClipEffect {
+            on: true,
+            ..ClipEffect::new("fx.blur", lightair_model::catalog::def("fx.blur").unwrap().defaults())
+        },
+        ClipEffect {
+            on: false,
+            ..ClipEffect::new("fx.invert", lightair_model::catalog::def("fx.invert").unwrap().defaults())
+        },
+        ClipEffect {
+            on: true,
+            ..ClipEffect::new("fx.mono", lightair_model::catalog::def("fx.mono").unwrap().defaults())
+        },
     ];
     r.set(&s).unwrap();
     let f = r.frame(1_000);
@@ -64,7 +84,9 @@ fn every_effect_changes_the_picture_and_hidden_areas_pixelate() {
     r.set(&s).unwrap();
     let f = r.frame(1_000);
     let half = |img: &[u8], left: bool| -> Vec<u8> {
-        img.chunks(320 * 4).flat_map(|row| if left { row[..160 * 4].to_vec() } else { row[160 * 4..].to_vec() }).collect()
+        img.chunks(320 * 4)
+            .flat_map(|row| if left { row[..160 * 4].to_vec() } else { row[160 * 4..].to_vec() })
+            .collect()
     };
     assert!(differ(&half(&plain, true), &half(&f, true)) > 1000, "the left half pixelated");
     assert!(differ(&half(&plain, false), &half(&f, false)) < 50, "the right half as it was");
@@ -76,12 +98,30 @@ fn cropped_and_mirrored() {
     let Ok(ff) = media::ffmpeg() else { return };
     // left half red, right half blue
     let src = dir.path().join("halves.mp4");
-    assert!(Command::new(ff)
-        .args(["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=160x180:r=30:d=1", "-f", "lavfi", "-i", "color=c=blue:s=160x180:r=30:d=1", "-filter_complex", "[0][1]hstack", "-pix_fmt", "yuv420p"])
-        .arg(&src)
-        .status()
-        .unwrap()
-        .success());
+    assert!(
+        Command::new(ff)
+            .args([
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=red:s=160x180:r=30:d=1",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=blue:s=160x180:r=30:d=1",
+                "-filter_complex",
+                "[0][1]hstack",
+                "-pix_fmt",
+                "yuv420p"
+            ])
+            .arg(&src)
+            .status()
+            .unwrap()
+            .success()
+    );
     let mut seq = Sequence::new((320, 180), 30);
     let m = seq.add_media(Media::from_file(&src).unwrap());
     let clip = seq.append(m).unwrap();

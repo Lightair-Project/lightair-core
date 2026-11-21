@@ -6,12 +6,21 @@ use std::process::Command;
 
 use lightair_render::media::{self, Codec};
 use lightair_render::seqrender::SequenceRenderer;
-use lightair_render::sequence::{Content, Filter, Keyframe, Media, Sequence, TextStyle, TrackKind, Transform, Transition, TransitionKind};
+use lightair_render::sequence::{
+    Content, Filter, Keyframe, Media, Sequence, TextStyle, TrackKind, Transform, Transition, TransitionKind,
+};
 
 fn lavfi(dir: &Path, name: &str, input: &str) -> Option<std::path::PathBuf> {
     let ff = media::ffmpeg().ok()?;
     let out = dir.join(name);
-    Command::new(ff).args(["-v", "error", "-y", "-f", "lavfi", "-i", input]).args(["-pix_fmt", "yuv420p"]).arg(&out).status().ok()?.success().then_some(out)
+    Command::new(ff)
+        .args(["-v", "error", "-y", "-f", "lavfi", "-i", input])
+        .args(["-pix_fmt", "yuv420p"])
+        .arg(&out)
+        .status()
+        .ok()?
+        .success()
+        .then_some(out)
 }
 
 fn px(img: &[u8], w: u32, x: u32, y: u32) -> [u8; 3] {
@@ -31,7 +40,14 @@ fn tracks_stack_clips_follow_each_other_and_the_export_sounds() {
     };
     let ff = media::ffmpeg().unwrap();
     let tone = dir.path().join("tone.wav");
-    assert!(Command::new(ff).args(["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=5"]).arg(&tone).status().unwrap().success());
+    assert!(
+        Command::new(ff)
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=5"])
+            .arg(&tone)
+            .status()
+            .unwrap()
+            .success()
+    );
 
     let mut seq = Sequence::new((640, 360), 30);
     let r = seq.add_media(Media::from_file(&red).unwrap());
@@ -138,7 +154,14 @@ fn captions_hear_the_sequences_sound() {
         return;
     };
     let tone = dir.path().join("tone.wav");
-    assert!(Command::new(ff).args(["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=2"]).arg(&tone).status().unwrap().success());
+    assert!(
+        Command::new(ff)
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=2"])
+            .arg(&tone)
+            .status()
+            .unwrap()
+            .success()
+    );
     let mut seq = Sequence::new((640, 360), 30);
     let silent = seq.clone();
     let t = seq.add_media(Media::from_file(&tone).unwrap());
@@ -178,14 +201,26 @@ fn fades_volume_keys_detached_sound_and_clean_voices() {
     // the same picture with a tone in it
     let ff = media::ffmpeg().unwrap();
     let toned = dir.path().join("toned.mp4");
-    assert!(Command::new(&ff)
-        .args(["-v", "error", "-y", "-i"])
-        .arg(&video)
-        .args(["-f", "lavfi", "-i", "sine=frequency=440:duration=4:sample_rate=48000", "-shortest", "-c:v", "copy", "-c:a", "aac"])
-        .arg(&toned)
-        .status()
-        .unwrap()
-        .success());
+    assert!(
+        Command::new(&ff)
+            .args(["-v", "error", "-y", "-i"])
+            .arg(&video)
+            .args([
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=4:sample_rate=48000",
+                "-shortest",
+                "-c:v",
+                "copy",
+                "-c:a",
+                "aac"
+            ])
+            .arg(&toned)
+            .status()
+            .unwrap()
+            .success()
+    );
     let mut seq = Sequence::new((640, 360), 30);
     let m = seq.add_media(Media::from_file(&toned).unwrap());
     let clip = seq.append(m).unwrap();
@@ -305,7 +340,22 @@ fn music_ducks_under_voices() {
     };
     let tone = |name: &str, f: u32, d: u32| {
         let p = dir.path().join(name);
-        assert!(Command::new(&ff).args(["-v", "error", "-y", "-f", "lavfi", "-i", &format!("sine=frequency={f}:duration={d}:sample_rate=48000")]).arg(&p).status().unwrap().success());
+        assert!(
+            Command::new(&ff)
+                .args([
+                    "-v",
+                    "error",
+                    "-y",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    &format!("sine=frequency={f}:duration={d}:sample_rate=48000")
+                ])
+                .arg(&p)
+                .status()
+                .unwrap()
+                .success()
+        );
         p
     };
     let (voice, music) = (tone("voice.wav", 300, 2), tone("music.wav", 800, 6));
@@ -320,7 +370,11 @@ fn music_ducks_under_voices() {
         std::io::Read::read_to_end(child.stdout.as_mut().unwrap(), &mut bytes).unwrap();
         child.wait().unwrap();
         let s: Vec<f32> = bytes.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)).collect();
-        assert!((s.len() as i64 / 2 - 48 * 6_000).abs() < 48 * 100, "the music carries on to its end: {} frames", s.len() / 2);
+        assert!(
+            (s.len() as i64 / 2 - 48 * 6_000).abs() < 48 * 100,
+            "the music carries on to its end: {} frames",
+            s.len() / 2
+        );
         // the music's own frequency, by its energy against the voice: a band-pass by ear is too
         // much here, so its loudness while it's alone and while the voice sounds is compared
         let f = |ms: u64| (ms * 48) as usize * 2;
@@ -367,13 +421,23 @@ fn a_take_comes_as_its_parts() {
     let dir = tempfile::tempdir().unwrap();
     let folder = dir.path().join("Take.lightair-take");
     std::fs::create_dir_all(&folder).unwrap();
-    let (Some(_), Some(_)) = (lavfi(&folder, "screen.mp4", "color=c=red:s=640x360:r=30:d=2"), lavfi(&folder, "camera.mp4", "color=c=blue:s=320x180:r=30:d=2")) else {
+    let (Some(_), Some(_)) = (
+        lavfi(&folder, "screen.mp4", "color=c=red:s=640x360:r=30:d=2"),
+        lavfi(&folder, "camera.mp4", "color=c=blue:s=320x180:r=30:d=2"),
+    ) else {
         eprintln!("FFmpeg isn't installed; skipping");
         return;
     };
     let ff = media::ffmpeg().unwrap();
     for name in ["Audio - Mic.wav", "Audio - Desktop audio.wav"] {
-        assert!(Command::new(&ff).args(["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=2"]).arg(folder.join(name)).status().unwrap().success());
+        assert!(
+            Command::new(&ff)
+                .args(["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=2"])
+                .arg(folder.join(name))
+                .status()
+                .unwrap()
+                .success()
+        );
     }
     std::fs::write(
         folder.join("take.json"),
@@ -410,22 +474,44 @@ fn a_takes_scene_comes_back_as_layers_where_they_were() {
         return;
     };
     let ff = media::ffmpeg().unwrap();
-    assert!(Command::new(&ff).args(["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=yellow:s=200x200", "-frames:v", "1"]).arg(folder.join("layers/0-logo.png")).status().unwrap().success());
-    assert!(Command::new(&ff).args(["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=2"]).arg(folder.join("Audio - Mic.wav")).status().unwrap().success());
+    assert!(
+        Command::new(&ff)
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=yellow:s=200x200", "-frames:v", "1"])
+            .arg(folder.join("layers/0-logo.png"))
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(
+        Command::new(&ff)
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=2"])
+            .arg(folder.join("Audio - Mic.wav"))
+            .status()
+            .unwrap()
+            .success()
+    );
     let camera = lightair_model::Id::new();
     std::fs::write(
         folder.join("take.json"),
         format!(r#"{{"duration_ms":2000,"video":[{{"name":"Camera","file":"camera.mp4","input":"{camera}"}}],"audio":["Audio - Mic.wav"]}}"#),
     )
     .unwrap();
-    let layer = |name: &str, x, y, w, h, what| SceneObject { name: name.into(), x, y, w, h, rotation: 0.0, opacity: 1.0, what };
+    let layer =
+        |name: &str, x, y, w, h, what| SceneObject { name: name.into(), x, y, w, h, rotation: 0.0, opacity: 1.0, what };
     StudioTakeScene {
         canvas: (1920, 1080),
         objects: vec![
             layer("Background", 0.0, 0.0, 1.0, 1.0, What::Colour { color: 0x00FF00, alpha: 1.0 }),
             layer("Camera", 0.05, 0.1, 0.5, 0.5, What::Recorded { source: camera }),
             layer("Logo", 0.8, 0.05, 0.1, 0.1 * 16.0 / 9.0, What::Image { file: "layers/0-logo.png".into() }),
-            layer("Title", 0.6, 0.7, 0.35, 0.2, What::Text { text: "Hello".into(), size: 96.0, color: 0xFFFFFF, bold: true }),
+            layer(
+                "Title",
+                0.6,
+                0.7,
+                0.35,
+                0.2,
+                What::Text { text: "Hello".into(), size: 96.0, color: 0xFFFFFF, bold: true },
+            ),
             layer("Web", 0.0, 0.0, 0.1, 0.1, What::Other { kind: "browser_source".into() }),
         ],
     }
@@ -471,14 +557,30 @@ fn what_was_behind_a_takes_screen_stays_behind_it() {
         return;
     };
     let ff = media::ffmpeg().unwrap();
-    assert!(Command::new(&ff).args(["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=yellow:s=200x200", "-frames:v", "1"]).arg(folder.join("layers/0-logo.png")).status().unwrap().success());
+    assert!(
+        Command::new(&ff)
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=yellow:s=200x200", "-frames:v", "1"])
+            .arg(folder.join("layers/0-logo.png"))
+            .status()
+            .unwrap()
+            .success()
+    );
     let screen = lightair_model::Id::new();
     std::fs::write(
         folder.join("take.json"),
         format!(r#"{{"duration_ms":2000,"video":[{{"name":"Screen","kind":"screen","file":"screen.mp4","input":"{screen}"}}],"audio":[]}}"#),
     )
     .unwrap();
-    let layer = |name: &str, what| SceneObject { name: name.into(), x: 0.0, y: 0.0, w: 1.0, h: 1.0, rotation: 0.0, opacity: 1.0, what };
+    let layer = |name: &str, what| SceneObject {
+        name: name.into(),
+        x: 0.0,
+        y: 0.0,
+        w: 1.0,
+        h: 1.0,
+        rotation: 0.0,
+        opacity: 1.0,
+        what,
+    };
     StudioTakeScene {
         canvas: (1920, 1080),
         objects: vec![
@@ -503,17 +605,19 @@ fn every_audio_track_of_a_file_is_a_clip_of_its_own() {
     };
     // a picture and three sounds: quiet, middling, loud; the first two named
     let file = dir.path().join("three.mp4");
-    assert!(Command::new(&ff)
-        .args(["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=gray:s=320x180:r=30:d=2"])
-        .args(["-f", "lavfi", "-i", "sine=frequency=300:duration=2,volume=0.1"])
-        .args(["-f", "lavfi", "-i", "sine=frequency=500:duration=2,volume=0.4"])
-        .args(["-f", "lavfi", "-i", "sine=frequency=700:duration=2,volume=0.9"])
-        .args(["-map", "0:v", "-map", "1:a", "-map", "2:a", "-map", "3:a", "-pix_fmt", "yuv420p", "-c:a", "aac"])
-        .args(["-metadata:s:a:0", "handler_name=Mic", "-metadata:s:a:1", "handler_name=Desktop audio"])
-        .arg(&file)
-        .status()
-        .unwrap()
-        .success());
+    assert!(
+        Command::new(&ff)
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=gray:s=320x180:r=30:d=2"])
+            .args(["-f", "lavfi", "-i", "sine=frequency=300:duration=2,volume=0.1"])
+            .args(["-f", "lavfi", "-i", "sine=frequency=500:duration=2,volume=0.4"])
+            .args(["-f", "lavfi", "-i", "sine=frequency=700:duration=2,volume=0.9"])
+            .args(["-map", "0:v", "-map", "1:a", "-map", "2:a", "-map", "3:a", "-pix_fmt", "yuv420p", "-c:a", "aac"])
+            .args(["-metadata:s:a:0", "handler_name=Mic", "-metadata:s:a:1", "handler_name=Desktop audio"])
+            .arg(&file)
+            .status()
+            .unwrap()
+            .success()
+    );
     let m = Media::from_file(&file).unwrap();
     assert_eq!(m.tracks, ["Mic", "Desktop audio", "Track 3"]);
     let mut seq = Sequence::new((320, 180), 30);
@@ -523,7 +627,10 @@ fn every_audio_track_of_a_file_is_a_clip_of_its_own() {
     assert_eq!(sounds.len(), 3, "a clip per track");
     assert!(seq.clip(video).unwrap().muted);
     let tracks: Vec<usize> = sounds.iter().map(|c| seq.find(*c).unwrap().0).collect();
-    assert!(tracks[0] != tracks[1] && tracks[1] != tracks[2] && tracks[0] != tracks[2], "each on a track of its own: {tracks:?}");
+    assert!(
+        tracks[0] != tracks[1] && tracks[1] != tracks[2] && tracks[0] != tracks[2],
+        "each on a track of its own: {tracks:?}"
+    );
     assert_eq!(sounds.iter().map(|c| seq.clip(*c).unwrap().stream).collect::<Vec<_>>(), [Some(0), Some(1), Some(2)]);
     let mut all = seq.linked(video);
     all.sort();
@@ -560,8 +667,8 @@ fn every_audio_track_of_a_file_is_a_clip_of_its_own() {
 
 #[test]
 fn a_clips_waveform_is_what_it_plays() {
-    use lightair_render::sound;
     use lightair_render::sequence::Clip;
+    use lightair_render::sound;
     let dir = tempfile::tempdir().unwrap();
     let Ok(ff) = media::ffmpeg() else {
         eprintln!("FFmpeg isn't installed; skipping");
@@ -570,11 +677,19 @@ fn a_clips_waveform_is_what_it_plays() {
     // a studio_take's two stems: a quiet voice for the first second, loud desktop sound the next
     let make = |name: &str, filter: &str| {
         let p = dir.path().join(name);
-        assert!(Command::new(&ff).args(["-v", "error", "-y", "-f", "lavfi", "-i", filter]).arg(&p).status().unwrap().success());
+        assert!(
+            Command::new(&ff)
+                .args(["-v", "error", "-y", "-f", "lavfi", "-i", filter])
+                .arg(&p)
+                .status()
+                .unwrap()
+                .success()
+        );
         p
     };
     let mic = make("Audio - Mic.wav", "sine=frequency=300:duration=2,volume='if(lt(t,1),0.8,0.05)':eval=frame");
-    let desktop = make("Audio - Desktop audio.wav", "sine=frequency=700:duration=2,volume='if(lt(t,1),0,1)':eval=frame");
+    let desktop =
+        make("Audio - Desktop audio.wav", "sine=frequency=700:duration=2,volume='if(lt(t,1),0,1)':eval=frame");
     // an old-style studio_take clip: one picture playing both stems
     let video = lavfi(dir.path(), "camera.mp4", "color=c=gray:s=320x180:r=30:d=2").unwrap();
     let mut m = Media::from_file(&video).unwrap();
@@ -594,7 +709,18 @@ fn a_clips_waveform_is_what_it_plays() {
     assert!(at(&both, 0.5) > 0.09, "and loud in the first second: {}", at(&both, 0.5));
     // as the mix itself is
     let mixed = dir.path().join("mix.wav");
-    assert!(Command::new(&ff).args(["-v", "error", "-y", "-i"]).arg(&mic).arg("-i").arg(&desktop).args(["-filter_complex", "amix=inputs=2:normalize=0"]).arg(&mixed).status().unwrap().success());
+    assert!(
+        Command::new(&ff)
+            .args(["-v", "error", "-y", "-i"])
+            .arg(&mic)
+            .arg("-i")
+            .arg(&desktop)
+            .args(["-filter_complex", "amix=inputs=2:normalize=0"])
+            .arg(&mixed)
+            .status()
+            .unwrap()
+            .success()
+    );
     let pmix = sound::peaks(&mixed).unwrap();
     for s in [0.5, 1.5] {
         assert!((at(&pmix, s) - at(&both, s)).abs() < 0.03, "at {s} s: {} vs {}", at(&pmix, s), at(&both, s));
@@ -611,7 +737,11 @@ fn a_takes_zooms_from_the_zoom_track_show() {
         eprintln!("FFmpeg isn't installed; skipping");
         return;
     };
-    std::fs::write(folder.join("take.json"), r#"{"duration_ms":3000,"video":[{"name":"Screen","file":"screen.mp4"}],"audio":[]}"#).unwrap();
+    std::fs::write(
+        folder.join("take.json"),
+        r#"{"duration_ms":3000,"video":[{"name":"Screen","file":"screen.mp4"}],"audio":[]}"#,
+    )
+    .unwrap();
     let mut m = Media::studio_take_parts(&folder).into_iter().next().expect("the screen");
     m.zooms = Some(Vec::new());
     let mut seq = Sequence::new((640, 360), 30);
@@ -620,16 +750,30 @@ fn a_takes_zooms_from_the_zoom_track_show() {
     let mut r = SequenceRenderer::new(&seq).unwrap();
     let flat = r.frame(2_500);
     // a zoom added on the zoom track: the same moment, magnified
-    seq.media[0].zooms = Some(vec![Zoom { start_ms: 0, end_ms: 3_000, scale: 3.0, focus: Focus::Point { x: 0.5, y: 0.5 }, auto: false }]);
+    seq.media[0].zooms = Some(vec![Zoom {
+        start_ms: 0,
+        end_ms: 3_000,
+        scale: 3.0,
+        focus: Focus::Point { x: 0.5, y: 0.5 },
+        auto: false,
+    }]);
     r.set(&seq).unwrap();
     let zoomed = r.frame(2_500);
-    let differ = flat.chunks(4).zip(zoomed.chunks(4)).filter(|(a, b)| a[..3].iter().zip(&b[..3]).any(|(x, y)| x.abs_diff(*y) > 30)).count();
+    let differ = flat
+        .chunks(4)
+        .zip(zoomed.chunks(4))
+        .filter(|(a, b)| a[..3].iter().zip(&b[..3]).any(|(x, y)| x.abs_diff(*y) > 30))
+        .count();
     assert!(differ > flat.len() / 4 / 3, "the picture changed: {differ} pixels");
     // and taken away again
     seq.media[0].zooms = Some(Vec::new());
     r.set(&seq).unwrap();
     let back = r.frame(2_500);
-    let differ = flat.chunks(4).zip(back.chunks(4)).filter(|(a, b)| a[..3].iter().zip(&b[..3]).any(|(x, y)| x.abs_diff(*y) > 30)).count();
+    let differ = flat
+        .chunks(4)
+        .zip(back.chunks(4))
+        .filter(|(a, b)| a[..3].iter().zip(&b[..3]).any(|(x, y)| x.abs_diff(*y) > 30))
+        .count();
     assert!(differ < flat.len() / 4 / 50, "as it was: {differ} pixels");
 }
 

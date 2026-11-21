@@ -29,7 +29,8 @@ pub fn decode(text: &str) -> Result<Value, String> {
     // the pieces after it that could be base64 (a wrapped string is several lines)
     let mut pieces: Vec<&str> = Vec::new();
     for word in text[from..].split_whitespace() {
-        let end = word.find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '='))).unwrap_or(word.len());
+        let end =
+            word.find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '='))).unwrap_or(word.len());
         if end > 0 {
             pieces.push(&word[..end]);
         }
@@ -53,7 +54,9 @@ pub fn decode(text: &str) -> Result<Value, String> {
 }
 
 fn unpack(compact: &str) -> Result<Value, String> {
-    let bytes = base64::engine::general_purpose::STANDARD.decode(compact).map_err(|_| "that isn't a Streamer.bot export (not base64)".to_string())?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(compact)
+        .map_err(|_| "that isn't a Streamer.bot export (not base64)".to_string())?;
     let gz = bytes.strip_prefix(b"SBAE").ok_or("that isn't a Streamer.bot export (no SBAE header)")?;
     let mut json = String::new();
     flate2::read::GzDecoder::new(gz).read_to_string(&mut json).map_err(|e| format!("couldn't unpack it: {e}"))?;
@@ -110,7 +113,8 @@ fn s(v: &Value, k: &str) -> String {
 
 /// Children in Streamer.bot's order.
 fn ordered(list: &Value) -> Vec<&Value> {
-    let mut v: Vec<&Value> = list.as_array().into_iter().flatten().filter(|x| x["enabled"].as_bool() != Some(false)).collect();
+    let mut v: Vec<&Value> =
+        list.as_array().into_iter().flatten().filter(|x| x["enabled"].as_bool() != Some(false)).collect();
     v.sort_by_key(|x| x["index"].as_i64().unwrap_or(0));
     v
 }
@@ -167,7 +171,12 @@ fn step(sa: &Value, cx: &mut Ctx) -> Vec<Step> {
             one(Step::Var { name, op: op.into(), value, user })
         }
         // set an argument for the rest of the run: a variable here (%name% reads vars.name)
-        123 => one(Step::Var { name: s(sa, "variableName"), op: "set".into(), value: template(&s(sa, "value")), user: false }),
+        123 => one(Step::Var {
+            name: s(sa, "variableName"),
+            op: "set".into(),
+            value: template(&s(sa, "value")),
+            user: false,
+        }),
         // a global copied into an argument
         121 => {
             let (from, to) = (s(sa, "variableName"), s(sa, "destinationVariable"));
@@ -179,10 +188,19 @@ fn step(sa: &Value, cx: &mut Ctx) -> Vec<Step> {
             }
         }
         // OBS: a text source's text, a browser source's address
-        39 => one(Step::Call { method: "source.update".into(), params: json!({"source": s(sa, "sourceName"), "settings": {"text": template(&s(sa, "text"))}}) }),
-        38 => one(Step::Call { method: "source.update".into(), params: json!({"source": s(sa, "sourceName"), "settings": {"url": template(&s(sa, "url"))}}) }),
+        39 => one(Step::Call {
+            method: "source.update".into(),
+            params: json!({"source": s(sa, "sourceName"), "settings": {"text": template(&s(sa, "text"))}}),
+        }),
+        38 => one(Step::Call {
+            method: "source.update".into(),
+            params: json!({"source": s(sa, "sourceName"), "settings": {"url": template(&s(sa, "url"))}}),
+        }),
         // play a sound (volume 1.0 = 100%)
-        1 => one(Step::Sound { file: s(sa, "soundFile"), volume: sa["volume"].as_f64().map_or(100.0, |v| (v * 100.0).clamp(0.0, 100.0)) }),
+        1 => one(Step::Sound {
+            file: s(sa, "soundFile"),
+            volume: sa["volume"].as_f64().map_or(100.0, |v| (v * 100.0).clamp(0.0, 100.0)),
+        }),
         // Speaker.bot speech
         601 | 602 => one(Step::Speak { text: template(&s(sa, "message")) }),
         // OBS: set scene
@@ -197,7 +215,10 @@ fn step(sa: &Value, cx: &mut Ctx) -> Vec<Step> {
                 }
                 _ => true,
             };
-            one(Step::Call { method: "object.update".into(), params: json!({"object": s(sa, "sourceName"), "scene": s(sa, "sceneName"), "visible": visible}) })
+            one(Step::Call {
+                method: "object.update".into(),
+                params: json!({"object": s(sa, "sourceName"), "scene": s(sa, "sceneName"), "visible": visible}),
+            })
         }
         // run another action
         4 => {
@@ -208,15 +229,32 @@ fn step(sa: &Value, cx: &mut Ctx) -> Vec<Step> {
         1007 => one(Step::Http { url: template(&s(sa, "url")), method: "GET".into(), body: String::new() }),
         // C# code: kept to port by hand
         99999 | 99998 => {
-            let source = sa["byteCode"].as_str().and_then(|b| base64::engine::general_purpose::STANDARD.decode(b).ok()).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default();
+            let source = sa["byteCode"]
+                .as_str()
+                .and_then(|b| base64::engine::general_purpose::STANDARD.decode(b).ok())
+                .map(|b| String::from_utf8_lossy(&b).into_owned())
+                .unwrap_or_default();
             cx.note("C# code can't run in Lightair: kept as a comment in a JavaScript step to port".into());
-            one(Step::Script { code: format!("// From Streamer.bot (C#), to port by hand:\n/*\n{}\n*/\nreturn {{}};", source.replace("*/", "* /")) })
+            one(Step::Script {
+                code: format!(
+                    "// From Streamer.bot (C#), to port by hand:\n/*\n{}\n*/\nreturn {{}};",
+                    source.replace("*/", "* /")
+                ),
+            })
         }
         // if / else
         120 => {
             let children = ordered(&sa["subActions"]);
-            let then = children.iter().find(|c| c["type"].as_i64() == Some(99901)).map(|c| steps(&c["subActions"], cx)).unwrap_or_default();
-            let otherwise = children.iter().find(|c| c["type"].as_i64() == Some(99902)).map(|c| steps(&c["subActions"], cx)).unwrap_or_default();
+            let then = children
+                .iter()
+                .find(|c| c["type"].as_i64() == Some(99901))
+                .map(|c| steps(&c["subActions"], cx))
+                .unwrap_or_default();
+            let otherwise = children
+                .iter()
+                .find(|c| c["type"].as_i64() == Some(99902))
+                .map(|c| steps(&c["subActions"], cx))
+                .unwrap_or_default();
             let left = format!("{{{{ {} }}}}", variable(s(sa, "input").trim_matches('%')));
             let right = template(&s(sa, "value"));
             let (op, right) = match sa["operation"].as_i64() {
@@ -236,7 +274,8 @@ fn step(sa: &Value, cx: &mut Ctx) -> Vec<Step> {
         // a group: random picks one child, otherwise its children in order
         99900 => {
             if sa["random"].as_bool() == Some(true) {
-                let choices: Vec<Vec<Step>> = ordered(&sa["subActions"]).into_iter().map(|c| step(c, cx)).filter(|c| !c.is_empty()).collect();
+                let choices: Vec<Vec<Step>> =
+                    ordered(&sa["subActions"]).into_iter().map(|c| step(c, cx)).filter(|c| !c.is_empty()).collect();
                 if choices.is_empty() { vec![] } else { one(Step::Random { choices }) }
             } else {
                 steps(&sa["subActions"], cx)
@@ -256,7 +295,12 @@ fn step(sa: &Value, cx: &mut Ctx) -> Vec<Step> {
 /// An older export: the action's flat `actions` with `actionGroups` (random groups become one
 /// Random step where the group's first step was).
 fn legacy_steps(action: &Value, cx: &mut Ctx) -> Vec<Step> {
-    let random: HashMap<String, bool> = action["actionGroups"].as_array().into_iter().flatten().map(|g| (s(g, "name"), g["random"].as_bool() == Some(true))).collect();
+    let random: HashMap<String, bool> = action["actionGroups"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|g| (s(g, "name"), g["random"].as_bool() == Some(true)))
+        .collect();
     let mut out = Vec::new();
     let mut done_groups = Vec::new();
     let all = ordered(&action["actions"]);
@@ -267,7 +311,8 @@ fn legacy_steps(action: &Value, cx: &mut Ctx) -> Vec<Step> {
                 continue;
             }
             done_groups.push(group.clone());
-            let choices: Vec<Vec<Step>> = all.iter().filter(|x| s(x, "group") == group).map(|x| step(x, cx)).filter(|c| !c.is_empty()).collect();
+            let choices: Vec<Vec<Step>> =
+                all.iter().filter(|x| s(x, "group") == group).map(|x| step(x, cx)).filter(|c| !c.is_empty()).collect();
             if !choices.is_empty() {
                 out.push(Step::Random { choices });
             }
@@ -282,17 +327,40 @@ fn legacy_steps(action: &Value, cx: &mut Ctx) -> Vec<Step> {
     out
 }
 
-fn trigger(t: &Value, commands: &HashMap<String, Value>, timers: &HashMap<String, Value>, cx: &mut Ctx) -> Option<(Trigger, f64, f64)> {
-    let event = |kinds: &[&str]| Trigger::Event { kinds: kinds.iter().map(|k| k.to_string()).collect(), platforms: vec![], min_amount: 0.0, tests: true };
+fn trigger(
+    t: &Value,
+    commands: &HashMap<String, Value>,
+    timers: &HashMap<String, Value>,
+    cx: &mut Ctx,
+) -> Option<(Trigger, f64, f64)> {
+    let event = |kinds: &[&str]| Trigger::Event {
+        kinds: kinds.iter().map(|k| k.to_string()).collect(),
+        platforms: vec![],
+        min_amount: 0.0,
+        tests: true,
+    };
     Some(match t["type"].as_i64()? {
         401 => {
             let c = commands.get(&s(t, "commandId"))?;
-            let mut names = s(c, "command").split(['\r', '\n']).map(str::trim).filter(|n| !n.is_empty()).map(String::from).collect::<Vec<_>>().into_iter();
+            let mut names = s(c, "command")
+                .split(['\r', '\n'])
+                .map(str::trim)
+                .filter(|n| !n.is_empty())
+                .map(String::from)
+                .collect::<Vec<_>>()
+                .into_iter();
             let name = names.next()?;
             if c["mode"].as_i64() == Some(1) {
                 cx.note(format!("the regex command “{name}” became a plain one"));
             }
-            let who = if c["permittedGroups"].as_array().is_some_and(|g| g.iter().any(|x| x.as_str().is_some_and(|x| x.to_lowercase().contains("mod")))) { Who::Moderators } else { Who::Everyone };
+            let who = if c["permittedGroups"]
+                .as_array()
+                .is_some_and(|g| g.iter().any(|x| x.as_str().is_some_and(|x| x.to_lowercase().contains("mod"))))
+            {
+                Who::Moderators
+            } else {
+                Who::Everyone
+            };
             let cooldown = c["globalCooldown"].as_f64().unwrap_or(0.0);
             let per_user = c["userCooldown"].as_f64().unwrap_or(0.0);
             (Trigger::Command { name, aliases: names.collect(), who }, cooldown, per_user)
@@ -333,7 +401,9 @@ fn trigger(t: &Value, commands: &HashMap<String, Value>, timers: &HashMap<String
 pub fn import(text: &str) -> Result<Imported, String> {
     let v = decode(text)?;
     let data = if v["data"].is_object() { &v["data"] } else { &v };
-    let by_id = |k: &str| -> HashMap<String, Value> { data[k].as_array().into_iter().flatten().map(|x| (s(x, "id"), x.clone())).collect() };
+    let by_id = |k: &str| -> HashMap<String, Value> {
+        data[k].as_array().into_iter().flatten().map(|x| (s(x, "id"), x.clone())).collect()
+    };
     let (commands, timers) = (by_id("commands"), by_id("timers"));
     let actions: Vec<&Value> = data["actions"].as_array().into_iter().flatten().collect();
     if actions.is_empty() {
@@ -344,12 +414,17 @@ pub fn import(text: &str) -> Result<Imported, String> {
     let mut automations = Vec::new();
     for a in actions {
         cx.action = s(a, "name");
-        let triggers: Vec<&Value> = a["triggers"].as_array().into_iter().flatten().filter(|t| t["enabled"].as_bool() != Some(false)).collect();
+        let triggers: Vec<&Value> =
+            a["triggers"].as_array().into_iter().flatten().filter(|t| t["enabled"].as_bool() != Some(false)).collect();
         if triggers.len() > 1 {
             cx.note(format!("it had {} triggers; the first was kept", triggers.len()));
         }
-        let (trigger, cooldown, user_cooldown) = triggers.first().and_then(|t| trigger(t, &commands, &timers, &mut cx)).unwrap_or((Trigger::Manual, 0.0, 0.0));
-        let steps = if a["subActions"].is_array() { steps(&a["subActions"], &mut cx) } else { legacy_steps(a, &mut cx) };
+        let (trigger, cooldown, user_cooldown) = triggers
+            .first()
+            .and_then(|t| trigger(t, &commands, &timers, &mut cx))
+            .unwrap_or((Trigger::Manual, 0.0, 0.0));
+        let steps =
+            if a["subActions"].is_array() { steps(&a["subActions"], &mut cx) } else { legacy_steps(a, &mut cx) };
         automations.push(Automation {
             id: crate::new_id(),
             name: cx.action.clone(),
@@ -380,7 +455,10 @@ mod tests {
 
     #[test]
     fn variables_become_templates() {
-        assert_eq!(template("Hi %user%, you said %rawInput% (%input0%) 100%"), "Hi {{ name }}, you said {{ arg }} ({{ args.0 }}) 100%");
+        assert_eq!(
+            template("Hi %user%, you said %rawInput% (%input0%) 100%"),
+            "Hi {{ name }}, you said {{ arg }} ({{ args.0 }}) 100%"
+        );
         assert_eq!(template("%deaths% deaths"), "{{ vars.deaths }} deaths");
     }
 
@@ -413,12 +491,18 @@ mod tests {
         let r = import(&export(&json)).unwrap();
         assert_eq!(r.automations.len(), 2);
         let a = &r.automations[0];
-        assert_eq!(a.trigger, Trigger::Command { name: "!date".into(), aliases: vec!["!day".into()], who: Who::Everyone });
+        assert_eq!(
+            a.trigger,
+            Trigger::Command { name: "!date".into(), aliases: vec!["!day".into()], who: Who::Everyone }
+        );
         assert_eq!((a.cooldown, a.user_cooldown), (5.0, 30.0));
         assert_eq!(a.steps[0], Step::Chat { text: "Hi {{ name }}!".into(), platform: "twitch".into() });
         assert_eq!(a.steps[1], Step::Wait { seconds: 1.5 });
         let Step::If { when, then, otherwise } = &a.steps[2] else { panic!("{:?}", a.steps[2]) };
-        assert_eq!((when[0].left.as_str(), when[0].op.as_str(), when[0].right.as_str()), ("{{ arg }}", "contains", "hello"));
+        assert_eq!(
+            (when[0].left.as_str(), when[0].op.as_str(), when[0].right.as_str()),
+            ("{{ arg }}", "contains", "hello")
+        );
         assert_eq!(then[0], Step::Call { method: "scene.switch".into(), params: json!({"scene": "Main"}) });
         assert_eq!(otherwise[0], Step::Run { automation: "Ad".into() });
         assert!(matches!(&a.steps[3], Step::Random { choices } if choices.len() == 2));
@@ -448,7 +532,10 @@ mod tests {
     fn not_an_export() {
         assert!(import("hello").is_err());
         // found inside other text
-        let wrapped = format!("# Import String\n\n{}\n\nThanks!", export(&json!({"actions": [{"id": "a", "name": "A", "subActions": []}]})));
+        let wrapped = format!(
+            "# Import String\n\n{}\n\nThanks!",
+            export(&json!({"actions": [{"id": "a", "name": "A", "subActions": []}]}))
+        );
         assert_eq!(import(&wrapped).unwrap().automations.len(), 1);
         assert!(import(&base64::engine::general_purpose::STANDARD.encode("SBAEnot gzip")).is_err());
     }

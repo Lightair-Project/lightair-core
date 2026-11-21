@@ -24,18 +24,44 @@ const RECORD: usize = 24;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Entry {
     /// The pointer, in display points.
-    Move { x: f32, y: f32 },
-    Down { button: u8, x: f32, y: f32 },
-    Up { button: u8, x: f32, y: f32 },
-    Scroll { dx: f32, dy: f32 },
-    KeyDown { code: u16, modifiers: u16 },
-    KeyUp { code: u16, modifiers: u16 },
+    Move {
+        x: f32,
+        y: f32,
+    },
+    Down {
+        button: u8,
+        x: f32,
+        y: f32,
+    },
+    Up {
+        button: u8,
+        x: f32,
+        y: f32,
+    },
+    Scroll {
+        dx: f32,
+        dy: f32,
+    },
+    KeyDown {
+        code: u16,
+        modifiers: u16,
+    },
+    KeyUp {
+        code: u16,
+        modifiers: u16,
+    },
     /// The pointer's shape (`lightair_platform::input::Shape` as a number).
     Shape(u8),
     /// A display's frame in points (x, y, then width and height in the next record), so
     /// positions can be mapped to the screen track: written at the start.
-    Display { x: f32, y: f32 },
-    DisplaySize { w: f32, h: f32 },
+    Display {
+        x: f32,
+        y: f32,
+    },
+    DisplaySize {
+        w: f32,
+        h: f32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

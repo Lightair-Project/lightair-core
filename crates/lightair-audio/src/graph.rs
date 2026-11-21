@@ -168,21 +168,12 @@ fn pan_gains(pan: f32) -> (f32, f32) {
 impl Graph {
     /// Compiles `spec` (off the audio thread). `meter` gives each node its meter (kept across
     /// compiles by the engine, so the UI's handles stay valid).
-    pub(crate) fn compile(
-        spec: &GraphSpec,
-        sample_rate: u32,
-        mut meter: impl FnMut(NodeId) -> Arc<Meter>,
-    ) -> Self {
+    pub(crate) fn compile(spec: &GraphSpec, sample_rate: u32, mut meter: impl FnMut(NodeId) -> Arc<Meter>) -> Self {
         let sr = sample_rate as f32;
         let ramp = (sr * 0.01) as usize; // 10 ms
         let mut warnings = Vec::new();
-        let buses: HashMap<NodeId, usize> = spec
-            .strips
-            .iter()
-            .filter(|s| s.role == Role::Bus)
-            .enumerate()
-            .map(|(i, s)| (s.id, i))
-            .collect();
+        let buses: HashMap<NodeId, usize> =
+            spec.strips.iter().filter(|s| s.role == Role::Bus).enumerate().map(|(i, s)| (s.id, i)).collect();
         let mix_index: HashMap<NodeId, usize> = spec.mixes.iter().enumerate().map(|(i, m)| (m.id, i)).collect();
 
         // A strip's destination, following buses: a loop or a missing bus goes to Program.
@@ -317,7 +308,13 @@ impl Graph {
             .collect();
         let program = MixRt {
             trim: Smoothed::new(db_to_gain(spec.program.trim_db), ramp),
-            ..mix_rt(crate::PROGRAM, &spec.program.inserts, spec.program.gain_db, spec.program.mute, meter(crate::PROGRAM))
+            ..mix_rt(
+                crate::PROGRAM,
+                &spec.program.inserts,
+                spec.program.gain_db,
+                spec.program.mute,
+                meter(crate::PROGRAM),
+            )
         };
         let cue = spec.cue.and_then(|c| spec.mixes.iter().position(|m| m.id == c));
         Self {
@@ -340,7 +337,10 @@ impl Graph {
     pub(crate) fn adopt(&mut self, old: &mut Graph) {
         fn slots(new: &mut [Slot], old: &mut [Slot]) {
             for s in new.iter_mut() {
-                if let Some(o) = old.iter_mut().find(|o| o.id == s.id && o.proc.kind() == s.proc.kind() && o.proc.identity() == s.proc.identity()) {
+                if let Some(o) = old
+                    .iter_mut()
+                    .find(|o| o.id == s.id && o.proc.kind() == s.proc.kind() && o.proc.identity() == s.proc.identity())
+                {
                     std::mem::swap(&mut s.proc, &mut o.proc);
                     s.proc.set(&s.params);
                 }

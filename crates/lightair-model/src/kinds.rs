@@ -171,7 +171,8 @@ mod tests {
         let (k, s) = from_libobs("monitor_capture", &json!({"monitor_id": "\\\\?\\DISPLAY#1"})).unwrap();
         assert_eq!((k, &s["mode"], &s["display"]), (SCREEN, &json!(0), &json!("\\\\?\\DISPLAY#1")));
 
-        let (k, s) = from_libobs("sck_audio_capture", &json!({"type": 1, "application": "com.spotify.client"})).unwrap();
+        let (k, s) =
+            from_libobs("sck_audio_capture", &json!({"type": 1, "application": "com.spotify.client"})).unwrap();
         assert_eq!((k, s), (APP_AUDIO, json!({"app": "com.spotify.client"})));
         let (k, s) = from_libobs("sck_audio_capture", &json!({"type": 0})).unwrap();
         assert_eq!((k, s), (DESKTOP_AUDIO, json!({})));

@@ -35,7 +35,9 @@ impl Images {
     /// Pictures cached in `dir` (made if missing).
     pub fn new(dir: PathBuf) -> Self {
         let _ = std::fs::create_dir_all(&dir);
-        Images { inner: Arc::new(Inner { dir, files: Mutex::default(), jobs: Mutex::new(None), ready: Mutex::default() }) }
+        Images {
+            inner: Arc::new(Inner { dir, files: Mutex::default(), jobs: Mutex::new(None), ready: Mutex::default() }),
+        }
     }
 
     /// Called (from a worker) when a picture has arrived.
@@ -73,7 +75,10 @@ impl Images {
 
     fn on_disk(&self, url: &str) -> Option<PathBuf> {
         let stem = self.stem(url);
-        ["png", "webp", "gif", "jpg", "svg"].iter().map(|ext| self.inner.dir.join(format!("{stem}.{ext}"))).find(|p| p.exists())
+        ["png", "webp", "gif", "jpg", "svg"]
+            .iter()
+            .map(|ext| self.inner.dir.join(format!("{stem}.{ext}")))
+            .find(|p| p.exists())
     }
 
     fn queue(&self, url: String) {

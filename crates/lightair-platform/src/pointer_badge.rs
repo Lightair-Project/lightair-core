@@ -25,7 +25,6 @@ impl Badge {
     pub fn show(&mut self, zoom: Option<f32>) {
         self.imp.show(zoom)
     }
-
 }
 
 /// The zoom as the badge says it: "2×", "1.5×".
@@ -112,8 +111,7 @@ mod imp {
                 let panel_class = AnyClass::get(c"NSPanel")?;
                 let panel: Allocated<AnyObject> = msg_send![panel_class, alloc];
                 // borderless (0) | non-activating panel (1 << 7); buffered (2)
-                let panel: Retained<AnyObject> =
-                    msg_send![panel, initWithContentRect: rect(0.0, 0.0, W, H), styleMask: 1usize << 7, backing: 2usize, defer: Bool::NO];
+                let panel: Retained<AnyObject> = msg_send![panel, initWithContentRect: rect(0.0, 0.0, W, H), styleMask: 1usize << 7, backing: 2usize, defer: Bool::NO];
                 let clear: Retained<AnyObject> = msg_send![AnyClass::get(c"NSColor")?, clearColor];
                 let _: () = msg_send![&*panel, setOpaque: Bool::NO];
                 let _: () = msg_send![&*panel, setBackgroundColor: &*clear];
@@ -132,7 +130,9 @@ mod imp {
                 let content: Retained<AnyObject> = msg_send![&*panel, contentView];
                 let _: () = msg_send![&*content, setWantsLayer: Bool::YES];
                 let layer: Option<Retained<AnyObject>> = msg_send![&*content, layer];
-                if let (Some(layer), Some(fill), Some(edge)) = (layer, color(0.08, 0.08, 0.09, 0.86), color(1.0, 0.565, 0.0, 1.0)) {
+                if let (Some(layer), Some(fill), Some(edge)) =
+                    (layer, color(0.08, 0.08, 0.09, 0.86), color(1.0, 0.565, 0.0, 1.0))
+                {
                     let fill: *mut CgColor = msg_send![&*fill, CGColor];
                     let edge: *mut CgColor = msg_send![&*edge, CGColor];
                     let _: () = msg_send![&*layer, setBackgroundColor: fill];
@@ -158,7 +158,8 @@ mod imp {
                 let field_class = AnyClass::get(c"NSTextField")?;
                 let empty = NSString::from_str("");
                 let label: Retained<AnyObject> = msg_send![field_class, labelWithString: &*empty];
-                let font: Retained<AnyObject> = msg_send![AnyClass::get(c"NSFont")?, monospacedDigitSystemFontOfSize: 12.0f64, weight: 0.4f64];
+                let font: Retained<AnyObject> =
+                    msg_send![AnyClass::get(c"NSFont")?, monospacedDigitSystemFontOfSize: 12.0f64, weight: 0.4f64];
                 let _: () = msg_send![&*label, setFont: &*font];
                 let _: () = msg_send![&*label, setTextColor: &*white];
                 let _: () = msg_send![&*label, setFrame: rect(26.0, 4.0, W - 30.0, 16.0)];

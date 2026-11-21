@@ -111,7 +111,8 @@ impl Clip {
 
     /// Where its keys are (ms from its start): every property's, its volume's.
     pub fn key_times(&self) -> Vec<u64> {
-        let mut v: Vec<u64> = self.anim.values().flatten().map(|k| k.at_ms).chain(self.keyframes.iter().map(|k| k.at_ms)).collect();
+        let mut v: Vec<u64> =
+            self.anim.values().flatten().map(|k| k.at_ms).chain(self.keyframes.iter().map(|k| k.at_ms)).collect();
         v.sort();
         v.dedup_by(|a, b| a.abs_diff(*b) < NEAR);
         v
@@ -123,7 +124,8 @@ impl Clip {
             return;
         }
         for (i, p) in TRANSFORM.iter().enumerate() {
-            let keys = self.keyframes.iter().map(|k| Key { at_ms: k.at_ms, v: transform_field(&k.transform, i) }).collect();
+            let keys =
+                self.keyframes.iter().map(|k| Key { at_ms: k.at_ms, v: transform_field(&k.transform, i) }).collect();
             self.anim.insert(p.to_string(), keys);
         }
         if let Some(first) = self.keyframes.first() {
@@ -148,7 +150,12 @@ impl Clip {
     /// Its crop at `t`.
     pub fn crop_at(&self, t: u64) -> (f32, f32, f32, f32) {
         let c = self.crop;
-        (self.prop_at("crop.l", t, c.0), self.prop_at("crop.t", t, c.1), self.prop_at("crop.r", t, c.2), self.prop_at("crop.b", t, c.3))
+        (
+            self.prop_at("crop.l", t, c.0),
+            self.prop_at("crop.t", t, c.1),
+            self.prop_at("crop.r", t, c.2),
+            self.prop_at("crop.b", t, c.3),
+        )
     }
 
     /// Its effects at `t` (keyed settings at their values there).
@@ -253,7 +260,12 @@ mod tests {
         c.set_key(&key, 4_000, 1.0);
         // moved first: its keys go with it
         c.effects.swap(0, 1);
-        let at = |c: &Clip| c.effects_at(4_000).iter().map(|e| (e.kind.clone(), e.settings.get("amount").and_then(|v| v.as_f64()))).collect::<Vec<_>>();
+        let at = |c: &Clip| {
+            c.effects_at(4_000)
+                .iter()
+                .map(|e| (e.kind.clone(), e.settings.get("amount").and_then(|v| v.as_f64())))
+                .collect::<Vec<_>>()
+        };
         assert_eq!(at(&c), vec![("fx.b".to_string(), Some(1.0)), ("fx.a".to_string(), None)]);
         // keys from before effects had ids ("fx.<place>.…") are named for theirs
         let mut old = Clip::new(Id::nil(), 0, 4_000);

@@ -8,8 +8,8 @@
 use std::collections::{HashMap, HashSet};
 
 use lightair_model::{
-    Command, Crop, Direction, Effect, Fit, Canvas, Id, Source, Object, Layout, Workspace, Scene, Track, TransitionKind,
-    TransitionSettings,
+    Canvas, Command, Crop, Direction, Effect, Fit, Id, Layout, Object, Scene, Source, Track, TransitionKind,
+    TransitionSettings, Workspace,
 };
 use serde_json::Value;
 

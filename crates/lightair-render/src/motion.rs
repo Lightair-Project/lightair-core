@@ -157,11 +157,17 @@ pub fn coming(kind: MotionKind, p: f32) -> Delta {
         MotionKind::SlideRight => Delta { dx: -(1.0 - e), ..d },
         MotionKind::SlideUp => Delta { dy: 1.0 - e, ..d },
         MotionKind::SlideDown => Delta { dy: -(1.0 - e), ..d },
-        MotionKind::Spin => Delta { rotation: -(1.0 - e) * 360.0, scale: 0.2 + 0.8 * e, opacity: (p * 2.0).min(1.0), ..d },
+        MotionKind::Spin => {
+            Delta { rotation: -(1.0 - e) * 360.0, scale: 0.2 + 0.8 * e, opacity: (p * 2.0).min(1.0), ..d }
+        }
         MotionKind::Pop => Delta { scale: out_back(p).max(0.0), opacity: (p * 3.0).min(1.0), ..d },
         MotionKind::Blur => Delta { blur: (1.0 - e) * 0.8, opacity: (p * 1.5).min(1.0), ..d },
         MotionKind::Drop => Delta { dy: -(1.0 - out_bounce(p)) * 0.8, opacity: (p * 4.0).min(1.0), ..d },
-        MotionKind::Swing => Delta { rotation: (1.0 - e) * 35.0 * (p * std::f32::consts::PI * 3.0).cos(), opacity: (p * 3.0).min(1.0), ..d },
+        MotionKind::Swing => Delta {
+            rotation: (1.0 - e) * 35.0 * (p * std::f32::consts::PI * 3.0).cos(),
+            opacity: (p * 3.0).min(1.0),
+            ..d
+        },
         _ => d,
     }
 }
@@ -175,7 +181,12 @@ pub fn combo(kind: MotionKind, u: f32, p: f32, cycle: f32) -> Delta {
         MotionKind::Sway => Delta { rotation: 6.0 * w.sin(), ..d },
         MotionKind::Pulse => Delta { scale: 1.0 + 0.06 * w.sin(), ..d },
         MotionKind::Float => Delta { dy: 0.03 * w.sin(), ..d },
-        MotionKind::Shake => Delta { dx: 0.012 * (u * 37.0).sin(), dy: 0.012 * (u * 29.0 + 1.0).sin(), rotation: 1.5 * (u * 23.0).sin(), ..d },
+        MotionKind::Shake => Delta {
+            dx: 0.012 * (u * 37.0).sin(),
+            dy: 0.012 * (u * 29.0 + 1.0).sin(),
+            rotation: 1.5 * (u * 23.0).sin(),
+            ..d
+        },
         MotionKind::Turn => Delta { rotation: 360.0 * u / cycle.max(0.1), ..d },
         MotionKind::Wobble => Delta { rotation: 4.0 * (w * 1.3).sin(), scale: 1.0 + 0.04 * (w * 0.9).sin(), ..d },
         MotionKind::Bounce => Delta { dy: -0.06 * (w / 2.0).sin().abs(), ..d },
@@ -250,7 +261,15 @@ mod tests {
     fn every_animation_ends_in_place() {
         for (_, k) in IN {
             let d = coming(k, 1.0);
-            assert!(d.dx.abs() < 1e-4 && d.dy.abs() < 1e-4 && (d.scale - 1.0).abs() < 1e-4 && d.rotation.abs() < 1e-3 && (d.opacity - 1.0).abs() < 1e-4 && d.blur.abs() < 1e-4, "{k:?}: {d:?}");
+            assert!(
+                d.dx.abs() < 1e-4
+                    && d.dy.abs() < 1e-4
+                    && (d.scale - 1.0).abs() < 1e-4
+                    && d.rotation.abs() < 1e-3
+                    && (d.opacity - 1.0).abs() < 1e-4
+                    && d.blur.abs() < 1e-4,
+                "{k:?}: {d:?}"
+            );
         }
     }
 }

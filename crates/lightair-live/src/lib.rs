@@ -14,8 +14,8 @@ pub mod integrations;
 pub mod log;
 pub mod net;
 pub mod pages;
-pub mod rules;
 mod proto;
+pub mod rules;
 
 pub mod accounts;
 pub mod bilibili;
@@ -43,7 +43,20 @@ pub use images::Images;
 pub use net::download;
 
 /// The platforms whose chat Lightair reads (the Outputs list's ids).
-pub const READABLE: &[&str] = &["twitch", "youtube", "chzzk", "douyu", "soop", "kick", "tiktok", "twitcasting", "showroom", "bilibili", "niconico", "huya"];
+pub const READABLE: &[&str] = &[
+    "twitch",
+    "youtube",
+    "chzzk",
+    "douyu",
+    "soop",
+    "kick",
+    "tiktok",
+    "twitcasting",
+    "showroom",
+    "bilibili",
+    "niconico",
+    "huya",
+];
 
 /// The reader for a platform, if Lightair has one.
 pub fn reader_for(platform: &str) -> Option<hub::Reader> {

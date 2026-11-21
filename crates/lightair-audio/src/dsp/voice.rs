@@ -2,9 +2,7 @@
 //! de-esser, EQ (rumble, mud, presence, air), a compressor and a limiter, each stage scaled by
 //! one Amount and switchable on its own.
 
-use super::dynamics::{
-    Compressor, CompressorParams, DeEsser, DeEsserParams, Gate, GateParams, Limiter, LimiterParams,
-};
+use super::dynamics::{Compressor, CompressorParams, DeEsser, DeEsserParams, Gate, GateParams, Limiter, LimiterParams};
 use super::eq::{Band, BandKind, Eq, EqParams};
 use super::noise::{Noise, NoiseParams};
 use super::{Ctx, Params, Processor};
@@ -25,7 +23,16 @@ pub struct VoiceParams {
 
 impl Default for VoiceParams {
     fn default() -> Self {
-        Self { amount: 0.5, noise: true, gate: true, deess: true, eq: true, compress: true, limit: true, podcast: false }
+        Self {
+            amount: 0.5,
+            noise: true,
+            gate: true,
+            deess: true,
+            eq: true,
+            compress: true,
+            limit: true,
+            podcast: false,
+        }
     }
 }
 

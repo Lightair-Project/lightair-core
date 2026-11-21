@@ -121,7 +121,10 @@ impl Item {
         q.is_empty()
             || self.title.to_lowercase().contains(&q)
             || self.markers.iter().any(|m| m.label.to_lowercase().contains(&q))
-            || self.files.iter().any(|f| f.path.file_name().is_some_and(|n| n.to_string_lossy().to_lowercase().contains(&q)))
+            || self
+                .files
+                .iter()
+                .any(|f| f.path.file_name().is_some_and(|n| n.to_string_lossy().to_lowercase().contains(&q)))
     }
 }
 
@@ -234,7 +237,8 @@ impl Index {
             let path = entry.path();
             // a take (or a studio_take package from someone else): all its files, as one item
             if path.is_dir() && path.extension().is_some_and(|e| e == "lightair-take") {
-                if let Some(item) = studio_take_item(&path).filter(|i| !i.files.iter().any(|f| self.has_file(&f.path))) {
+                if let Some(item) = studio_take_item(&path).filter(|i| !i.files.iter().any(|f| self.has_file(&f.path)))
+                {
                     out.push(item);
                 }
                 continue;
@@ -249,9 +253,9 @@ impl Index {
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map_or(0, |d| d.as_millis() as i64);
             let title = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-            let audio = path.extension().is_some_and(|e| {
-                ["wav", "m4a", "mp3", "aac", "flac"].iter().any(|a| e.eq_ignore_ascii_case(a))
-            });
+            let audio = path
+                .extension()
+                .is_some_and(|e| ["wav", "m4a", "mp3", "aac", "flac"].iter().any(|a| e.eq_ignore_ascii_case(a)));
             let kind = if audio { Kind::Multitrack } else { Kind::Recording };
             let mut item = Item::new(kind, title, vec![File::new(path.clone())], started_ms);
             item.duration_ms = mp4_duration_ms(&path);
@@ -315,9 +319,13 @@ pub fn studio_take_item(folder: &Path) -> Option<Item> {
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(|v| Some(File { track: v["name"].as_str().map(String::from), ..File::new(folder.join(v["file"].as_str()?)) }))
+        .filter_map(|v| {
+            Some(File { track: v["name"].as_str().map(String::from), ..File::new(folder.join(v["file"].as_str()?)) })
+        })
         .collect();
-    files.extend(studio_take["audio"].as_array().into_iter().flatten().filter_map(|a| Some(File::new(folder.join(a.as_str()?)))));
+    files.extend(
+        studio_take["audio"].as_array().into_iter().flatten().filter_map(|a| Some(File::new(folder.join(a.as_str()?)))),
+    );
     for extra in ["input.bin", "take.json", "edit.json"] {
         if folder.join(extra).exists() {
             files.push(File::new(folder.join(extra)));
@@ -334,7 +342,13 @@ pub fn studio_take_item(folder: &Path) -> Option<Item> {
 pub fn export_package(item: &Item, edit: Option<&Path>, to: &Path) -> io::Result<PathBuf> {
     let name = format!("{}.lightair-take", item.title.replace(['/', ':', '\\'], "-"));
     let package = (1..)
-        .map(|n| if n == 1 { to.join(&name) } else { to.join(name.replace(".lightair-take", &format!(" {n}.lightair-take"))) })
+        .map(|n| {
+            if n == 1 {
+                to.join(&name)
+            } else {
+                to.join(name.replace(".lightair-take", &format!(" {n}.lightair-take")))
+            }
+        })
         .find(|p| !p.exists())
         .unwrap_or_else(|| to.join(&name));
     fs::create_dir_all(&package)?;
@@ -439,9 +453,15 @@ pub fn mp4_duration_ms(path: &Path) -> Option<u64> {
             f.read_exact(&mut body).ok()?;
             let (scale, duration) = if body[0] == 1 {
                 // version 1: 64-bit times
-                (u32::from_be_bytes(body[20..24].try_into().ok()?) as u64, u64::from_be_bytes(body[24..32].try_into().ok()?))
+                (
+                    u32::from_be_bytes(body[20..24].try_into().ok()?) as u64,
+                    u64::from_be_bytes(body[24..32].try_into().ok()?),
+                )
             } else {
-                (u32::from_be_bytes(body[12..16].try_into().ok()?) as u64, u32::from_be_bytes(body[16..20].try_into().ok()?) as u64)
+                (
+                    u32::from_be_bytes(body[12..16].try_into().ok()?) as u64,
+                    u32::from_be_bytes(body[16..20].try_into().ok()?) as u64,
+                )
             };
             return (scale > 0).then(|| duration * 1000 / scale);
         }

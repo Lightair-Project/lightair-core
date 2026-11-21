@@ -74,7 +74,11 @@ impl Media {
             item: None,
             look: None,
             transcript: None,
-            tracks: if c.audio { Some(crate::media::audio_tracks(path)).filter(|t| t.len() > 1).unwrap_or_default() } else { Vec::new() },
+            tracks: if c.audio {
+                Some(crate::media::audio_tracks(path)).filter(|t| t.len() > 1).unwrap_or_default()
+            } else {
+                Vec::new()
+            },
             zooms: None,
         })
     }
@@ -89,8 +93,12 @@ impl Media {
         let Some(scene) = lightair_store::studio_take_scene::StudioTakeScene::read(folder) else {
             return parts.into_iter().map(Part::of).collect();
         };
-        let studio_take: serde_json::Value = std::fs::read(folder.join("take.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-        let videos: Vec<&serde_json::Value> = studio_take["video"].as_array().map(|a| a.iter().collect()).unwrap_or_default();
+        let studio_take: serde_json::Value = std::fs::read(folder.join("take.json"))
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default();
+        let videos: Vec<&serde_json::Value> =
+            studio_take["video"].as_array().map(|a| a.iter().collect()).unwrap_or_default();
         let screen = crate::export::studio_take_screen(&videos);
         let (canvas_w, canvas_h) = (scene.canvas.0.max(1) as f32, scene.canvas.1.max(1) as f32);
         let mut out = Vec::new();
@@ -118,10 +126,20 @@ impl Media {
                 out.extend(screen_part.take());
             }
             use lightair_store::studio_take_scene::What;
-            let place = Some(Placement { x: layer.x, y: layer.y, w: layer.w, h: layer.h, rotation: layer.rotation, opacity: layer.opacity, canvas: scene.canvas });
+            let place = Some(Placement {
+                x: layer.x,
+                y: layer.y,
+                w: layer.w,
+                h: layer.h,
+                rotation: layer.rotation,
+                opacity: layer.opacity,
+                canvas: scene.canvas,
+            });
             let part = match &layer.what {
                 What::Recorded { source: input } => {
-                    let Some(v) = videos.iter().find(|v| v["input"].as_str() == Some(&input.to_string())) else { continue };
+                    let Some(v) = videos.iter().find(|v| v["input"].as_str() == Some(&input.to_string())) else {
+                        continue;
+                    };
                     if screen.is_some_and(|s| std::ptr::eq(s, *v)) {
                         continue;
                     }
@@ -188,7 +206,10 @@ impl Media {
         let Some(mut main) = Media::from_studio_take(folder) else { return Vec::new() };
         let stems = std::mem::take(&mut main.audio);
         let mut out = vec![main.clone()];
-        let studio_take: serde_json::Value = std::fs::read(folder.join("take.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        let studio_take: serde_json::Value = std::fs::read(folder.join("take.json"))
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default();
         for v in studio_take["video"].as_array().into_iter().flatten() {
             let Some(file) = v["file"].as_str().map(|f| folder.join(f)) else { continue };
             if file == main.path {
@@ -282,7 +303,17 @@ pub struct TextStyle {
 
 impl TextStyle {
     pub fn title(text: &str) -> TextStyle {
-        TextStyle { text: text.into(), size: 96.0, color: 0xFFFFFF, bold: true, align: 1, background: None, outline: None, width: 1600.0, font: None }
+        TextStyle {
+            text: text.into(),
+            size: 96.0,
+            color: 0xFFFFFF,
+            bold: true,
+            align: 1,
+            background: None,
+            outline: None,
+            width: 1600.0,
+            font: None,
+        }
     }
 }
 
@@ -379,13 +410,41 @@ impl Default for Filter {
 impl Filter {
     /// Lightair's looks, by name.
     pub const PRESETS: &[(&str, Filter)] = &[
-        ("None", Filter { brightness: 0.0, contrast: 1.0, saturation: 1.0, temperature: 0.0, vignette: 0.0, blur: 0.0 }),
-        ("Vivid", Filter { brightness: 0.02, contrast: 1.12, saturation: 1.35, temperature: 0.0, vignette: 0.0, blur: 0.0 }),
-        ("Warm", Filter { brightness: 0.02, contrast: 1.05, saturation: 1.08, temperature: 0.45, vignette: 0.15, blur: 0.0 }),
-        ("Cool", Filter { brightness: 0.0, contrast: 1.05, saturation: 0.95, temperature: -0.45, vignette: 0.0, blur: 0.0 }),
-        ("Mono", Filter { brightness: 0.0, contrast: 1.15, saturation: 0.0, temperature: 0.0, vignette: 0.2, blur: 0.0 }),
-        ("Faded", Filter { brightness: 0.06, contrast: 0.82, saturation: 0.75, temperature: 0.1, vignette: 0.0, blur: 0.0 }),
-        ("Cinematic", Filter { brightness: -0.03, contrast: 1.2, saturation: 0.85, temperature: -0.15, vignette: 0.35, blur: 0.0 }),
+        (
+            "None",
+            Filter { brightness: 0.0, contrast: 1.0, saturation: 1.0, temperature: 0.0, vignette: 0.0, blur: 0.0 },
+        ),
+        (
+            "Vivid",
+            Filter { brightness: 0.02, contrast: 1.12, saturation: 1.35, temperature: 0.0, vignette: 0.0, blur: 0.0 },
+        ),
+        (
+            "Warm",
+            Filter { brightness: 0.02, contrast: 1.05, saturation: 1.08, temperature: 0.45, vignette: 0.15, blur: 0.0 },
+        ),
+        (
+            "Cool",
+            Filter { brightness: 0.0, contrast: 1.05, saturation: 0.95, temperature: -0.45, vignette: 0.0, blur: 0.0 },
+        ),
+        (
+            "Mono",
+            Filter { brightness: 0.0, contrast: 1.15, saturation: 0.0, temperature: 0.0, vignette: 0.2, blur: 0.0 },
+        ),
+        (
+            "Faded",
+            Filter { brightness: 0.06, contrast: 0.82, saturation: 0.75, temperature: 0.1, vignette: 0.0, blur: 0.0 },
+        ),
+        (
+            "Cinematic",
+            Filter {
+                brightness: -0.03,
+                contrast: 1.2,
+                saturation: 0.85,
+                temperature: -0.15,
+                vignette: 0.35,
+                blur: 0.0,
+            },
+        ),
     ];
 
     pub fn is_none(&self) -> bool {
@@ -623,7 +682,13 @@ impl Sequence {
                 }
                 let c = self.place_content_on(content, start, len.max(500), track);
                 if let Some(p) = part.place {
-                    let tr = Transform { x: (p.x + p.w / 2.0) * w - w / 2.0, y: (p.y + p.h / 2.0) * h - h / 2.0, scale: 1.0, rotation: p.rotation, opacity: p.opacity };
+                    let tr = Transform {
+                        x: (p.x + p.w / 2.0) * w - w / 2.0,
+                        y: (p.y + p.h / 2.0) * h - h / 2.0,
+                        scale: 1.0,
+                        rotation: p.rotation,
+                        opacity: p.opacity,
+                    };
                     self.clip_mut(c)?.transform = tr;
                 }
                 Some(c)
@@ -735,7 +800,13 @@ impl Sequence {
         };
         // fitted in its box, as the scene fits a picture in its layer
         let scale = (bw / base.0.max(1.0)).min(bh / base.1.max(1.0));
-        Transform { x: bx + bw / 2.0 - w / 2.0, y: by + bh / 2.0 - h / 2.0, scale, rotation: p.rotation, opacity: p.opacity }
+        Transform {
+            x: bx + bw / 2.0 - w / 2.0,
+            y: by + bh / 2.0 - h / 2.0,
+            scale,
+            rotation: p.rotation,
+            opacity: p.opacity,
+        }
     }
 }
 
@@ -770,7 +841,13 @@ fn ease(k: f32) -> f32 {
 
 fn mix_transform(a: &Transform, b: &Transform, k: f32) -> Transform {
     let l = |x: f32, y: f32| x + (y - x) * k;
-    Transform { x: l(a.x, b.x), y: l(a.y, b.y), scale: l(a.scale, b.scale), rotation: l(a.rotation, b.rotation), opacity: l(a.opacity, b.opacity) }
+    Transform {
+        x: l(a.x, b.x),
+        y: l(a.y, b.y),
+        scale: l(a.scale, b.scale),
+        rotation: l(a.rotation, b.rotation),
+        opacity: l(a.opacity, b.opacity),
+    }
 }
 
 impl Clip {
@@ -926,8 +1003,10 @@ impl Clip {
 
     /// The medium's time at timeline time `t` (`None` outside the clip).
     pub fn source_at(&self, t: u64) -> Option<u64> {
-        (t >= self.start_ms && t < self.end_ms())
-            .then(|| (self.in_ms + ((t - self.start_ms) as f64 * self.speed.max(0.05) as f64) as u64).min(self.out_ms.saturating_sub(1)))
+        (t >= self.start_ms && t < self.end_ms()).then(|| {
+            (self.in_ms + ((t - self.start_ms) as f64 * self.speed.max(0.05) as f64) as u64)
+                .min(self.out_ms.saturating_sub(1))
+        })
     }
 }
 
@@ -965,7 +1044,16 @@ impl Track {
     }
 
     fn new(kind: TrackKind) -> Track {
-        Track { id: Id::new(), kind, clips: Vec::new(), muted: false, hidden: false, locked: false, captions: false, height: None }
+        Track {
+            id: Id::new(),
+            kind,
+            clips: Vec::new(),
+            muted: false,
+            hidden: false,
+            locked: false,
+            captions: false,
+            height: None,
+        }
     }
 
     /// Whether `start..end` is free on this track (ignoring `except`).
@@ -1085,7 +1173,8 @@ impl Media {
     /// folder or disk, or copied to another device with its proxy (a phone editing a desktop's
     /// take). Unreadable: by its path.
     pub fn proxy_path(&self) -> PathBuf {
-        let name = content_name(&self.path).unwrap_or_else(|| format!("{:016x}", fnv(self.path.to_string_lossy().as_bytes(), FNV)));
+        let name = content_name(&self.path)
+            .unwrap_or_else(|| format!("{:016x}", fnv(self.path.to_string_lossy().as_bytes(), FNV)));
         crate::sound::cache().join(format!("proxy-{name}.mp4"))
     }
 
@@ -1166,7 +1255,17 @@ impl Sequence {
 
     /// Empty: one video track and one audio track.
     pub fn new(size: (u32, u32), fps: u32) -> Sequence {
-        Sequence { version: 1, size, fps: fps as f64, media: Vec::new(), tracks: vec![Track::new(TrackKind::Video), Track::new(TrackKind::Audio)], proxies: true, markers: Vec::new(), export: None, background: None }
+        Sequence {
+            version: 1,
+            size,
+            fps: fps as f64,
+            media: Vec::new(),
+            tracks: vec![Track::new(TrackKind::Video), Track::new(TrackKind::Audio)],
+            proxies: true,
+            markers: Vec::new(),
+            export: None,
+            background: None,
+        }
     }
 
     pub fn load(path: &Path) -> std::io::Result<Sequence> {
@@ -1238,7 +1337,9 @@ impl Sequence {
     /// A track of `kind` free over `start..end`, the preferred one first; a new one if none is
     /// (video tracks go above the others, audio tracks below).
     fn free_track(&mut self, kind: TrackKind, preferred: Option<usize>, start: u64, end: u64) -> usize {
-        if let Some(p) = preferred.filter(|p| self.tracks.get(*p).is_some_and(|t| t.kind == kind && t.free(start, end, None))) {
+        if let Some(p) =
+            preferred.filter(|p| self.tracks.get(*p).is_some_and(|t| t.kind == kind && t.free(start, end, None)))
+        {
             return p;
         }
         // the bottom-most free video track (the main one), the top-most free audio track
@@ -1284,9 +1385,15 @@ impl Sequence {
     pub fn place_content_on(&mut self, content: Content, start: u64, len: u64, track: Option<usize>) -> Id {
         let mut clip = Clip::new(Id::nil(), start, len);
         clip.content = Some(content);
-        let wanted = track.filter(|t| self.tracks.get(*t).is_some_and(|tr| tr.kind == TrackKind::Video && !tr.captions && tr.free(start, start + len, None)));
+        let wanted = track.filter(|t| {
+            self.tracks
+                .get(*t)
+                .is_some_and(|tr| tr.kind == TrackKind::Video && !tr.captions && tr.free(start, start + len, None))
+        });
         // over the pictures: the top free video track
-        let t = match wanted.or_else(|| self.tracks.iter().position(|t| t.kind == TrackKind::Video && t.free(start, start + len, None))) {
+        let t = match wanted
+            .or_else(|| self.tracks.iter().position(|t| t.kind == TrackKind::Video && t.free(start, start + len, None)))
+        {
             Some(i) if wanted == Some(i) => i,
             Some(i) if !self.tracks[i].captions && self.tracks[i].clips.iter().all(|c| c.content.is_some()) => i,
             _ => {
@@ -1402,7 +1509,10 @@ impl Sequence {
     /// A video clip's sound as clips of their own, one per audio track of its file, each on an
     /// audio track of its own, linked (the video clip muted). Their ids.
     pub fn detach_sounds(&mut self, clip: Id) -> Vec<Id> {
-        let tracks = self.clip(clip).and_then(|c| self.media(c.media)).map_or(0, |m| if m.audio.iter().any(|f| *f != m.path) { 0 } else { m.tracks.len() });
+        let tracks = self
+            .clip(clip)
+            .and_then(|c| self.media(c.media))
+            .map_or(0, |m| if m.audio.iter().any(|f| *f != m.path) { 0 } else { m.tracks.len() });
         if tracks < 2 {
             return self.detach_sound(clip).into_iter().collect();
         }
@@ -1586,7 +1696,8 @@ impl Sequence {
         let Some((t, c)) = self.find(clip) else { return };
         let next_start = self.tracks[t].clips.get(c + 1).map_or(u64::MAX, |n| n.start_ms);
         let media = self.tracks[t].clips[c].media;
-        let (limit, image) = self.media(media).map_or((u64::MAX, false), |m| (m.duration_ms, m.kind == MediaKind::Image));
+        let (limit, image) =
+            self.media(media).map_or((u64::MAX, false), |m| (m.duration_ms, m.kind == MediaKind::Image));
         let cl = &mut self.tracks[t].clips[c];
         let speed = cl.speed.max(0.05) as f64;
         let at = at.clamp(cl.start_ms + 100, next_start);
@@ -1607,7 +1718,12 @@ impl Sequence {
             before = cl.keyframes.iter().filter(|k| k.at_ms < cut).copied().collect();
             before.push(Keyframe { at_ms: cut, transform: here });
             after.push(Keyframe { at_ms: 0, transform: here });
-            after.extend(cl.keyframes.iter().filter(|k| k.at_ms > cut).map(|k| Keyframe { at_ms: k.at_ms - cut, transform: k.transform }));
+            after.extend(
+                cl.keyframes
+                    .iter()
+                    .filter(|k| k.at_ms > cut)
+                    .map(|k| Keyframe { at_ms: k.at_ms - cut, transform: k.transform }),
+            );
         }
         let loud = cl.volume_at(at);
         let (mut vbefore, mut vafter) = (Vec::new(), Vec::new());
@@ -1615,7 +1731,12 @@ impl Sequence {
             vbefore = cl.volume_keys.iter().filter(|k| k.at_ms < cut).copied().collect();
             vbefore.push(VolumeKey { at_ms: cut, volume: loud });
             vafter.push(VolumeKey { at_ms: 0, volume: loud });
-            vafter.extend(cl.volume_keys.iter().filter(|k| k.at_ms > cut).map(|k| VolumeKey { at_ms: k.at_ms - cut, volume: k.volume }));
+            vafter.extend(
+                cl.volume_keys
+                    .iter()
+                    .filter(|k| k.at_ms > cut)
+                    .map(|k| VolumeKey { at_ms: k.at_ms - cut, volume: k.volume }),
+            );
         }
         let (abefore, aafter) = cl.split_keys(cut);
         let first = &mut self.tracks[t].clips[c];
@@ -1627,7 +1748,18 @@ impl Sequence {
         first.fade_out_ms = 0;
         first.motion.exit = None;
         // a transition belongs to the cut it was on: the first half's start
-        let second = Clip { id: Id::new(), start_ms: at, in_ms: s, keyframes: after, volume_keys: vafter, anim: aafter, transition: None, fade_in_ms: 0, motion: crate::motion::Motions { enter: None, ..cl.motion }, ..cl };
+        let second = Clip {
+            id: Id::new(),
+            start_ms: at,
+            in_ms: s,
+            keyframes: after,
+            volume_keys: vafter,
+            anim: aafter,
+            transition: None,
+            fade_in_ms: 0,
+            motion: crate::motion::Motions { enter: None, ..cl.motion },
+            ..cl
+        };
         let id = second.id;
         self.tracks[t].clips.insert(c + 1, second);
         Some(id)
@@ -1728,7 +1860,13 @@ fn now_ms() -> i64 {
 impl Project {
     pub fn new(name: &str, size: (u32, u32), fps: u32) -> Project {
         let now = now_ms();
-        Project { id: Id::new(), name: name.into(), created_ms: now, modified_ms: now, sequence: Sequence::new(size, fps) }
+        Project {
+            id: Id::new(),
+            name: name.into(),
+            created_ms: now,
+            modified_ms: now,
+            sequence: Sequence::new(size, fps),
+        }
     }
 
     pub fn dir(workspace: &Path) -> PathBuf {
@@ -1747,14 +1885,20 @@ impl Project {
             .flatten()
             .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
             .filter_map(|e| serde_json::from_slice::<Project>(&std::fs::read(e.path()).ok()?).ok())
-            .map(|p| ProjectInfo { id: p.id, name: p.name.clone(), modified_ms: p.modified_ms, duration_ms: p.sequence.duration_ms() })
+            .map(|p| ProjectInfo {
+                id: p.id,
+                name: p.name.clone(),
+                modified_ms: p.modified_ms,
+                duration_ms: p.sequence.duration_ms(),
+            })
             .collect();
         out.sort_by_key(|p| std::cmp::Reverse(p.modified_ms));
         out
     }
 
     pub fn load(workspace: &Path, id: Id) -> std::io::Result<Project> {
-        let mut p: Project = serde_json::from_slice(&std::fs::read(Self::path(workspace, id))?).map_err(std::io::Error::other)?;
+        let mut p: Project =
+            serde_json::from_slice(&std::fs::read(Self::path(workspace, id))?).map_err(std::io::Error::other)?;
         p.sequence.name_effect_keys();
         Ok(p)
     }
@@ -1982,7 +2126,10 @@ mod tests {
         assert_eq!(s.clip(next).unwrap().start_ms, 7_000, "the next clip moved up by what was cut");
         // fillers and long pauses
         let w = |a: u64, b: u64, t: &str| crate::speech::Word { start_ms: a, end_ms: b, text: t.into() };
-        let t = crate::speech::Transcript { language: "en".into(), words: vec![w(0, 400, "So"), w(400, 700, "um"), w(700, 1_000, "this"), w(4_000, 4_400, "works")] };
+        let t = crate::speech::Transcript {
+            language: "en".into(),
+            words: vec![w(0, 400, "So"), w(400, 700, "um"), w(700, 1_000, "this"), w(4_000, 4_400, "works")],
+        };
         assert_eq!(crate::speech::tightening(&t, 0, 5_000, 1_000, 300), vec![(400, 700), (1_150, 3_850)]);
     }
 

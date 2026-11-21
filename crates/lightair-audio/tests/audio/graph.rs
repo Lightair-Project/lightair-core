@@ -1,7 +1,9 @@
 //! The mixer on exact signals: levels, pan law, routing, sends, smoothing, swaps, loudness.
 
 use lightair_audio::dsp::{GainParams, Params};
-use lightair_audio::{Channels, Dest, EffectSpec, Engine, GraphSpec, InputBlock, Mix, PROGRAM, Send, Strip, Tap, Warning};
+use lightair_audio::{
+    Channels, Dest, EffectSpec, Engine, GraphSpec, InputBlock, Mix, PROGRAM, Send, Strip, Tap, Warning,
+};
 
 const SR: u32 = 48_000;
 const MIC: u128 = 100;
@@ -125,7 +127,11 @@ fn mute_ramps_instead_of_clicking() {
 #[test]
 fn effects_keep_their_place_and_settings_update_in_place() {
     let mut t = Strip::track(1, MIC, Channels::Mono(0));
-    t.inserts = vec![EffectSpec { id: 7, enabled: true, params: Params::Gain(GainParams { db: 6.0206, ..Default::default() }) }];
+    t.inserts = vec![EffectSpec {
+        id: 7,
+        enabled: true,
+        params: Params::Gain(GainParams { db: 6.0206, ..Default::default() }),
+    }];
     let (mut engine, mut r) = run(GraphSpec { strips: vec![t.clone()], ..Default::default() }, 4);
     assert!(close(last(r.graph().program().0), 1.0), "+6 dB doubles");
     t.inserts[0].params = Params::Gain(GainParams { db: 0.0, invert: true, ..Default::default() });
@@ -245,7 +251,8 @@ fn inserts_run_in_their_order_and_keep_state_when_reordered() {
     use lightair_audio::dsp::LimiterParams;
     // +12 dB then a limiter at −6 dB: the limiter has the last word (0.5). The other way round,
     // the gain does (0.5 passes the limiter, then ×4 = 2.0).
-    let gain = EffectSpec { id: 1, enabled: true, params: Params::Gain(GainParams { db: 12.0412, ..Default::default() }) };
+    let gain =
+        EffectSpec { id: 1, enabled: true, params: Params::Gain(GainParams { db: 12.0412, ..Default::default() }) };
     let limit = EffectSpec {
         id: 2,
         enabled: true,
@@ -299,7 +306,11 @@ fn mixes_and_program_can_be_cued_and_trimmed() {
         cue: Some(99),
     };
     let (_, r) = run(spec(0.0, 0.0), 4);
-    assert!(close(last(r.graph().mix(99).unwrap().0), 1.0), "cue: mix + program ({})", last(r.graph().mix(99).unwrap().0));
+    assert!(
+        close(last(r.graph().mix(99).unwrap().0), 1.0),
+        "cue: mix + program ({})",
+        last(r.graph().mix(99).unwrap().0)
+    );
     let (_, r) = run(spec(-6.0206, -6.0206), 4);
     assert!(close(last(r.graph().mix(50).unwrap().0), 0.25), "the mix's trim");
     assert!(close(last(r.graph().program().0), 0.25), "Program's trim");

@@ -45,7 +45,6 @@ impl Noise {
             vad_gain: 1.0,
         }
     }
-
 }
 
 impl Processor for Noise {

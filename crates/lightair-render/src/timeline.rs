@@ -49,7 +49,10 @@ mod tests {
         e.split(6_000);
         e.remove_clip_at(5_000); // 4–6 s cut
         e.clips[1].speed = 2.0; // 6–10 s twice as fast
-        assert_eq!(e.clips, vec![Clip { start_ms: 0, end_ms: 4_000, speed: 1.0 }, Clip { start_ms: 6_000, end_ms: 10_000, speed: 2.0 }]);
+        assert_eq!(
+            e.clips,
+            vec![Clip { start_ms: 0, end_ms: 4_000, speed: 1.0 }, Clip { start_ms: 6_000, end_ms: 10_000, speed: 2.0 }]
+        );
         assert_eq!(duration_ms(&e), 6_000);
         assert_eq!(source_at(&e, 1_000), Some(1_000));
         assert_eq!(source_at(&e, 4_000), Some(6_000));

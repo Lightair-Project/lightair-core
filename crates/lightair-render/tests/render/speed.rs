@@ -11,12 +11,28 @@ use lightair_render::sequence::{Media, Sequence};
 fn source(dir: &std::path::Path, name: &str, size: &str, fps: u32) -> std::path::PathBuf {
     let src = dir.join(name);
     let ff = media::ffmpeg().unwrap();
-    assert!(Command::new(ff)
-        .args(["-v", "error", "-y", "-f", "lavfi", "-i", &format!("testsrc2=s={size}:r={fps}:d=6"), "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "ultrafast"])
-        .arg(&src)
-        .status()
-        .unwrap()
-        .success());
+    assert!(
+        Command::new(ff)
+            .args([
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                &format!("testsrc2=s={size}:r={fps}:d=6"),
+                "-pix_fmt",
+                "yuv420p",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast"
+            ])
+            .arg(&src)
+            .status()
+            .unwrap()
+            .success()
+    );
     src
 }
 
@@ -27,7 +43,9 @@ fn frames_per_second() {
     if media::ffmpeg().is_err() {
         return;
     }
-    for (name, size, fps, seq_size) in [("hd.mp4", "1920x1080", 30, (1920, 1080)), ("retina.mp4", "2880x1800", 60, (2880, 1800))] {
+    for (name, size, fps, seq_size) in
+        [("hd.mp4", "1920x1080", 30, (1920, 1080)), ("retina.mp4", "2880x1800", 60, (2880, 1800))]
+    {
         let src = source(dir.path(), name, size, fps);
         let mut seq = Sequence::new(seq_size, fps);
         let m = seq.add_media(Media::from_file(&src).unwrap());

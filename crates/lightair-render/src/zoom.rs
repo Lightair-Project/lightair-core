@@ -220,7 +220,8 @@ mod tests {
 
     #[test]
     fn the_camera_settles_in_a_zoom_and_comes_back_deterministically() {
-        let zooms = [Zoom { start_ms: 1_000, end_ms: 4_000, scale: 2.0, focus: Focus::Point { x: 0.9, y: 0.1 }, auto: true }];
+        let zooms =
+            [Zoom { start_ms: 1_000, end_ms: 4_000, scale: 2.0, focus: Focus::Point { x: 0.9, y: 0.1 }, auto: true }];
         let cam = Camera::build(&zooms, 8_000, |_| None);
         let mid = cam.at(3_500);
         assert!((mid.scale - 2.0).abs() < 0.02, "{mid:?}");

@@ -136,9 +136,7 @@ impl LoudnessMeter {
         // integrated loudness walks a histogram: every ~100 ms is plenty
         if self.blocks.is_multiple_of(16) {
             let lufs = |v: Result<f64, ebur128::Error>| v.map_or(f32::NEG_INFINITY, |v| v as f32);
-            let tp = (0..2)
-                .filter_map(|c| self.r128.true_peak(c).ok())
-                .fold(0f64, f64::max);
+            let tp = (0..2).filter_map(|c| self.r128.true_peak(c).ok()).fold(0f64, f64::max);
             out.feed_loudness(Loudness {
                 momentary_lufs: lufs(self.r128.loudness_momentary()),
                 short_lufs: lufs(self.r128.loudness_shortterm()),

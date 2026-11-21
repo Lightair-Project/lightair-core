@@ -263,7 +263,12 @@ impl SequenceRenderer {
     /// Frames for the player from `from` to the end, each made only once `due(t)` says so:
     /// `Some(true)` make it now, `Some(false)` skip it (late), `None` stop. For frames presented
     /// as they're made (Windows's player visual): made ahead, they'd show early.
-    pub fn play_paced(&mut self, from: u64, mut due: impl FnMut(u64) -> Option<bool>, mut each: impl FnMut(u64, Shown) -> bool) {
+    pub fn play_paced(
+        &mut self,
+        from: u64,
+        mut due: impl FnMut(u64) -> Option<bool>,
+        mut each: impl FnMut(u64, Shown) -> bool,
+    ) {
         let end = self.seq.duration_ms();
         let step = 1000.0 / self.fps;
         let mut i = (from as f64 / step).ceil() as u64;
@@ -307,7 +312,8 @@ impl SequenceRenderer {
     pub fn set(&mut self, seq: &Sequence) -> Result<(), MediaError> {
         let out = out_size(seq.size, self.preview);
         if seq.size != self.seq.size || out != self.out {
-            self.compositor = Compositor::new_with(out, Look::default(), self.preview.is_some()).map_err(MediaError::Failed)?;
+            self.compositor =
+                Compositor::new_with(out, Look::default(), self.preview.is_some()).map_err(MediaError::Failed)?;
             self.out = out;
             self.takes.clear();
             self.attach();
@@ -342,7 +348,13 @@ impl SequenceRenderer {
 
     /// Where a clip's picture sits (its centre and drawn size, result pixels) at `t`: by its
     /// transform there, the medium fitted to the frame (made pictures at their own size).
-    pub fn placement(&self, clip: &Clip, media: Option<&Media>, made: Option<(u32, u32)>, t: u64) -> ((f32, f32), (f32, f32)) {
+    pub fn placement(
+        &self,
+        clip: &Clip,
+        media: Option<&Media>,
+        made: Option<(u32, u32)>,
+        t: u64,
+    ) -> ((f32, f32), (f32, f32)) {
         let (w, h) = (self.seq.size.0 as f32, self.seq.size.1 as f32);
         let tr = clip.transform_at(t);
         let (bw, bh) = match (made, media) {
@@ -367,7 +379,11 @@ impl SequenceRenderer {
         let s = clip.source_held(t);
         if let Some(folder) = &media.studio_take {
             // a preview reads the screen's proxy when there is one
-            let proxy = if self.preview.is_some() && self.seq.proxies { self.proxies.entry(media.id).or_insert_with(|| media.proxy()).clone() } else { None };
+            let proxy = if self.preview.is_some() && self.seq.proxies {
+                self.proxies.entry(media.id).or_insert_with(|| media.proxy()).clone()
+            } else {
+                None
+            };
             if self.takes.get(&media.id).is_none_or(|(_, used)| *used != proxy) {
                 let mut source = Source::of_studio_take(folder)?;
                 if let Some(p) = &proxy {
@@ -398,11 +414,21 @@ impl SequenceRenderer {
         }
         // the size it's drawn at (enough for its largest scale), never more than the file's own
         let (_, draw) = self.placement(clip, Some(&media), None, t);
-        let biggest = clip.keyframes.iter().map(|k| k.transform.scale).chain(clip.keys_of("scale").iter().map(|k| k.v)).fold(clip.transform.scale, f32::max);
-        let k = (draw.0 * self.k() / clip.transform_at(t).scale.max(0.01) * biggest / media.width.max(1) as f32).min(1.0);
+        let biggest = clip
+            .keyframes
+            .iter()
+            .map(|k| k.transform.scale)
+            .chain(clip.keys_of("scale").iter().map(|k| k.v))
+            .fold(clip.transform.scale, f32::max);
+        let k =
+            (draw.0 * self.k() / clip.transform_at(t).scale.max(0.01) * biggest / media.width.max(1) as f32).min(1.0);
         let size = (even(media.width as f32 * k), even(media.height as f32 * k));
         // a preview reads the proxy when there is one
-        let proxy = if self.preview.is_some() && self.seq.proxies { self.proxies.entry(media.id).or_insert_with(|| media.proxy()).clone() } else { None };
+        let proxy = if self.preview.is_some() && self.seq.proxies {
+            self.proxies.entry(media.id).or_insert_with(|| media.proxy()).clone()
+        } else {
+            None
+        };
         let file = proxy.unwrap_or_else(|| media.path.clone());
         if self.streams.get(&clip.id).is_none_or(|s| s.size() != size || s.path() != file) {
             self.streams.insert(clip.id, Stream::new(&file, size, self.fps));
@@ -465,7 +491,8 @@ impl SequenceRenderer {
                 let mut px = Vec::with_capacity(ROWS as usize * 2 * 4);
                 for y in 0..ROWS {
                     let f = y as f32 / (ROWS - 1) as f32;
-                    let c: Vec<u8> = (0..4).map(|i| (a[i] as f32 + (b[i] as f32 - a[i] as f32) * f).round() as u8).collect();
+                    let c: Vec<u8> =
+                        (0..4).map(|i| (a[i] as f32 + (b[i] as f32 - a[i] as f32) * f).round() as u8).collect();
                     px.extend_from_slice(&c);
                     px.extend_from_slice(&c);
                 }
@@ -619,13 +646,17 @@ impl SequenceRenderer {
             let c = &clips[i];
             // a transition across a cut: half in the clip before it, half in the clip after
             let across = match (c.transition, i.checked_sub(1).map(|p| &clips[p])) {
-                (Some(tn), Some(prev)) if prev.end_ms() == c.start_ms && t < c.start_ms + tn.duration_ms / 2 => {
-                    Some((prev.clone(), c.clone(), 0.5 + (t - c.start_ms) as f32 / tn.duration_ms.max(1) as f32, tn.kind))
-                }
+                (Some(tn), Some(prev)) if prev.end_ms() == c.start_ms && t < c.start_ms + tn.duration_ms / 2 => Some((
+                    prev.clone(),
+                    c.clone(),
+                    0.5 + (t - c.start_ms) as f32 / tn.duration_ms.max(1) as f32,
+                    tn.kind,
+                )),
                 _ => clips.get(i + 1).and_then(|n| {
                     let tn = n.transition?;
-                    (n.start_ms == c.end_ms() && t + tn.duration_ms / 2 >= c.end_ms())
-                        .then(|| (c.clone(), n.clone(), 0.5 - (c.end_ms() - t) as f32 / tn.duration_ms.max(1) as f32, tn.kind))
+                    (n.start_ms == c.end_ms() && t + tn.duration_ms / 2 >= c.end_ms()).then(|| {
+                        (c.clone(), n.clone(), 0.5 - (c.end_ms() - t) as f32 / tn.duration_ms.max(1) as f32, tn.kind)
+                    })
                 }),
             };
             match across {
@@ -639,15 +670,27 @@ impl SequenceRenderer {
                         TransitionKind::DipToBlack | TransitionKind::DipToWhite => {
                             // black: the frame shows through; white: drawn over the clips
                             let dip = if kind == TransitionKind::DipToBlack { 1.0 } else { 0.0 };
-                            if k < 0.5 { (faded(1.0 - 2.0 * k * dip), faded(0.0)) } else { (faded(0.0), faded(1.0 - (2.0 - 2.0 * k) * dip)) }
+                            if k < 0.5 {
+                                (faded(1.0 - 2.0 * k * dip), faded(0.0))
+                            } else {
+                                (faded(0.0), faded(1.0 - (2.0 - 2.0 * k) * dip))
+                            }
                         }
                         TransitionKind::Slide => (Shift { dx: -e, ..d }, Shift { dx: 1.0 - e, ..d }),
                         TransitionKind::SlideRight => (Shift { dx: e, ..d }, Shift { dx: e - 1.0, ..d }),
                         TransitionKind::SlideUp => (Shift { dy: -e, ..d }, Shift { dy: 1.0 - e, ..d }),
                         TransitionKind::SlideDown => (Shift { dy: e, ..d }, Shift { dy: e - 1.0, ..d }),
-                        TransitionKind::Zoom => (Shift { grow: 1.0 + 0.15 * k, ..d }, Shift { opacity: k, grow: 1.25 - 0.25 * k, ..d }),
-                        TransitionKind::ZoomOut => (Shift { opacity: 1.0 - e, grow: 1.0 - 0.4 * e, ..d }, Shift { grow: 1.0 + 0.3 * (1.0 - e), ..d }),
-                        TransitionKind::Spin => (Shift { opacity: 1.0 - e, spin: e * 180.0, grow: 1.0 - 0.6 * e, ..d }, Shift { opacity: e, spin: (e - 1.0) * 180.0, grow: 0.4 + 0.6 * e, ..d }),
+                        TransitionKind::Zoom => {
+                            (Shift { grow: 1.0 + 0.15 * k, ..d }, Shift { opacity: k, grow: 1.25 - 0.25 * k, ..d })
+                        }
+                        TransitionKind::ZoomOut => (
+                            Shift { opacity: 1.0 - e, grow: 1.0 - 0.4 * e, ..d },
+                            Shift { grow: 1.0 + 0.3 * (1.0 - e), ..d },
+                        ),
+                        TransitionKind::Spin => (
+                            Shift { opacity: 1.0 - e, spin: e * 180.0, grow: 1.0 - 0.6 * e, ..d },
+                            Shift { opacity: e, spin: (e - 1.0) * 180.0, grow: 0.4 + 0.6 * e, ..d },
+                        ),
                         TransitionKind::Blur => {
                             let haze = 1.0 - (2.0 * k - 1.0).abs();
                             (Shift { blur: haze * 0.9, ..d }, Shift { opacity: e, blur: haze * 0.9, ..d })
@@ -722,7 +765,12 @@ impl SequenceRenderer {
     }
 
     /// Renders the sequence into `out`. `progress(fraction)` returns false to stop.
-    pub fn export(&mut self, out: &Path, codec: Codec, mut progress: impl FnMut(f32) -> bool) -> Result<(), MediaError> {
+    pub fn export(
+        &mut self,
+        out: &Path,
+        codec: Codec,
+        mut progress: impl FnMut(f32) -> bool,
+    ) -> Result<(), MediaError> {
         let total = self.seq.duration_ms().max(1);
         // voices to clean up, first
         crate::sound::prepare(&self.seq)?;
@@ -780,7 +828,11 @@ impl SequenceRenderer {
         // (the mix ends in `[aout]`: that becomes `[amix]`, trimmed into `[aout]`)
         let mix = mix.map(|m| {
             let body = m.strip_suffix("[aout]").unwrap_or(&m);
-            format!("{body}[amix];[amix]atrim=start={:.3}:end={:.3},asetpts=PTS-STARTPTS[aout]", start as f64 / 1000.0, end as f64 / 1000.0)
+            format!(
+                "{body}[amix];[amix]atrim=start={:.3}:end={:.3},asetpts=PTS-STARTPTS[aout]",
+                start as f64 / 1000.0,
+                end as f64 / 1000.0
+            )
         });
         let result = (|| {
             let mut enc = Encoder::start_export(out, self.seq.size, fps, settings, &inputs, mix.as_deref())?;
@@ -814,7 +866,11 @@ impl SequenceRenderer {
         self.fps = project_fps;
         self.compositor.set_transparent(false);
         let target = settings.target(out);
-        let written = if settings.container == crate::exporter::Container::Png { target.parent().map(Path::to_path_buf).unwrap_or(target) } else { target };
+        let written = if settings.container == crate::exporter::Container::Png {
+            target.parent().map(Path::to_path_buf).unwrap_or(target)
+        } else {
+            target
+        };
         match result {
             Ok(()) => Ok(written),
             Err(e) => {

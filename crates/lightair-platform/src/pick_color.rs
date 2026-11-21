@@ -46,17 +46,17 @@ mod imp {
 
     use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
     use windows_sys::Win32::Graphics::Gdi::{
-        BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreatePen, DeleteDC, DeleteObject, EndPaint,
-        GetDC, GetPixel, GetStockObject, HBITMAP, HDC, HGDIOBJ, NULL_BRUSH, PAINTSTRUCT, PS_SOLID, Rectangle,
-        ReleaseDC, SRCCOPY, SelectObject, SetStretchBltMode, COLORONCOLOR, StretchBlt, InvalidateRect,
+        BeginPaint, BitBlt, COLORONCOLOR, CreateCompatibleBitmap, CreateCompatibleDC, CreatePen, DeleteDC,
+        DeleteObject, EndPaint, GetDC, GetPixel, GetStockObject, HBITMAP, HDC, HGDIOBJ, InvalidateRect, NULL_BRUSH,
+        PAINTSTRUCT, PS_SOLID, Rectangle, ReleaseDC, SRCCOPY, SelectObject, SetStretchBltMode, StretchBlt,
     };
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{SetFocus, VK_ESCAPE};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DestroyWindow, GWLP_USERDATA, GetSystemMetrics, GetWindowLongPtrW, IDC_CROSS,
         LoadCursorW, RegisterClassW, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
-        SW_SHOW, SetCursor, SetForegroundWindow, SetWindowLongPtrW, ShowWindow, WM_DESTROY, WM_ERASEBKGND,
-        WM_KEYDOWN, WM_LBUTTONDOWN, WM_MOUSEMOVE, WM_PAINT, WM_RBUTTONDOWN, WM_SETCURSOR, WNDCLASSW, WS_EX_TOOLWINDOW,
+        SW_SHOW, SetCursor, SetForegroundWindow, SetWindowLongPtrW, ShowWindow, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN,
+        WM_LBUTTONDOWN, WM_MOUSEMOVE, WM_PAINT, WM_RBUTTONDOWN, WM_SETCURSOR, WNDCLASSW, WS_EX_TOOLWINDOW,
         WS_EX_TOPMOST, WS_POPUP,
     };
 
@@ -221,7 +221,8 @@ mod imp {
             let old = SelectObject(shot, shot_bitmap as HGDIOBJ);
             BitBlt(shot, 0, 0, width, height, screen, x, y, SRCCOPY);
             ReleaseDC(std::ptr::null_mut(), screen);
-            let state = Box::new(State { shot, shot_bitmap, old, width, height, at: (width / 2, height / 2), tx: Some(tx) });
+            let state =
+                Box::new(State { shot, shot_bitmap, old, width, height, at: (width / 2, height / 2), tx: Some(tx) });
             let hwnd = CreateWindowExW(
                 WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
                 class(),

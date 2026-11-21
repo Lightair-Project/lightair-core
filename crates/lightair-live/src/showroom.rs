@@ -21,7 +21,11 @@ pub fn room(channel: &str) -> String {
 
 pub fn read(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
     let agent = net::agent();
-    let status = net::get_json(&agent, &format!("https://www.showroom-live.com/api/room/status?room_url_key={}", room(&sink.channel().channel)), &[])?;
+    let status = net::get_json(
+        &agent,
+        &format!("https://www.showroom-live.com/api/room/status?room_url_key={}", room(&sink.channel().channel)),
+        &[],
+    )?;
     let (true, Some(key)) = (status["is_live"].as_bool() == Some(true), status["broadcast_key"].as_str()) else {
         sink.status(Status::Offline);
         sleep_unless(stop, Duration::from_secs(60));
@@ -61,7 +65,12 @@ pub fn read(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
 pub fn parse(v: &Value, channel: &str) -> Option<ChatEvent> {
     let user = || {
         let name = v["ac"].as_str().unwrap_or("").to_string();
-        User { id: v["u"].as_u64().map(|u| u.to_string()).unwrap_or_default(), login: name.clone(), display_name: name, ..Default::default() }
+        User {
+            id: v["u"].as_u64().map(|u| u.to_string()).unwrap_or_default(),
+            login: name.clone(),
+            display_name: name,
+            ..Default::default()
+        }
     };
     // t is a number or a string
     let t = v["t"].as_i64().or_else(|| v["t"].as_str().and_then(|s| s.parse().ok()))?;
@@ -83,7 +92,11 @@ pub fn parse(v: &Value, channel: &str) -> Option<ChatEvent> {
             let u = user();
             e.headline = Some(format!("{} sent a gift ×{n}", u.display_name));
             e.user = Some(u);
-            e.paid = Some(Paid { display: format!("gift ×{n}"), amount: n as f64, currency: format!("SHOWROOM_GIFT_{gift}") });
+            e.paid = Some(Paid {
+                display: format!("gift ×{n}"),
+                amount: n as f64,
+                currency: format!("SHOWROOM_GIFT_{gift}"),
+            });
             Some(e)
         }
         _ => None,
@@ -96,7 +109,8 @@ mod tests {
 
     #[test]
     fn comments_and_gifts() {
-        let c: Value = serde_json::from_str(r#"{"t":1,"u":95,"ac":"ファン","cm":"キラキラ✨","created_at":1794842601}"#).unwrap();
+        let c: Value =
+            serde_json::from_str(r#"{"t":1,"u":95,"ac":"ファン","cm":"キラキラ✨","created_at":1794842601}"#).unwrap();
         let e = parse(&c, "x").unwrap();
         assert_eq!((e.text.as_str(), e.name()), ("キラキラ✨", "ファン"));
         let g: Value = serde_json::from_str(r#"{"t":"2","u":95,"ac":"A","g":3000421,"gt":2,"n":100}"#).unwrap();
@@ -112,10 +126,16 @@ mod live_check {
     fn socket() {
         let Ok(room) = std::env::var("LIGHTAIR_SHOWROOM_ROOM") else { return };
         let agent = crate::net::agent();
-        let status = crate::net::get_json(&agent, &format!("https://www.showroom-live.com/api/room/status?room_url_key={room}"), &[]).unwrap();
+        let status = crate::net::get_json(
+            &agent,
+            &format!("https://www.showroom-live.com/api/room/status?room_url_key={room}"),
+            &[],
+        )
+        .unwrap();
         let key = status["broadcast_key"].as_str().unwrap().to_string();
         eprintln!("key {key:?} host {:?}", status["broadcast_host"]);
-        let mut socket = crate::net::connect("wss://online.showroom-live.com/", std::time::Duration::from_millis(500)).unwrap();
+        let mut socket =
+            crate::net::connect("wss://online.showroom-live.com/", std::time::Duration::from_millis(500)).unwrap();
         socket.send(tungstenite::Message::text(format!("SUB\t{key}"))).unwrap();
         for _ in 0..40 {
             if let Some(m) = crate::net::read(&mut socket).unwrap() {

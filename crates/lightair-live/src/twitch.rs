@@ -43,7 +43,9 @@ pub fn read(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
     let _watching = {
         let (sink, login, stop_flag) = (sink.clone(), login.clone(), std::sync::Arc::new(AtomicBool::new(false)));
         let watch = stop_flag.clone();
-        let _ = std::thread::Builder::new().name("lightair-twitch-follows".into()).spawn(move || follows(&sink, &login, &watch));
+        let _ = std::thread::Builder::new()
+            .name("lightair-twitch-follows".into())
+            .spawn(move || follows(&sink, &login, &watch));
         StopOnDrop(stop_flag)
     };
     // the channel's 7TV, FFZ and BTTV emotes, loaded once Twitch says which room this is
@@ -106,7 +108,10 @@ const GQL_CLIENT: &str = "kimne78kx3ncx6brgo4mv6wki5h1ko";
 
 fn gql(query: &str, token: Option<&str>) -> Result<serde_json::Value, String> {
     let agent = net::agent();
-    let mut req = agent.post("https://gql.twitch.tv/gql").header("Client-Id", GQL_CLIENT).header("Content-Type", "application/json");
+    let mut req = agent
+        .post("https://gql.twitch.tv/gql")
+        .header("Client-Id", GQL_CLIENT)
+        .header("Content-Type", "application/json");
     if let Some(t) = token {
         req = req.header("Authorization", &format!("OAuth {t}"));
     }
@@ -118,7 +123,8 @@ fn gql(query: &str, token: Option<&str>) -> Result<serde_json::Value, String> {
 /// (signed in to Twitch in Lightair) may see them, else "Someone".
 fn follows(sink: &Sink, login: &str, stop: &AtomicBool) {
     let count_q = format!("query{{user(login:\"{login}\"){{followers(first:1){{totalCount}}}}}}");
-    let names_q = format!("query{{user(login:\"{login}\"){{followers(first:20){{edges{{node{{id login displayName}}}}}}}}}}");
+    let names_q =
+        format!("query{{user(login:\"{login}\"){{followers(first:20){{edges{{node{{id login displayName}}}}}}}}}}");
     let count = |v: &serde_json::Value| v["data"]["user"]["followers"]["totalCount"].as_u64();
     let mut last = gql(&count_q, None).ok().and_then(|v| count(&v));
     let token = || crate::pages::cookie("https://www.twitch.tv", "auth-token");
@@ -126,7 +132,13 @@ fn follows(sink: &Sink, login: &str, stop: &AtomicBool) {
     if let Some(t) = token()
         && let Ok(v) = gql(&names_q, Some(&t))
     {
-        known.extend(v["data"]["user"]["followers"]["edges"].as_array().into_iter().flatten().filter_map(|e| e["node"]["id"].as_str().map(String::from)));
+        known.extend(
+            v["data"]["user"]["followers"]["edges"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|e| e["node"]["id"].as_str().map(String::from)),
+        );
     }
     let channel = sink.channel().channel.clone();
     while !stop.load(Ordering::Acquire) && crate::hub::sleep_unless(stop, Duration::from_secs(20)) {
@@ -144,7 +156,12 @@ fn follows(sink: &Sink, login: &str, stop: &AtomicBool) {
                 if let Some(id) = n["id"].as_str()
                     && known.insert(id.to_string())
                 {
-                    named.push(User { id: id.into(), login: n["login"].as_str().unwrap_or("").into(), display_name: n["displayName"].as_str().unwrap_or("").into(), ..Default::default() });
+                    named.push(User {
+                        id: id.into(),
+                        login: n["login"].as_str().unwrap_or("").into(),
+                        display_name: n["displayName"].as_str().unwrap_or("").into(),
+                        ..Default::default()
+                    });
                 }
             }
         }
@@ -214,8 +231,17 @@ pub fn parse(line: &str, channel: &str) -> Parsed {
         }
         "USERNOTICE" => {
             let kind = match tag("msg-id").unwrap_or("") {
-                "sub" | "resub" | "subgift" | "submysterygift" | "giftpaidupgrade" | "primepaidupgrade" | "anongiftpaidupgrade" | "communitypayforward" => Kind::Membership,
-                "raid" => Kind::Raid { viewers: tag("msg-param-viewerCount").and_then(|v| v.parse().ok()).unwrap_or(0) },
+                "sub"
+                | "resub"
+                | "subgift"
+                | "submysterygift"
+                | "giftpaidupgrade"
+                | "primepaidupgrade"
+                | "anongiftpaidupgrade"
+                | "communitypayforward" => Kind::Membership,
+                "raid" => {
+                    Kind::Raid { viewers: tag("msg-param-viewerCount").and_then(|v| v.parse().ok()).unwrap_or(0) }
+                }
                 _ => Kind::Notice,
             };
             let mut e = event(kind);
@@ -225,10 +251,14 @@ pub fn parse(line: &str, channel: &str) -> Parsed {
             e.headline = tag("system-msg").map(String::from);
             Parsed::Event(Box::new(e.with_fragments(fragments(trailing, tag("emotes"), 0))))
         }
-        "CLEARMSG" => Parsed::Event(Box::new(event(Kind::Deletion { native_id: tag("target-msg-id").map(String::from), user_id: None }))),
-        "CLEARCHAT" if !trailing.is_empty() => {
-            Parsed::Event(Box::new(event(Kind::Deletion { native_id: None, user_id: tag("target-user-id").map(String::from) })))
-        }
+        "CLEARMSG" => Parsed::Event(Box::new(event(Kind::Deletion {
+            native_id: tag("target-msg-id").map(String::from),
+            user_id: None,
+        }))),
+        "CLEARCHAT" if !trailing.is_empty() => Parsed::Event(Box::new(event(Kind::Deletion {
+            native_id: None,
+            user_id: tag("target-user-id").map(String::from),
+        }))),
         _ => Parsed::Nothing,
     }
 }
@@ -360,7 +390,9 @@ mod tests {
 
     #[test]
     fn bits_subs_raids_replies_and_deletions() {
-        let cheer = event("@bits=500;display-name=Big;id=b1;user-id=7 :big!big@big.tmi.twitch.tv PRIVMSG #ninja :Cheer500 nice");
+        let cheer = event(
+            "@bits=500;display-name=Big;id=b1;user-id=7 :big!big@big.tmi.twitch.tv PRIVMSG #ninja :Cheer500 nice",
+        );
         assert_eq!(cheer.kind, Kind::Paid);
         assert_eq!(cheer.paid.unwrap().display, "500 bits");
         let sub = event(
@@ -369,7 +401,9 @@ mod tests {
         assert_eq!(sub.kind, Kind::Membership);
         assert_eq!(sub.headline.as_deref(), Some("Sub subscribed for 12 months!"));
         assert_eq!(sub.text, "still here");
-        let raid = event("@display-name=Raider;msg-id=raid;msg-param-viewerCount=120;user-id=9 :tmi.twitch.tv USERNOTICE #ninja");
+        let raid = event(
+            "@display-name=Raider;msg-id=raid;msg-param-viewerCount=120;user-id=9 :tmi.twitch.tv USERNOTICE #ninja",
+        );
         assert_eq!(raid.kind, Kind::Raid { viewers: 120 });
         let reply = event(
             "@display-name=B;id=r1;reply-parent-display-name=A;reply-parent-msg-body=hi\\sall;reply-parent-msg-id=p1;user-id=10 :b!b@b PRIVMSG #ninja :@A hello",

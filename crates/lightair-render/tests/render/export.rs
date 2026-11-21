@@ -13,12 +13,17 @@ use lightair_store::input_log::{Entry, Record, Writer};
 fn make_studio_take(dir: &Path) -> bool {
     let Ok(ff) = media::ffmpeg() else { return false };
     let ok = |c: &mut Command| c.status().is_ok_and(|s| s.success());
-    if !ok(Command::new(&ff).args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x200:rate=30:duration=6"])
-        .args(["-pix_fmt", "yuv420p"]).arg(dir.join("screen.mp4")))
+    if !ok(Command::new(&ff)
+        .args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x200:rate=30:duration=6"])
+        .args(["-pix_fmt", "yuv420p"])
+        .arg(dir.join("screen.mp4")))
     {
         return false;
     }
-    if !ok(Command::new(&ff).args(["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=6"]).arg(dir.join("Audio - Mic.wav"))) {
+    if !ok(Command::new(&ff)
+        .args(["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=6"])
+        .arg(dir.join("Audio - Mic.wav")))
+    {
         return false;
     }
     let mut w = Writer::create(&dir.join("input.bin"), true).unwrap();
@@ -92,7 +97,11 @@ fn a_take_exports_through_its_edit() {
     let subbed = dir.path().join("Captioned.mp4");
     r.export(&subbed, 30.0, Codec::H264, |_| true).unwrap();
     let ffprobe = media::ffmpeg().unwrap().with_file_name(if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" });
-    let streams = Command::new(ffprobe).args(["-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0"]).arg(&subbed).output().unwrap();
+    let streams = Command::new(ffprobe)
+        .args(["-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0"])
+        .arg(&subbed)
+        .output()
+        .unwrap();
     let kinds = String::from_utf8_lossy(&streams.stdout).to_string();
     assert!(kinds.contains("video") && kinds.contains("audio") && kinds.contains("subtitle"), "{kinds}");
     // a GIF

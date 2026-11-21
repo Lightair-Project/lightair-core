@@ -109,7 +109,12 @@ fn music_ducks_under_the_mic() {
     music.inserts = vec![EffectSpec {
         id: 9,
         enabled: true,
-        params: Params::Ducker(DuckerParams { source: MIC, amount_db: 12.0, attack_ms: 5.0, ..DuckerParams::default() }),
+        params: Params::Ducker(DuckerParams {
+            source: MIC,
+            amount_db: 12.0,
+            attack_ms: 5.0,
+            ..DuckerParams::default()
+        }),
     }];
     let (_, mut r) = Engine::new(GraphSpec { strips: vec![music, mic], ..Default::default() }, 48_000);
     let tone = sine(440.0, 0.5, 256);
@@ -156,7 +161,8 @@ fn reverb_tail_and_delay_echo() {
     assert!(energy(&wet[4_800..24_000]) > 1e-4, "a tail between 100 and 500 ms");
     let (dry, _) = run(Params::Reverb(ReverbParams { mix: 0.0, ..ReverbParams::default() }), &impulse);
     assert_eq!(dry, impulse, "dry: untouched");
-    let (echo, _) = run(Params::Delay(DelayParams { time_ms: 250.0, feedback: 0.0, mix: 0.5, ..DelayParams::default() }), &impulse);
+    let (echo, _) =
+        run(Params::Delay(DelayParams { time_ms: 250.0, feedback: 0.0, mix: 0.5, ..DelayParams::default() }), &impulse);
     let at = (1..echo.len()).max_by(|&a, &b| echo[a].abs().total_cmp(&echo[b].abs())).unwrap();
     assert!((at as i32 - 12_000).abs() <= 2, "the echo 250 ms later (at {at})");
 }

@@ -7,11 +7,23 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use lightair_live::event::text_fragments;
 use lightair_live::{ChatEvent, Kind, Paid, Role, User};
 
-pub const KINDS: &[(&str, &str)] =
-    &[("follow", "Follow"), ("sub", "Subscription"), ("paid", "Donation"), ("cheer", "Cheer"), ("raid", "Raid"), ("message", "Chat message")];
+pub const KINDS: &[(&str, &str)] = &[
+    ("follow", "Follow"),
+    ("sub", "Subscription"),
+    ("paid", "Donation"),
+    ("cheer", "Cheer"),
+    ("raid", "Raid"),
+    ("message", "Chat message"),
+];
 
 const NAMES: &[&str] = &["NightOwl", "pixel_pat", "Mochi", "TurboTaco", "Sora", "lumen", "Kitsune", "Bramble"];
-const LINES: &[&str] = &["Love the stream!", "Hello from Jakarta 👋", "That play was clean", "GG everyone", "First time here, this is great"];
+const LINES: &[&str] = &[
+    "Love the stream!",
+    "Hello from Jakarta 👋",
+    "That play was clean",
+    "GG everyone",
+    "First time here, this is great",
+];
 
 /// A test event of `kind` ("follow", "sub", "paid", "cheer", "raid", "message") on `platform`.
 pub fn make(kind: &str, platform: &str) -> ChatEvent {

@@ -6,8 +6,8 @@
 //! The model is a file the user downloads once, in Settings (Lightair never sends audio
 //! anywhere). It lives in Lightair's data folder, `models/`.
 
-use std::path::{Path, PathBuf};
 use crate::media;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -43,7 +43,8 @@ pub enum SpeechError {
 
 fn find(tool: &str) -> Option<PathBuf> {
     let exe = if cfg!(windows) { format!("{tool}.exe") } else { tool.to_string() };
-    let mut dirs: Vec<PathBuf> = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)).into_iter().collect();
+    let mut dirs: Vec<PathBuf> =
+        std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)).into_iter().collect();
     dirs.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()));
     if cfg!(target_os = "macos") {
         dirs.push("/opt/homebrew/bin".into());
@@ -174,7 +175,11 @@ pub fn tighten(edit: &Edit, t: &Transcript, pause_ms: u64, keep_ms: u64) -> Edit
 /// filler words and the pauses longer than `pause_ms` (a pause keeps `keep_ms`), in order.
 pub fn tightening(t: &Transcript, from: u64, to: u64, pause_ms: u64, keep_ms: u64) -> Vec<(u64, u64)> {
     let words: Vec<&Word> = t.words.iter().filter(|w| w.end_ms > from && w.start_ms < to).collect();
-    let mut out: Vec<(u64, u64)> = words.iter().filter(|w| is_filler(&w.text, &t.language)).map(|w| (w.start_ms.max(from), w.end_ms.min(to))).collect();
+    let mut out: Vec<(u64, u64)> = words
+        .iter()
+        .filter(|w| is_filler(&w.text, &t.language))
+        .map(|w| (w.start_ms.max(from), w.end_ms.min(to)))
+        .collect();
     for pair in words.windows(2) {
         let (a, b) = (pair[0], pair[1]);
         if b.start_ms > a.end_ms + pause_ms {
@@ -222,7 +227,10 @@ pub fn lines<'a>(words: impl IntoIterator<Item = (u64, u64, &'a str)>, max_chars
 
 /// Captions for a sequence: its transcript's words (fillers left out) as lines.
 pub fn caption_lines(t: &Transcript, max_chars: usize) -> Vec<(u64, u64, String)> {
-    lines(t.words.iter().filter(|w| !is_filler(&w.text, &t.language)).map(|w| (w.start_ms, w.end_ms, w.text.as_str())), max_chars)
+    lines(
+        t.words.iter().filter(|w| !is_filler(&w.text, &t.language)).map(|w| (w.start_ms, w.end_ms, w.text.as_str())),
+        max_chars,
+    )
 }
 
 /// Subtitles (SubRip) for the result: the transcript's words through the edit's cuts and speed,
@@ -233,10 +241,17 @@ pub fn srt(edit: &Edit, t: &Transcript, max_chars: usize) -> String {
         .words
         .iter()
         .filter(|w| !is_filler(&w.text, &t.language))
-        .filter_map(|w| Some((timeline::result_at(edit, w.start_ms)?, timeline::result_at(edit, w.end_ms.saturating_sub(1))?, w.text.as_str())))
+        .filter_map(|w| {
+            Some((
+                timeline::result_at(edit, w.start_ms)?,
+                timeline::result_at(edit, w.end_ms.saturating_sub(1))?,
+                w.text.as_str(),
+            ))
+        })
         .collect();
     let lines = lines(words, max_chars);
-    let stamp = |ms: u64| format!("{:02}:{:02}:{:02},{:03}", ms / 3_600_000, (ms / 60_000) % 60, (ms / 1000) % 60, ms % 1000);
+    let stamp =
+        |ms: u64| format!("{:02}:{:02}:{:02},{:03}", ms / 3_600_000, (ms / 60_000) % 60, (ms / 1000) % 60, ms % 1000);
     lines
         .iter()
         .enumerate()

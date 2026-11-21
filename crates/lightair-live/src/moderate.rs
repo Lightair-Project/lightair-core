@@ -25,10 +25,21 @@ pub fn can(platform: &str) -> bool {
 }
 
 pub enum Action<'a> {
-    Delete { message_id: &'a str },
+    Delete {
+        message_id: &'a str,
+    },
     /// `seconds`: 1 to 1,209,600 (two weeks) on Twitch.
-    Timeout { user_id: &'a str, login: &'a str, seconds: u64, reason: &'a str },
-    Ban { user_id: &'a str, login: &'a str, reason: &'a str },
+    Timeout {
+        user_id: &'a str,
+        login: &'a str,
+        seconds: u64,
+        reason: &'a str,
+    },
+    Ban {
+        user_id: &'a str,
+        login: &'a str,
+        reason: &'a str,
+    },
 }
 
 /// Does `action` in `channel`'s chat on `platform`, as the signed-in account (a moderator
@@ -45,7 +56,8 @@ pub fn act(platform: &str, channel: &str, action: Action) -> Result<(), String> 
 }
 
 fn twitch_token() -> Result<String, String> {
-    crate::pages::cookie("https://www.twitch.tv", "auth-token").ok_or_else(|| "sign in to Twitch first (Outputs › the destination › Sending)".into())
+    crate::pages::cookie("https://www.twitch.tv", "auth-token")
+        .ok_or_else(|| "sign in to Twitch first (Outputs › the destination › Sending)".into())
 }
 
 /// The signed-in Twitch account: (id, login). Kept until the token changes.
@@ -86,7 +98,9 @@ fn twitch(channel: &str, action: Action) -> Result<(), String> {
     let one_line = |s: &str| s.replace(['\n', '\r'], " ");
     let command = match action {
         Action::Delete { message_id } if safe(message_id) => format!("/delete {message_id}"),
-        Action::Timeout { login: who, seconds, reason, .. } if safe(who) => format!("/timeout {who} {} {}", seconds.clamp(1, 1_209_600), one_line(reason)),
+        Action::Timeout { login: who, seconds, reason, .. } if safe(who) => {
+            format!("/timeout {who} {} {}", seconds.clamp(1, 1_209_600), one_line(reason))
+        }
         Action::Ban { login: who, reason, .. } if safe(who) => format!("/ban {who} {}", one_line(reason)),
         _ => return Err("that isn't a Twitch user or message".into()),
     };
@@ -107,13 +121,19 @@ fn kick(channel: &str, action: Action) -> Result<(), String> {
     }
     let slug = crate::kick::slug(channel);
     let (method, path, body) = match action {
-        Action::Delete { message_id } => ("DELETE", format!("/api/v2/channels/{slug}/messages/{message_id}"), Value::Null),
+        Action::Delete { message_id } => {
+            ("DELETE", format!("/api/v2/channels/{slug}/messages/{message_id}"), Value::Null)
+        }
         Action::Timeout { login, seconds, reason, .. } => (
             "POST",
             format!("/api/v2/channels/{slug}/bans"),
             json!({"banned_username": login, "duration": (seconds / 60).max(1), "permanent": false, "reason": reason}),
         ),
-        Action::Ban { login, reason, .. } => ("POST", format!("/api/v2/channels/{slug}/bans"), json!({"banned_username": login, "permanent": true, "reason": reason})),
+        Action::Ban { login, reason, .. } => (
+            "POST",
+            format!("/api/v2/channels/{slug}/bans"),
+            json!({"banned_username": login, "permanent": true, "reason": reason}),
+        ),
     };
     let script = format!(
         r#"(async function () {{
@@ -127,9 +147,18 @@ fn kick(channel: &str, action: Action) -> Result<(), String> {
     lightair(r.ok ? 'ok' : 'no:' + r.status + ' ' + text.slice(0, 200));
   }} catch (e) {{ lightair('no:' + e); }}
 }})();"#,
-        body = if body.is_null() { "undefined".to_string() } else { serde_json::to_string(&body.to_string()).unwrap_or_default() },
+        body = if body.is_null() {
+            "undefined".to_string()
+        } else {
+            serde_json::to_string(&body.to_string()).unwrap_or_default()
+        },
     );
-    let answer = crate::pages::run(&format!("https://kick.com/{slug}"), &script, Duration::from_secs(30), &AtomicBool::new(false))?;
+    let answer = crate::pages::run(
+        &format!("https://kick.com/{slug}"),
+        &script,
+        Duration::from_secs(30),
+        &AtomicBool::new(false),
+    )?;
     match answer.strip_prefix("no:") {
         None => Ok(()),
         Some(why) => Err(format!("Kick said no: {why}")),

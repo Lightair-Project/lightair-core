@@ -5,7 +5,9 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use cosmic_text::{Align, Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, Style as Slant, SwashCache, Weight};
+use cosmic_text::{
+    Align, Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, Style as Slant, SwashCache, Weight,
+};
 use tiny_skia::{FillRule, Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
 
 use crate::sequence::{Content, ShapeKind, ShapeStyle, TextStyle};
@@ -59,7 +61,11 @@ fn fonts(guard: &mut Option<Fonts>) -> Option<&mut Fonts> {
 /// Splits text into runs drawn in one family each: `None` is the chosen family; emoji go to the
 /// emoji font, and characters the chosen family lacks to their script's Noto family, when those
 /// are loaded (cosmic-text's own fallback only knows the system's font names).
-fn spans<'t>(text: &'t str, chosen: &str, db: &lightair_fonts::fontdb::Database) -> Vec<(&'t str, Option<&'static str>)> {
+fn spans<'t>(
+    text: &'t str,
+    chosen: &str,
+    db: &lightair_fonts::fontdb::Database,
+) -> Vec<(&'t str, Option<&'static str>)> {
     use lightair_fonts::{bundled, fallback, set};
     let emoji_loaded = set::has_family(db, bundled::EMOJI);
     let mut out: Vec<(usize, usize, Option<&'static str>)> = Vec::new();
@@ -132,7 +138,8 @@ fn layout(style: &TextStyle, mut each: impl FnMut(i32, i32, u8, Option<u32>)) ->
         None => 400,
     };
     let italic = style.font.as_ref().is_some_and(|f| f.style == lightair_fonts::Style::Italic);
-    let attrs = Attrs::new().family(family).weight(Weight(weight)).style(if italic { Slant::Italic } else { Slant::Normal });
+    let attrs =
+        Attrs::new().family(family).weight(Weight(weight)).style(if italic { Slant::Italic } else { Slant::Normal });
     let align = match style.align {
         0 => Align::Left,
         2 => Align::Right,
@@ -166,7 +173,8 @@ fn layout(style: &TextStyle, mut each: impl FnMut(i32, i32, u8, Option<u32>)) ->
     }
     let dx = left.floor() as i32;
     buf.draw(&mut fonts.system, &mut fonts.cache, Color::rgb(PLAIN.0, PLAIN.1, PLAIN.2), |x, y, w, h, c| {
-        let own = ((c.r(), c.g(), c.b()) != PLAIN).then(|| ((c.r() as u32) << 16) | ((c.g() as u32) << 8) | c.b() as u32);
+        let own =
+            ((c.r(), c.g(), c.b()) != PLAIN).then(|| ((c.r() as u32) << 16) | ((c.g() as u32) << 8) | c.b() as u32);
         for yy in y..y + h as i32 {
             for xx in x..x + w as i32 {
                 each(xx - dx, yy, c.a(), own);
@@ -299,7 +307,14 @@ mod tests {
 
     #[test]
     fn shapes_fill_what_they_cover() {
-        let r = shape(&ShapeStyle { shape: ShapeKind::Ellipse, width: 100.0, height: 50.0, fill: Some((0xFF0000, 1.0)), stroke: None, radius: 0.0 });
+        let r = shape(&ShapeStyle {
+            shape: ShapeKind::Ellipse,
+            width: 100.0,
+            height: 50.0,
+            fill: Some((0xFF0000, 1.0)),
+            stroke: None,
+            radius: 0.0,
+        });
         let at = |x: u32, y: u32| r.rgba[((y * r.size.0 + x) * 4) as usize..][..4].to_vec();
         assert_eq!(at(50, 25), vec![255, 0, 0, 255], "the middle is filled");
         assert_eq!(at(1, 1)[3], 0, "the corner isn't");

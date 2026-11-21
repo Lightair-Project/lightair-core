@@ -21,7 +21,8 @@ pub fn channel_id(channel: &str) -> String {
 pub fn read(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
     let agent = net::agent();
     let id = channel_id(&sink.channel().channel);
-    let status = net::get_json(&agent, &format!("https://api.chzzk.naver.com/polling/v2/channels/{id}/live-status"), &[])?;
+    let status =
+        net::get_json(&agent, &format!("https://api.chzzk.naver.com/polling/v2/channels/{id}/live-status"), &[])?;
     let content = &status["content"];
     let Some(chat) = content["chatChannelId"].as_str().filter(|_| content["status"].as_str() == Some("OPEN")) else {
         sink.status(Status::Offline);
@@ -52,7 +53,9 @@ pub fn read(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
         let Ok(v) = serde_json::from_str::<Value>(&text) else { continue };
         match v["cmd"].as_i64() {
             // ping: pong
-            Some(0) => socket.send(Message::text(json!({"ver": "3", "cmd": 10000}).to_string())).map_err(|e| e.to_string())?,
+            Some(0) => {
+                socket.send(Message::text(json!({"ver": "3", "cmd": 10000}).to_string())).map_err(|e| e.to_string())?
+            }
             Some(10100) => sink.status(Status::Connected),
             Some(93101) | Some(93102) => {
                 for m in v["bdy"].as_array().into_iter().flatten() {
@@ -100,7 +103,13 @@ pub fn parse(m: &Value, channel: &str) -> Option<ChatEvent> {
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(|b| Some(Badge { set: b["badgeId"].as_str()?.into(), version: String::new(), image: b["imageUrl"].as_str().map(String::from) }))
+        .filter_map(|b| {
+            Some(Badge {
+                set: b["badgeId"].as_str()?.into(),
+                version: String::new(),
+                image: b["imageUrl"].as_str().map(String::from),
+            })
+        })
         .collect();
     let name = profile["nickname"].as_str().unwrap_or("익명").to_string();
     e.user = Some(User {
@@ -137,7 +146,12 @@ fn emojis(text: &str, list: &Value) -> Vec<Fragment> {
         match list[name].as_str() {
             Some(url) => {
                 out.extend(text_fragments(&rest[..i]));
-                out.push(Fragment::Emote { provider: "chzzk".into(), id: name.into(), code: format!(":{name}:"), image: url.into() });
+                out.push(Fragment::Emote {
+                    provider: "chzzk".into(),
+                    id: name.into(),
+                    code: format!(":{name}:"),
+                    image: url.into(),
+                });
             }
             None => out.extend(text_fragments(&rest[..i + 4 + j])),
         }

@@ -35,7 +35,8 @@ fn podcast_graph_cost() {
     };
     let spec = GraphSpec { strips, mixes: vec![Mix::new(60), Mix::new(61)], program, cue: None };
     let (_, mut r) = Engine::new(spec, 48_000);
-    let chans: Vec<Vec<f32>> = (0..8).map(|c| (0..256).map(|i| ((i * (c + 3)) as f32 * 0.01).sin() * 0.2).collect()).collect();
+    let chans: Vec<Vec<f32>> =
+        (0..8).map(|c| (0..256).map(|i| ((i * (c + 3)) as f32 * 0.01).sin() * 0.2).collect()).collect();
     let refs: Vec<&[f32]> = chans.iter().map(|c| c.as_slice()).collect();
     let music_ch: [&[f32]; 2] = [&chans[0], &chans[1]];
     let inputs = [InputBlock { id: 100, channels: &refs }, InputBlock { id: 101, channels: &music_ch }];

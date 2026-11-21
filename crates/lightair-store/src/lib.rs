@@ -30,7 +30,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use lightair_model::{Command, Canvas, Id, Source, OutputSettings, Workspace, Scene, Track};
+use lightair_model::{Canvas, Command, Id, OutputSettings, Scene, Source, Track, Workspace};
 use serde::{Deserialize, Serialize};
 
 /// Current on-disk canvas. Bump it and add a migration in [`migrate`] when the schema changes.
@@ -168,7 +168,8 @@ pub fn load_snapshot(dir: &Path) -> Result<Workspace, StoreError> {
     }
     let manifest: Manifest = serde_json::from_value(migrate(raw, version))
         .map_err(|source| StoreError::Json { path: manifest(dir), source })?;
-    let sources_file = if dir.join("sources.json").exists() { dir.join("sources.json") } else { dir.join("inputs.json") };
+    let sources_file =
+        if dir.join("sources.json").exists() { dir.join("sources.json") } else { dir.join("inputs.json") };
     let sources: Vec<Source> = read_json(&sources_file)?;
     let audio = dir.join("audio.json");
     let tracks: Vec<Track> = if audio.exists() { read_json(&audio)? } else { Vec::new() };
@@ -461,7 +462,8 @@ impl Package {
         if !renamed || self.writer.is_none() {
             // can't rotate (or no writer): as before, here, then the journal emptied
             save_upto(&self.dir, workspace, Some(n.saturating_sub(1)))?;
-            let truncate = OpenOptions::new().create(true).write(true).truncate(true).open(&current).map_err(io(&current))?;
+            let truncate =
+                OpenOptions::new().create(true).write(true).truncate(true).open(&current).map_err(io(&current))?;
             truncate.sync_all().map_err(io(&current))?;
         } else {
             self.next_log += 1;
@@ -497,4 +499,3 @@ pub struct Opened {
     /// Commands replayed from the journal (non-zero means the last session didn't close cleanly).
     pub recovered: usize,
 }
-

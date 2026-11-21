@@ -5,7 +5,6 @@
 /// Texture size of a shape (a 32-point pointer at 4×).
 pub const RES: usize = 128;
 
-
 /// A shape as premultiplied RGBA, RES×RES, and its hot spot as a fraction of the size.
 pub struct Bitmap {
     pub rgba: Vec<u8>,
@@ -41,7 +40,10 @@ fn raster(hot: (f32, f32), colour: impl Fn((f32, f32)) -> Option<[f32; 4]>) -> B
             let mut acc = [0f32; 4];
             for sy in 0..4 {
                 for sx in 0..4 {
-                    let p = ((x as f32 + (sx as f32 + 0.5) / 4.0) / RES as f32, (y as f32 + (sy as f32 + 0.5) / 4.0) / RES as f32);
+                    let p = (
+                        (x as f32 + (sx as f32 + 0.5) / 4.0) / RES as f32,
+                        (y as f32 + (sy as f32 + 0.5) / 4.0) / RES as f32,
+                    );
                     if let Some(c) = colour(p) {
                         // premultiplied
                         acc[0] += c[0] * c[3];
@@ -64,7 +66,8 @@ fn raster(hot: (f32, f32), colour: impl Fn((f32, f32)) -> Option<[f32; 4]>) -> B
 fn outlined(poly: &[(f32, f32)], hot: (f32, f32)) -> Bitmap {
     let edge = 0.035;
     raster(hot, |p| {
-        let near = (0..poly.len()).map(|i| segment_distance(p, poly[i], poly[(i + 1) % poly.len()])).fold(f32::MAX, f32::min);
+        let near =
+            (0..poly.len()).map(|i| segment_distance(p, poly[i], poly[(i + 1) % poly.len()])).fold(f32::MAX, f32::min);
         if inside(p, poly) {
             Some(if near < edge { [0.0, 0.0, 0.0, 1.0] } else { [1.0, 1.0, 1.0, 1.0] })
         } else if near < edge * 0.6 {
@@ -80,10 +83,11 @@ fn outlined(poly: &[(f32, f32)], hot: (f32, f32)) -> Bitmap {
 
 pub fn arrow() -> Bitmap {
     let s = 0.86;
-    let poly: Vec<(f32, f32)> = [(0.0, 0.0), (0.0, 0.84), (0.22, 0.65), (0.36, 0.98), (0.49, 0.92), (0.35, 0.61), (0.62, 0.61)]
-        .iter()
-        .map(|(x, y)| (0.08 + x * s, 0.04 + y * s))
-        .collect();
+    let poly: Vec<(f32, f32)> =
+        [(0.0, 0.0), (0.0, 0.84), (0.22, 0.65), (0.36, 0.98), (0.49, 0.92), (0.35, 0.61), (0.62, 0.61)]
+            .iter()
+            .map(|(x, y)| (0.08 + x * s, 0.04 + y * s))
+            .collect();
     outlined(&poly, (0.08, 0.04))
 }
 
@@ -155,4 +159,3 @@ pub fn disc(rgb: [f32; 3]) -> Bitmap {
         (r < 0.48).then_some([rgb[0], rgb[1], rgb[2], 1.0])
     })
 }
-

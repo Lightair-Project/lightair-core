@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use lightair_model::{Command, Source, Object, Layout, Workspace, Scene};
+use lightair_model::{Command, Layout, Object, Scene, Source, Workspace};
 use lightair_store::{Package, StoreError, load_snapshot, save};
 use serde_json::json;
 
@@ -87,7 +87,8 @@ fn newer_formats_are_refused() {
 fn a_format_1_workspace_opens_with_portable_kinds_and_is_saved_upgraded() {
     let dir = tempfile::tempdir().unwrap();
     let mut workspace = Workspace::new("Old");
-    let screen = Source::new("Display", "screen_capture", json!({"type": 0, "display_uuid": "U", "show_cursor": false}));
+    let screen =
+        Source::new("Display", "screen_capture", json!({"type": 0, "display_uuid": "U", "show_cursor": false}));
     let mic = Source::new("Mic", "coreaudio_input_capture", json!({"device_id": "default"}));
     for source in [screen, mic] {
         Command::AddSource { source }.apply(&mut workspace).unwrap();
@@ -176,11 +177,25 @@ fn a_rotated_journal_not_yet_saved_is_replayed() {
     let journal = dir.path().join("journal");
     let text = std::fs::read_to_string(journal.join("current.log")).unwrap();
     let lines: Vec<&str> = text.lines().collect();
-    std::fs::write(journal.join("1.log"), format!("{}
+    std::fs::write(
+        journal.join("1.log"),
+        format!(
+            "{}
 {}
-", lines[0], lines[1])).unwrap();
-    std::fs::write(journal.join("current.log"), format!("{}
-", lines[2])).unwrap();
+",
+            lines[0], lines[1]
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        journal.join("current.log"),
+        format!(
+            "{}
+",
+            lines[2]
+        ),
+    )
+    .unwrap();
     let reopened = Package::open(dir.path(), || unreachable!()).unwrap();
     assert_eq!(reopened.recovered, 3);
     assert_eq!(reopened.workspace, expected);

@@ -9,9 +9,10 @@ use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_core_foundation::{CFBoolean, CFDictionary, CFNumber, CFRetained, CFString, CFType};
 use objc2_core_video::{
-    CVAttachmentMode, CVPixelBuffer, CVPixelBufferCreate, CVPixelBufferGetIOSurface, CVPixelBufferPool, kCVImageBufferYCbCrMatrix_ITU_R_601_4,
-    kCVImageBufferYCbCrMatrixKey, kCVPixelBufferHeightKey, kCVPixelBufferIOSurfacePropertiesKey, kCVPixelBufferMetalCompatibilityKey,
-    kCVPixelBufferPixelFormatTypeKey, kCVPixelBufferWidthKey, kCVPixelFormatType_32BGRA, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+    CVAttachmentMode, CVPixelBuffer, CVPixelBufferCreate, CVPixelBufferGetIOSurface, CVPixelBufferPool,
+    kCVImageBufferYCbCrMatrix_ITU_R_601_4, kCVImageBufferYCbCrMatrixKey, kCVPixelBufferHeightKey,
+    kCVPixelBufferIOSurfacePropertiesKey, kCVPixelBufferMetalCompatibilityKey, kCVPixelBufferPixelFormatTypeKey,
+    kCVPixelBufferWidthKey, kCVPixelFormatType_32BGRA, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
     kCVReturnSuccess,
 };
 use objc2_metal::{MTLDevice, MTLPixelFormat, MTLTexture, MTLTextureDescriptor, MTLTextureType, MTLTextureUsage};
@@ -50,17 +51,37 @@ fn bgra_buffer(w: u32, h: u32) -> Option<CFRetained<CVPixelBuffer>> {
     let values: [&CFType; 2] = [empty.as_ref(), CFBoolean::new(true).as_ref()];
     let attrs = CFDictionary::from_slices(&keys, &values);
     let mut out: *mut CVPixelBuffer = ptr::null_mut();
-    let rc = unsafe { CVPixelBufferCreate(None, w as usize, h as usize, kCVPixelFormatType_32BGRA, Some(attrs.as_opaque()), NonNull::from(&mut out)) };
+    let rc = unsafe {
+        CVPixelBufferCreate(
+            None,
+            w as usize,
+            h as usize,
+            kCVPixelFormatType_32BGRA,
+            Some(attrs.as_opaque()),
+            NonNull::from(&mut out),
+        )
+    };
     (rc == kCVReturnSuccess && !out.is_null()).then(|| unsafe { CFRetained::from_raw(NonNull::new_unchecked(out)) })
 }
 
 fn nv12_pool(w: u32, h: u32) -> Option<CFRetained<CVPixelBufferPool>> {
     let empty: CFRetained<CFDictionary<CFString, CFType>> = CFDictionary::from_slices(&[], &[]);
-    let (format, width, height) = (CFNumber::new_i32(kCVPixelFormatType_420YpCbCr8BiPlanarFullRange as i32), CFNumber::new_i32(w as i32), CFNumber::new_i32(h as i32));
+    let (format, width, height) = (
+        CFNumber::new_i32(kCVPixelFormatType_420YpCbCr8BiPlanarFullRange as i32),
+        CFNumber::new_i32(w as i32),
+        CFNumber::new_i32(h as i32),
+    );
     let keys: [&CFString; 5] = unsafe {
-        [kCVPixelBufferPixelFormatTypeKey, kCVPixelBufferWidthKey, kCVPixelBufferHeightKey, kCVPixelBufferIOSurfacePropertiesKey, kCVPixelBufferMetalCompatibilityKey]
+        [
+            kCVPixelBufferPixelFormatTypeKey,
+            kCVPixelBufferWidthKey,
+            kCVPixelBufferHeightKey,
+            kCVPixelBufferIOSurfacePropertiesKey,
+            kCVPixelBufferMetalCompatibilityKey,
+        ]
     };
-    let values: [&CFType; 5] = [format.as_ref(), width.as_ref(), height.as_ref(), empty.as_ref(), CFBoolean::new(true).as_ref()];
+    let values: [&CFType; 5] =
+        [format.as_ref(), width.as_ref(), height.as_ref(), empty.as_ref(), CFBoolean::new(true).as_ref()];
     let attrs = CFDictionary::from_slices(&keys, &values);
     let mut out: *mut CVPixelBufferPool = ptr::null_mut();
     let rc = unsafe { CVPixelBufferPool::create(None, None, Some(attrs.as_opaque()), NonNull::from(&mut out)) };
@@ -76,7 +97,14 @@ impl Target {
         let raw: Retained<ProtocolObject<dyn MTLTexture>> = {
             let hal = unsafe { device.as_hal::<wgpu::hal::api::Metal>() }?;
             let mtl = hal.raw_device();
-            let desc = unsafe { MTLTextureDescriptor::texture2DDescriptorWithPixelFormat_width_height_mipmapped(MTLPixelFormat::BGRA8Unorm, w as usize, h as usize, false) };
+            let desc = unsafe {
+                MTLTextureDescriptor::texture2DDescriptorWithPixelFormat_width_height_mipmapped(
+                    MTLPixelFormat::BGRA8Unorm,
+                    w as usize,
+                    h as usize,
+                    false,
+                )
+            };
             desc.setUsage(MTLTextureUsage::RenderTarget | MTLTextureUsage::ShaderRead);
             mtl.newTextureWithDescriptor_iosurface_plane(&desc, &iosurface, 0)?
         };
@@ -113,7 +141,8 @@ impl Target {
         if rc != 0 || session.is_null() {
             return None;
         }
-        let transfer: CFRetained<VTPixelTransferSession> = unsafe { CFRetained::from_raw(NonNull::new_unchecked(session)) };
+        let transfer: CFRetained<VTPixelTransferSession> =
+            unsafe { CFRetained::from_raw(NonNull::new_unchecked(session)) };
         // into BT.601, as GPUI's surface shader decodes (VideoToolbox picks BT.709 otherwise)
         unsafe {
             objc2_video_toolbox::VTSessionSetProperty(
@@ -134,7 +163,13 @@ impl Target {
         }
         let frame: CFRetained<CVPixelBuffer> = unsafe { CFRetained::from_raw(NonNull::new_unchecked(out)) };
         // GPUI's surface shader decodes BT.601
-        unsafe { frame.set_attachment(kCVImageBufferYCbCrMatrixKey, kCVImageBufferYCbCrMatrix_ITU_R_601_4.as_ref(), CVAttachmentMode::ShouldPropagate) };
+        unsafe {
+            frame.set_attachment(
+                kCVImageBufferYCbCrMatrixKey,
+                kCVImageBufferYCbCrMatrix_ITU_R_601_4.as_ref(),
+                CVAttachmentMode::ShouldPropagate,
+            )
+        };
         (unsafe { self.transfer.transfer_image(&self.bgra, &frame) } == 0).then_some(Frame(frame))
     }
 }

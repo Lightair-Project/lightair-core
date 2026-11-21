@@ -34,7 +34,8 @@ pub fn read(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
         .header("Content-Type", "application/x-www-form-urlencoded")
         .send(format!("movie_id={movie}"))
         .map_err(|e| e.to_string())?;
-    let v: Value = serde_json::from_str(&res.body_mut().read_to_string().map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    let v: Value = serde_json::from_str(&res.body_mut().read_to_string().map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
     let url = v["url"].as_str().ok_or("no event socket for that movie")?;
     let mut socket = net::connect(url, Duration::from_millis(500))?;
     sink.status(Status::Connected);
@@ -59,7 +60,12 @@ pub fn read(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
 fn person(v: &Value) -> User {
     let name = v["name"].as_str().unwrap_or("").to_string();
     let screen = v["screenName"].as_str().or(v["screen_id"].as_str()).unwrap_or("").to_string();
-    User { id: v["id"].as_str().map(String::from).unwrap_or_else(|| screen.clone()), login: screen, display_name: name, ..Default::default() }
+    User {
+        id: v["id"].as_str().map(String::from).unwrap_or_else(|| screen.clone()),
+        login: screen,
+        display_name: name,
+        ..Default::default()
+    }
 }
 
 /// A comment or a gift.
@@ -94,7 +100,10 @@ mod tests {
         let c: Value = serde_json::from_str(r#"{"type":"comment","id":42,"message":"こんにちは","createdAt":1700000000000,"author":{"id":"c:fan","name":"ファン","screenName":"c:fan"}}"#).unwrap();
         let e = parse(&c, "x").unwrap();
         assert_eq!((e.text.as_str(), e.user.unwrap().display_name.as_str()), ("こんにちは", "ファン"));
-        let g: Value = serde_json::from_str(r#"{"type":"gift","message":"","item":{"name":"お茶"},"sender":{"name":"A","screenName":"a"}}"#).unwrap();
+        let g: Value = serde_json::from_str(
+            r#"{"type":"gift","message":"","item":{"name":"お茶"},"sender":{"name":"A","screenName":"a"}}"#,
+        )
+        .unwrap();
         assert_eq!(parse(&g, "x").unwrap().headline.as_deref(), Some("A sent お茶"));
         assert_eq!(user("https://twitcasting.tv/c:someone/movie/1"), "c:someone");
     }

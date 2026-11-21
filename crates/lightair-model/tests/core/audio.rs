@@ -1,7 +1,7 @@
 //! The mixer's model: buses, mixes, routing rules, removal, older workspaces.
 
 use lightair_model::{
-    AudioMix, Bus, Command, CommandError, Document, Effect, Source, Workspace, Route, Send, Track, TrackChannels,
+    AudioMix, Bus, Command, CommandError, Document, Effect, Route, Send, Source, Track, TrackChannels, Workspace,
 };
 use serde_json::json;
 
@@ -35,7 +35,8 @@ fn routing_to_buses_and_loops() {
     doc.apply(&Command::UpdateBus { bus: Bus { route: Route::Bus(b.id), ..a.clone() } }).unwrap();
     let looped = doc.apply(&Command::UpdateBus { bus: Bus { route: Route::Bus(a.id), ..b.clone() } });
     assert!(matches!(looped, Err(CommandError::AudioLoop)), "{looped:?}");
-    let missing = doc.apply(&Command::UpdateTrack { track: Track { route: Route::Bus(lightair_model::Id::new()), ..t } });
+    let missing =
+        doc.apply(&Command::UpdateTrack { track: Track { route: Route::Bus(lightair_model::Id::new()), ..t } });
     assert!(matches!(missing, Err(CommandError::NoBus(_))));
     // removing Guests sends the track back to Program
     doc.apply(&Command::RemoveBus { bus: a.id }).unwrap();
@@ -91,7 +92,8 @@ fn effects_on_buses_mixes_and_the_master() {
         let e = Effect::new("Limiter", "audio.limiter", json!({}));
         let eid = e.id;
         doc.apply(&Command::AddStripEffect { strip, effect: e, index: None }).unwrap();
-        doc.apply(&Command::SetStripEffectSettings { strip, effect: eid, settings: json!({"ceiling_db": -2.0}) }).unwrap();
+        doc.apply(&Command::SetStripEffectSettings { strip, effect: eid, settings: json!({"ceiling_db": -2.0}) })
+            .unwrap();
         doc.apply(&Command::SetStripEffectEnabled { strip, effect: eid, enabled: false }).unwrap();
     }
     let p = doc.workspace();
@@ -114,7 +116,9 @@ fn strips_rename() {
     let (bid, mid) = (bus.id, mix.id);
     doc.apply(&Command::AddBus { bus, index: None }).unwrap();
     doc.apply(&Command::AddMix { mix }).unwrap();
-    for (strip, name) in [(MixerStrip::Track(tid), "Host"), (MixerStrip::Bus(bid), "Guests"), (MixerStrip::Mix(mid), "Headphones")] {
+    for (strip, name) in
+        [(MixerStrip::Track(tid), "Host"), (MixerStrip::Bus(bid), "Guests"), (MixerStrip::Mix(mid), "Headphones")]
+    {
         doc.apply(&Command::RenameStrip { strip, name: name.into() }).unwrap();
     }
     let p = doc.workspace();

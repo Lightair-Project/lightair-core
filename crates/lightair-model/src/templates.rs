@@ -7,7 +7,8 @@ use serde_json::{Value, json};
 use crate::catalog;
 use crate::command::Command;
 use crate::model::{
-    AudioMix, Bus, Effect, Id, Source, Master, Workspace, Route, Send, MultitrackFormat, MultitrackPoint, Track, TrackChannels,
+    AudioMix, Bus, Effect, Id, Master, MultitrackFormat, MultitrackPoint, Route, Send, Source, Track, TrackChannels,
+    Workspace,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

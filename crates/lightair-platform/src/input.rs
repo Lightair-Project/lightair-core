@@ -56,14 +56,34 @@ pub mod modifiers {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Event {
-    Move { x: f32, y: f32 },
+    Move {
+        x: f32,
+        y: f32,
+    },
     /// Button 0 left, 1 right, 2 middle.
-    Down { button: u8, x: f32, y: f32 },
-    Up { button: u8, x: f32, y: f32 },
-    Scroll { dx: f32, dy: f32 },
+    Down {
+        button: u8,
+        x: f32,
+        y: f32,
+    },
+    Up {
+        button: u8,
+        x: f32,
+        y: f32,
+    },
+    Scroll {
+        dx: f32,
+        dy: f32,
+    },
     /// The platform's key code and the modifiers held.
-    KeyDown { code: u16, modifiers: u16 },
-    KeyUp { code: u16, modifiers: u16 },
+    KeyDown {
+        code: u16,
+        modifiers: u16,
+    },
+    KeyUp {
+        code: u16,
+        modifiers: u16,
+    },
     Shape(Shape),
 }
 
@@ -242,7 +262,8 @@ mod imp {
     #[link(name = "CoreFoundation", kind = "framework")]
     unsafe extern "C" {
         fn CFRelease(cf: *const c_void);
-        fn CFMachPortCreateRunLoopSource(alloc: *const c_void, port: CFMachPortRef, order: isize) -> CFRunLoopSourceRef;
+        fn CFMachPortCreateRunLoopSource(alloc: *const c_void, port: CFMachPortRef, order: isize)
+        -> CFRunLoopSourceRef;
         fn CFRunLoopGetCurrent() -> CFRunLoopRef;
         fn CFRunLoopAddSource(rl: CFRunLoopRef, source: CFRunLoopSourceRef, mode: *const c_void);
         fn CFRunLoopRun();
@@ -327,7 +348,8 @@ mod imp {
         if unsafe { CGGetActiveDisplayList(ids.len() as u32, ids.as_mut_ptr(), &mut n) } != 0 {
             return None;
         }
-        let id = ids[..n as usize].iter().copied().find(|d| uuid_of(*d).is_some_and(|u| u.eq_ignore_ascii_case(display)))?;
+        let id =
+            ids[..n as usize].iter().copied().find(|d| uuid_of(*d).is_some_and(|u| u.eq_ignore_ascii_case(display)))?;
         let r = unsafe { CGDisplayBounds(id) };
         Some((r.origin.x as f32, r.origin.y as f32, r.size.x as f32, r.size.y as f32))
     }
@@ -421,8 +443,12 @@ mod imp {
             O_DOWN => Some(Event::Down { button: field(BUTTON).clamp(2, 255) as u8, x, y }),
             O_UP => Some(Event::Up { button: field(BUTTON).clamp(2, 255) as u8, x, y }),
             SCROLL => Some(Event::Scroll { dx: field(SCROLL_X) as f32, dy: field(SCROLL_Y) as f32 }),
-            KEY_DOWN => Some(Event::KeyDown { code: field(KEYCODE) as u16, modifiers: mods(unsafe { CGEventGetFlags(event) }) }),
-            KEY_UP => Some(Event::KeyUp { code: field(KEYCODE) as u16, modifiers: mods(unsafe { CGEventGetFlags(event) }) }),
+            KEY_DOWN => {
+                Some(Event::KeyDown { code: field(KEYCODE) as u16, modifiers: mods(unsafe { CGEventGetFlags(event) }) })
+            }
+            KEY_UP => {
+                Some(Event::KeyUp { code: field(KEYCODE) as u16, modifiers: mods(unsafe { CGEventGetFlags(event) }) })
+            }
             _ => None,
         };
         if let Some(event) = ev {
@@ -484,7 +510,9 @@ mod imp {
     use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::System::Threading::GetCurrentThreadId;
-    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT};
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        GetKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
+    };
     use windows_sys::Win32::UI::Input::{
         GetRawInputData, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER, RID_INPUT, RIDEV_INPUTSINK,
         RIM_TYPEKEYBOARD, RIM_TYPEMOUSE, RegisterRawInputDevices,
@@ -494,8 +522,8 @@ mod imp {
         GetCursorPos, GetMessageW, GetWindowLongPtrW, HWND_MESSAGE, IDC_APPSTARTING, IDC_ARROW, IDC_CROSS, IDC_HAND,
         IDC_IBEAM, IDC_NO, IDC_SIZEALL, IDC_SIZENS, IDC_SIZEWE, IDC_WAIT, LoadCursorW, MSG, PostThreadMessageW,
         RI_KEY_BREAK, RI_MOUSE_LEFT_BUTTON_DOWN, RI_MOUSE_LEFT_BUTTON_UP, RI_MOUSE_MIDDLE_BUTTON_DOWN,
-        RI_MOUSE_MIDDLE_BUTTON_UP, RI_MOUSE_RIGHT_BUTTON_DOWN, RI_MOUSE_RIGHT_BUTTON_UP, RI_MOUSE_WHEEL, RegisterClassW,
-        SetWindowLongPtrW, WM_INPUT, WM_QUIT, WNDCLASSW,
+        RI_MOUSE_MIDDLE_BUTTON_UP, RI_MOUSE_RIGHT_BUTTON_DOWN, RI_MOUSE_RIGHT_BUTTON_UP, RI_MOUSE_WHEEL,
+        RegisterClassW, SetWindowLongPtrW, WM_INPUT, WM_QUIT, WNDCLASSW,
     };
 
     pub fn pointer() -> (f32, f32) {
@@ -552,7 +580,8 @@ mod imp {
                 return None;
             }
             let mut r = RECT { left: 0, top: 0, right: 0, bottom: 0 };
-            (GetWindowRect(hwnd, &mut r) != 0).then(|| (r.left as f32, r.top as f32, (r.right - r.left) as f32, (r.bottom - r.top) as f32))
+            (GetWindowRect(hwnd, &mut r) != 0)
+                .then(|| (r.left as f32, r.top as f32, (r.right - r.left) as f32, (r.bottom - r.top) as f32))
         }
     }
 
@@ -633,7 +662,11 @@ mod imp {
                         let k = unsafe { raw.data.keyboard };
                         let up = (k.Flags as u32 & RI_KEY_BREAK) != 0;
                         let (code, modifiers) = (k.VKey, mods());
-                        events.push(if up { Event::KeyUp { code, modifiers } } else { Event::KeyDown { code, modifiers } });
+                        events.push(if up {
+                            Event::KeyUp { code, modifiers }
+                        } else {
+                            Event::KeyDown { code, modifiers }
+                        });
                     }
                     let mut out = sink.samples.lock().unwrap();
                     out.extend(events.into_iter().map(|event| Sample { at, event }));

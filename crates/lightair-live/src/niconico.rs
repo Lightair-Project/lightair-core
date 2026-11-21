@@ -51,7 +51,12 @@ pub fn embedded_data(html: &str) -> Option<Value> {
     let start = rest.find("data-props=\"")? + "data-props=\"".len();
     let end = rest[start..].find('"')?;
     let raw = &rest[start..start + end];
-    let text = raw.replace("&quot;", "\"").replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&");
+    let text = raw
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&");
     serde_json::from_str(&text).ok()
 }
 
@@ -120,7 +125,9 @@ pub fn read(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
     }
     // the watch socket: just for the view address
     let mut socket = net::connect_with(socket_url, &[("Origin", ORIGIN)], Duration::from_millis(500))?;
-    socket.send(Message::text(json!({"type": "startWatching", "data": {"reconnect": false}}).to_string())).map_err(|e| e.to_string())?;
+    socket
+        .send(Message::text(json!({"type": "startWatching", "data": {"reconnect": false}}).to_string()))
+        .map_err(|e| e.to_string())?;
     let asked = Instant::now();
     let view = loop {
         if stop.load(Ordering::Acquire) || asked.elapsed() > Duration::from_secs(20) {
@@ -173,7 +180,8 @@ pub fn read(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
             if let Some(seg) = m.bytes(1) {
                 let uri = Msg::new(seg).string(3);
                 if !uri.is_empty() && seen_segments.lock().insert(uri.clone()) {
-                    let (sink, seen, done, stream, channel) = (sink.clone(), seen.clone(), done.clone(), stream.clone(), channel.clone());
+                    let (sink, seen, done, stream, channel) =
+                        (sink.clone(), seen.clone(), done.clone(), stream.clone(), channel.clone());
                     let _ = std::thread::Builder::new().name("lightair-niconico-segment".into()).spawn(move || {
                         if let Err(e) = segment(&stream, &uri, &sink, &seen, &done, &channel) {
                             tracing::debug!(%e, "niconico: segment");
@@ -202,7 +210,14 @@ pub fn read(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
 }
 
 /// Reads one segment's messages as they come.
-fn segment(agent: &ureq::Agent, uri: &str, sink: &Sink, seen: &Mutex<HashSet<String>>, done: &AtomicBool, channel: &str) -> Result<(), String> {
+fn segment(
+    agent: &ureq::Agent,
+    uri: &str,
+    sink: &Sink,
+    seen: &Mutex<HashSet<String>>,
+    done: &AtomicBool,
+    channel: &str,
+) -> Result<(), String> {
     let mut body = open(agent, uri)?;
     while let Some(bytes) = next_message(&mut body)? {
         if done.load(Ordering::Acquire) {
@@ -233,13 +248,20 @@ pub fn parse(bytes: &[u8], channel: &str) -> Option<ChatEvent> {
     let message = m.msg(2);
     let at = meta.msg(2);
     let ts = (at.int(1) as i64) * 1000 + (at.int(2) as i64) / 1_000_000;
-    let mut e = if let Some(chat) = message.bytes(1).or(message.bytes(20)).or_else(|| message.bytes(22).and_then(|f| Msg::new(f).bytes(1))) {
+    let mut e = if let Some(chat) =
+        message.bytes(1).or(message.bytes(20)).or_else(|| message.bytes(22).and_then(|f| Msg::new(f).bytes(1)))
+    {
         let c = Msg::new(chat);
         let raw = c.int(5);
         let id = if raw != 0 { raw.to_string() } else { c.string(6) };
         let name = c.string(2);
         let mut e = ChatEvent::new("niconico", channel, Kind::Message);
-        e.user = Some(User { id: id.clone(), login: id.clone(), display_name: if name.is_empty() { id } else { name }, ..Default::default() });
+        e.user = Some(User {
+            id: id.clone(),
+            login: id.clone(),
+            display_name: if name.is_empty() { id } else { name },
+            ..Default::default()
+        });
         e.with_fragments(text_fragments(&c.string(1)))
     } else if let Some(gift) = message.bytes(8) {
         let g = Msg::new(gift);
@@ -248,7 +270,11 @@ pub fn parse(bytes: &[u8], channel: &str) -> Option<ChatEvent> {
         let id = g.int(2).to_string();
         e.headline = Some(format!("{name} gave {item}"));
         e.user = Some(User { id: id.clone(), login: id, display_name: name, ..Default::default() });
-        e.paid = Some(Paid { display: format!("{item} ({point} pt)"), amount: point as f64, currency: "NICONICO_POINT".into() });
+        e.paid = Some(Paid {
+            display: format!("{item} ({point} pt)"),
+            amount: point as f64,
+            currency: "NICONICO_POINT".into(),
+        });
         let text = g.string(5);
         if text.is_empty() { e } else { e.with_fragments(text_fragments(&text)) }
     } else if let Some(ad) = message.bytes(9) {
@@ -337,7 +363,10 @@ mod tests {
         let chat = [field(1, "こんにちは".as_bytes()), field(2, "太郎".as_bytes()), varint(5, 42)].concat();
         let msg = [field(1, &meta), field(2, &field(1, &chat))].concat();
         let e = parse(&msg, "lv1").unwrap();
-        assert_eq!((e.kind.clone(), e.text.as_str(), e.native_id.as_deref(), e.ts_ms), (Kind::Message, "こんにちは", Some("m1"), 1000));
+        assert_eq!(
+            (e.kind.clone(), e.text.as_str(), e.native_id.as_deref(), e.ts_ms),
+            (Kind::Message, "こんにちは", Some("m1"), 1000)
+        );
         assert_eq!(e.user.unwrap().display_name, "太郎");
         // an anonymous comment: the hashed id stands in for the name
         let anon = [field(1, b"hi"), field(6, b"a:xyz")].concat();

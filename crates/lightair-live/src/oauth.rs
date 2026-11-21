@@ -44,12 +44,14 @@ fn app(provider: &str) -> Option<App> {
         "spotify" => (option_env!("LIGHTAIR_SPOTIFY_CLIENT_ID"), None),
         _ => return None,
     };
-    let var = |k: &str| std::env::var(format!("LIGHTAIR_{}_{k}", provider.to_uppercase())).ok().filter(|v| !v.is_empty());
+    let var =
+        |k: &str| std::env::var(format!("LIGHTAIR_{}_{k}", provider.to_uppercase())).ok().filter(|v| !v.is_empty());
     // the environment, then the person's own app (Settings › Connections), then the build's
     let own_id = own(provider, "id");
     let from_own = own_id.is_some();
     let client_id = var("CLIENT_ID").or(own_id).or(id.map(String::from)).filter(|v| !v.is_empty())?;
-    let secret = var("CLIENT_SECRET").or_else(|| if from_own { own(provider, "secret") } else { secret.map(String::from) });
+    let secret =
+        var("CLIENT_SECRET").or_else(|| if from_own { own(provider, "secret") } else { secret.map(String::from) });
     Some(App { client_id, secret: secret.filter(|v| !v.is_empty()) })
 }
 
@@ -159,10 +161,16 @@ fn post_form(url: &str, fields: &[(&str, &str)]) -> Result<Value, String> {
 
 /// With `basic` (client id, secret): HTTP Basic, as X wants from confidential clients.
 fn post_form_as(url: &str, fields: &[(&str, &str)], basic: Option<(&str, &str)>) -> Result<Value, String> {
-    let mut req = net::agent().post(url).header("Content-Type", "application/x-www-form-urlencoded").header("Accept", "application/json");
+    let mut req = net::agent()
+        .post(url)
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .header("Accept", "application/json");
     let auth;
     if let Some((id, secret)) = basic {
-        auth = format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(format!("{}:{}", encode(id), encode(secret))));
+        auth = format!(
+            "Basic {}",
+            base64::engine::general_purpose::STANDARD.encode(format!("{}:{}", encode(id), encode(secret)))
+        );
         req = req.header("Authorization", &auth);
     }
     let mut res = req.send(form(fields)).map_err(|e| e.to_string())?;
@@ -203,12 +211,22 @@ fn wait_for_code(listener: &TcpListener, state: &str, timeout: Duration) -> Resu
         let query = path.split_once('?').map(|(_, q)| q).unwrap_or("");
         let param = |k: &str| query.split('&').find_map(|kv| kv.strip_prefix(&format!("{k}="))).map(decode);
         let (page, result) = match (param("code"), param("state"), param("error")) {
-            (Some(code), Some(s), _) if s == state => ("You're signed in. You can close this tab and go back to Lightair.", Ok(code)),
-            (_, _, Some(e)) => ("The sign-in was cancelled. You can close this tab.", Err(format!("the sign-in was cancelled ({e})"))),
+            (Some(code), Some(s), _) if s == state => {
+                ("You're signed in. You can close this tab and go back to Lightair.", Ok(code))
+            }
+            (_, _, Some(e)) => {
+                ("The sign-in was cancelled. You can close this tab.", Err(format!("the sign-in was cancelled ({e})")))
+            }
             _ => ("Nothing to do here.", Err(String::new())),
         };
-        let body = format!("<!doctype html><meta charset=utf-8><title>Lightair</title><body style=\"font:16px -apple-system,sans-serif;padding:40px\">{page}</body>");
-        let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+        let body = format!(
+            "<!doctype html><meta charset=utf-8><title>Lightair</title><body style=\"font:16px -apple-system,sans-serif;padding:40px\">{page}</body>"
+        );
+        let _ = write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
         match result {
             Err(e) if e.is_empty() => continue,
             r => return r,
@@ -244,7 +262,9 @@ pub type Prompt = Box<dyn Fn(&str) + Send>;
 
 /// Signs in to `provider` (opens the browser, waits up to five minutes): the account's name.
 pub fn sign_in(provider: &str, prompt: Prompt) -> Result<String, String> {
-    let app = app(provider).ok_or_else(|| format!("this copy of Lightair has no {provider} app to sign in with (docs/official-apis.md)"))?;
+    let app = app(provider).ok_or_else(|| {
+        format!("this copy of Lightair has no {provider} app to sign in with (docs/official-apis.md)")
+    })?;
     let token = match provider {
         "twitch" => twitch_device(&app, &prompt)?,
         "youtube" | "kick" | "x" | "spotify" => code_flow(provider, &app, &prompt)?,
@@ -267,12 +287,16 @@ fn code_flow(provider: &str, app: &App, prompt: &Prompt) -> Result<Value, String
         _ => None,
     };
     let port: u16 = match fixed {
-        Some(default) => std::env::var(format!("LIGHTAIR_{}_REDIRECT_PORT", provider.to_uppercase())).ok().and_then(|p| p.parse().ok()).unwrap_or(default),
+        Some(default) => std::env::var(format!("LIGHTAIR_{}_REDIRECT_PORT", provider.to_uppercase()))
+            .ok()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(default),
         None => 0,
     };
     let listener = TcpListener::bind(("127.0.0.1", port)).map_err(|e| format!("couldn't wait for the browser: {e}"))?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
-    let redirect = if fixed.is_some() { format!("http://127.0.0.1:{port}/callback") } else { format!("http://127.0.0.1:{port}") };
+    let redirect =
+        if fixed.is_some() { format!("http://127.0.0.1:{port}/callback") } else { format!("http://127.0.0.1:{port}") };
     let verifier = b64url(&random(48));
     let challenge = {
         use sha2::Digest;
@@ -281,7 +305,9 @@ fn code_flow(provider: &str, app: &App, prompt: &Prompt) -> Result<Value, String
     let state = b64url(&random(16));
     let (auth, scope) = match provider {
         "youtube" => ("https://accounts.google.com/o/oauth2/v2/auth", "https://www.googleapis.com/auth/youtube"),
-        "x" => ("https://x.com/i/oauth2/authorize", "broadcast.read broadcast.write tweet.read users.read offline.access"),
+        "x" => {
+            ("https://x.com/i/oauth2/authorize", "broadcast.read broadcast.write tweet.read users.read offline.access")
+        }
         "spotify" => ("https://accounts.spotify.com/authorize", "user-read-currently-playing user-read-playback-state"),
         _ => ("https://id.kick.com/oauth/authorize", "user:read channel:read channel:write chat:write moderation:ban"),
     };
@@ -307,7 +333,10 @@ fn code_flow(provider: &str, app: &App, prompt: &Prompt) -> Result<Value, String
     ];
     let v = exchange(provider, app, token_url, fields)?;
     if v["access_token"].as_str().is_none() {
-        return Err(format!("{provider} didn't give a token: {}", v["error_description"].as_str().or(v["error"].as_str()).unwrap_or("")));
+        return Err(format!(
+            "{provider} didn't give a token: {}",
+            v["error_description"].as_str().or(v["error"].as_str()).unwrap_or("")
+        ));
     }
     Ok(v)
 }
@@ -317,7 +346,9 @@ fn twitch_device(app: &App, prompt: &Prompt) -> Result<Value, String> {
                   channel:read:redemptions channel:edit:commercial channel:manage:polls channel:manage:predictions channel:manage:raids \
                   moderator:manage:shoutouts clips:edit";
     let v = post_form("https://id.twitch.tv/oauth2/device", &[("client_id", &app.client_id), ("scopes", scopes)])?;
-    let (Some(device), Some(code), Some(uri)) = (v["device_code"].as_str(), v["user_code"].as_str(), v["verification_uri"].as_str()) else {
+    let (Some(device), Some(code), Some(uri)) =
+        (v["device_code"].as_str(), v["user_code"].as_str(), v["verification_uri"].as_str())
+    else {
         return Err(format!("Twitch didn't start the sign-in: {}", v["message"].as_str().unwrap_or("")));
     };
     prompt(&format!("Check that Twitch shows the code {code}, then Authorize"));
@@ -328,7 +359,12 @@ fn twitch_device(app: &App, prompt: &Prompt) -> Result<Value, String> {
         std::thread::sleep(every);
         let t = post_form(
             "https://id.twitch.tv/oauth2/token",
-            &[("client_id", &app.client_id), ("scopes", scopes), ("device_code", device), ("grant_type", "urn:ietf:params:oauth:grant-type:device_code")],
+            &[
+                ("client_id", &app.client_id),
+                ("scopes", scopes),
+                ("device_code", device),
+                ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+            ],
         )?;
         if t["access_token"].is_string() {
             return Ok(t);
@@ -379,27 +415,43 @@ fn whoami(provider: &str, token: &str) -> Result<(String, String), String> {
         "youtube" => {
             let v = get("https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true", None)?;
             let c = &v["items"][0];
-            Ok((c["id"].as_str().ok_or("that Google account has no YouTube channel")?.to_string(), c["snippet"]["title"].as_str().unwrap_or("").to_string()))
+            Ok((
+                c["id"].as_str().ok_or("that Google account has no YouTube channel")?.to_string(),
+                c["snippet"]["title"].as_str().unwrap_or("").to_string(),
+            ))
         }
         "twitch" => {
             let client = app("twitch").map(|a| a.client_id).unwrap_or_default();
             let v = get("https://api.twitch.tv/helix/users", Some(("Client-Id", &client)))?;
             let u = &v["data"][0];
-            Ok((u["id"].as_str().ok_or("Twitch didn't say who signed in")?.to_string(), u["login"].as_str().unwrap_or("").to_string()))
+            Ok((
+                u["id"].as_str().ok_or("Twitch didn't say who signed in")?.to_string(),
+                u["login"].as_str().unwrap_or("").to_string(),
+            ))
         }
         "spotify" => {
             let v = get("https://api.spotify.com/v1/me", None)?;
-            Ok((v["id"].as_str().ok_or("Spotify didn't say who signed in")?.to_string(), v["display_name"].as_str().or(v["id"].as_str()).unwrap_or("").to_string()))
+            Ok((
+                v["id"].as_str().ok_or("Spotify didn't say who signed in")?.to_string(),
+                v["display_name"].as_str().or(v["id"].as_str()).unwrap_or("").to_string(),
+            ))
         }
         "x" => {
             let v = get("https://api.x.com/2/users/me", None)?;
             let u = &v["data"];
-            Ok((u["id"].as_str().ok_or("X didn't say who signed in")?.to_string(), u["username"].as_str().unwrap_or("").to_string()))
+            Ok((
+                u["id"].as_str().ok_or("X didn't say who signed in")?.to_string(),
+                u["username"].as_str().unwrap_or("").to_string(),
+            ))
         }
         _ => {
             let v = get("https://api.kick.com/public/v1/users", None)?;
             let u = &v["data"][0];
-            let id = u["user_id"].as_u64().map(|n| n.to_string()).or_else(|| u["user_id"].as_str().map(String::from)).ok_or("Kick didn't say who signed in")?;
+            let id = u["user_id"]
+                .as_u64()
+                .map(|n| n.to_string())
+                .or_else(|| u["user_id"].as_str().map(String::from))
+                .ok_or("Kick didn't say who signed in")?;
             Ok((id, u["name"].as_str().unwrap_or("").to_string()))
         }
     }
@@ -414,7 +466,11 @@ pub fn token(provider: &str) -> Option<String> {
     }
     let app = app(provider)?;
     let refresh = v["refresh_token"].as_str()?.to_string();
-    let fields = vec![("grant_type", "refresh_token"), ("client_id", app.client_id.as_str()), ("refresh_token", refresh.as_str())];
+    let fields = vec![
+        ("grant_type", "refresh_token"),
+        ("client_id", app.client_id.as_str()),
+        ("refresh_token", refresh.as_str()),
+    ];
     let t = exchange(provider, &app, token_url(provider), fields).ok()?;
     let access = t["access_token"].as_str()?.to_string();
     v["access_token"] = json!(access);
