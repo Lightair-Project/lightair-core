@@ -27,3 +27,9 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 rustls-platform-verifier = "0.7"
 tungstenite = { version = "0.30.0", default-features = false, features = ["handshake", "__rustls-tls"] }
 ureq = { version = "3", default-features = false, features = ["rustls-no-provider", "platform-verifier", "gzip"] }
+
+# Android: the Mozilla roots (webpki-roots), not the system verifier, whose Android side needs
+# a Java component and JNI setup in the app; the phone apps' RTMPS does the same (lightair-feed).
+[target.'cfg(target_os = "android")'.dependencies]
+ureq = { version = "3", default-features = false, features = ["rustls-no-provider", "rustls-webpki-roots", "gzip"] }
+webpki-roots = "1"

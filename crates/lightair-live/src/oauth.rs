@@ -202,6 +202,9 @@ fn post_form_as(url: &str, fields: &[(&str, &str)], basic: Option<(&str, &str)>)
 
 /// Opens `url` in the person's own browser (Google turns away embedded ones).
 pub fn open_browser(url: &str) {
+    // (phones open the sign-in sheet themselves: Lightair Live's apps)
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let _ = url;
     #[cfg(target_os = "macos")]
     let _ = std::process::Command::new("/usr/bin/open").arg(url).spawn();
     #[cfg(windows)]

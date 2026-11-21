@@ -17,7 +17,8 @@ pub fn tls_config() -> ureq::tls::TlsConfig {
     use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
     TlsConfig::builder()
         .provider(TlsProvider::Rustls)
-        .root_certs(RootCerts::PlatformVerifier)
+        // Android: the Mozilla roots (the system verifier wants a Java component there)
+        .root_certs(if cfg!(target_os = "android") { RootCerts::WebPki } else { RootCerts::PlatformVerifier })
         .unversioned_rustls_crypto_provider(Arc::new(rustls::crypto::ring::default_provider()))
         .build()
 }
@@ -28,6 +29,17 @@ fn rustls_client() -> Result<Arc<rustls::ClientConfig>, String> {
     CONFIG
         .get_or_init(|| {
             let provider = Arc::new(rustls::crypto::ring::default_provider());
+            #[cfg(target_os = "android")]
+            {
+                let roots = rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
+                let config = rustls::ClientConfig::builder_with_provider(provider)
+                    .with_safe_default_protocol_versions()
+                    .map_err(|e| e.to_string())?
+                    .with_root_certificates(roots)
+                    .with_no_client_auth();
+                return Ok(Arc::new(config));
+            }
+            #[allow(unreachable_code)]
             let verifier = rustls_platform_verifier::Verifier::new(provider.clone()).map_err(|e| e.to_string())?;
             let config = rustls::ClientConfig::builder_with_provider(provider)
                 .with_safe_default_protocol_versions()
