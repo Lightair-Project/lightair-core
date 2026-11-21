@@ -65,6 +65,27 @@ pub struct Placed {
     pub rotation: f32,
 }
 
+/// A take's pointer on the timeline (for zooms that follow it): where its clip is, its source
+/// time there, its pointer track, and where its screen is in the frame (fractions).
+struct TakePointer {
+    from: u64,
+    to: u64,
+    start: u64,
+    in_ms: u64,
+    speed: f32,
+    track: crate::pointer::Track,
+    screen: (f32, f32, f32, f32),
+}
+
+impl TakePointer {
+    /// The pointer at timeline time `t`, as fractions of the frame.
+    fn at(&self, t: u64) -> Option<(f32, f32)> {
+        let s = self.in_ms + ((t.saturating_sub(self.start)) as f64 * self.speed as f64) as u64;
+        let p = self.track.at(s, 1.0)?;
+        Some((self.screen.0 + p.x * self.screen.2, self.screen.1 + p.y * self.screen.3))
+    }
+}
+
 pub struct SequenceRenderer {
     seq: Sequence,
     compositor: Compositor,
@@ -83,8 +104,8 @@ pub struct SequenceRenderer {
     /// Proxies found, by medium (looked for again when the sequence is set).
     proxies: HashMap<Id, Option<PathBuf>>,
     placed: Vec<Placed>,
-    /// The cameras of videos' and pictures' zooms, by medium, with the zooms they were made for.
-    zoom_cams: HashMap<Id, (Vec<crate::edit::Zoom>, crate::zoom::Camera)>,
+    /// The canvas camera (the zoom track's), with the zooms it was made for.
+    canvas: Option<(Vec<crate::edit::Zoom>, crate::zoom::Camera)>,
     /// Previews drawn into IOSurfaces for the window (macOS), not read back.
     zero_copy: bool,
     /// Windows: the composition visual previews are presented into (`IDCompositionVisual*`).
@@ -141,7 +162,7 @@ impl SequenceRenderer {
             out,
             proxies: HashMap::new(),
             placed: Vec::new(),
-            zoom_cams: HashMap::new(),
+            canvas: None,
             zero_copy: false,
             #[cfg(windows)]
             visual: 0,
@@ -529,19 +550,63 @@ impl SequenceRenderer {
         }
     }
 
-    /// Where a video's or picture's zooms have the camera at timeline time `t` on `clip` (its
-    /// source time), when it has any. The camera is stepped once per set of zooms, as a take's.
-    fn zoom_view(&mut self, m: &Media, clip: &Clip, t: u64) -> Option<crate::zoom::View> {
-        let zooms = m.zooms.as_ref().filter(|z| !z.is_empty())?;
-        let at = clip.source_at(t)?;
-        let fresh = self.zoom_cams.get(&m.id).is_none_or(|(z, _)| z != zooms);
-        if fresh {
-            // a little past the last zoom, so the camera has settled back
-            let len = zooms.iter().map(|z| z.end_ms).max().unwrap_or(0) + 2_000;
-            let cam = crate::zoom::Camera::build(zooms, len, |_| None);
-            self.zoom_cams.insert(m.id, (zooms.clone(), cam));
+    /// The canvas camera at timeline time `t` (the zoom track), made when the zooms or the
+    /// clips change: a zoom that follows the pointer follows the take under it (its input log,
+    /// through where its screen is in the frame).
+    fn canvas_view(&mut self, t: u64) -> Option<crate::zoom::View> {
+        if self.seq.zooms.is_empty() {
+            return None;
         }
-        self.zoom_cams.get(&m.id).map(|(_, c)| c.at(at))
+        if self.canvas.as_ref().is_none_or(|(z, _)| *z != self.seq.zooms) {
+            let pointers = self.take_pointers();
+            let len = self.seq.zooms.iter().map(|z| z.end_ms).max().unwrap_or(0) + 2_000;
+            let cam = crate::zoom::Camera::build(&self.seq.zooms, len, |t| {
+                pointers.iter().find(|p| p.from <= t && t < p.to).and_then(|p| p.at(t))
+            });
+            self.canvas = Some((self.seq.zooms.clone(), cam));
+        }
+        self.canvas.as_ref().map(|(_, c)| c.at(t))
+    }
+
+    /// The takes on the picture tracks (the main track first), each with its pointer and where
+    /// its screen is in the frame.
+    fn take_pointers(&self) -> Vec<TakePointer> {
+        let main = self.seq.main_track();
+        let order: Vec<usize> =
+            main.into_iter().chain((0..self.seq.tracks.len()).filter(|i| Some(*i) != main)).collect();
+        let (fw, fh) = (self.seq.size.0 as f32, self.seq.size.1 as f32);
+        let mut out = Vec::new();
+        for i in order {
+            let tr = &self.seq.tracks[i];
+            if tr.kind != TrackKind::Video || tr.hidden {
+                continue;
+            }
+            for c in tr.clips.iter().filter(|c| c.content.is_none()) {
+                let Some(m) = self.seq.media(c.media).filter(|m| m.studio_take.is_some()) else { continue };
+                let Some(folder) = &m.studio_take else { continue };
+                let Ok(log) = lightair_store::input_log::Log::read(&folder.join("input.bin")) else { continue };
+                let look = m.look.clone().unwrap_or_else(|| folder.join("edit.json"));
+                let edit = Edit::load(&look).unwrap_or_else(|_| Edit::new(m.duration_ms.max(1)));
+                let track = crate::pointer::Track::build(&log, m.duration_ms, edit.pointer.smoothing);
+                // the screen inside the take's picture (its look's padding), then the picture's box
+                let pad = edit.look.padding * fh;
+                let aspect = m.width.max(1) as f32 / m.height.max(1) as f32;
+                let sb = crate::compose::fit(aspect, pad, pad, fw - 2.0 * pad, fh - 2.0 * pad);
+                let (center, draw) = self.placement(c, Some(m), None, c.start_ms);
+                let (bx, by) = (center.0 - draw.0 / 2.0, center.1 - draw.1 / 2.0);
+                let (kx, ky) = (draw.0 / fw, draw.1 / fh);
+                out.push(TakePointer {
+                    from: c.start_ms,
+                    to: c.end_ms(),
+                    start: c.start_ms,
+                    in_ms: c.in_ms,
+                    speed: c.speed.max(0.05),
+                    track,
+                    screen: ((bx + sb.0 * kx) / fw, (by + sb.1 * ky) / fh, sb.2 * kx / fw, sb.3 * ky / fh),
+                });
+            }
+        }
+        out
     }
 
     /// One clip as a layer at `t`, with its animations, shifted by a transition.
@@ -562,13 +627,6 @@ impl SequenceRenderer {
         let center = (center.0 + (l - r) / 2.0 * draw.0, center.1 + (top - b) / 2.0 * draw.1);
         let draw = (draw.0 * (1.0 - l - r), draw.1 * (1.0 - top - b));
         let mut uv = (l, top, 1.0 - l - r, 1.0 - top - b);
-        // a video's or picture's zooms (a take's are its camera's): the picture magnified inside
-        // its box, around where the zoom looks
-        if let Some(view) = media.as_ref().filter(|m| m.studio_take.is_none()).and_then(|m| self.zoom_view(m, clip, t))
-        {
-            let (rx, ry, rw, rh) = view.rect();
-            uv = (uv.0 + rx * uv.2, uv.1 + ry * uv.3, rw * uv.2, rh * uv.3);
-        }
         if clip.flip_h {
             uv = (uv.0 + uv.2, uv.1, -uv.2, uv.3);
         }
@@ -737,6 +795,20 @@ impl SequenceRenderer {
         let main_pic = main_pic.filter(|i| *i < pics.len()).map(|i| &pics[i]);
         let fill = self.background(main_pic);
         pics.splice(0..0, fill);
+        // the zoom track: the whole canvas magnified around where the zoom looks
+        if let Some(v) = self.canvas_view(t).filter(|v| v.scale > 1.0001) {
+            let (rx, ry, _, _) = v.rect();
+            let (ow, oh) = (self.out.0 as f32, self.out.1 as f32);
+            for p in &mut pics {
+                p.center = ((p.center.0 - rx * ow) * v.scale, (p.center.1 - ry * oh) * v.scale);
+                p.draw = (p.draw.0 * v.scale, p.draw.1 * v.scale);
+            }
+            let (fw, fh) = (self.seq.size.0 as f32, self.seq.size.1 as f32);
+            for p in &mut self.placed {
+                p.center = ((p.center.0 - rx * fw) * v.scale, (p.center.1 - ry * fh) * v.scale);
+                p.size = (p.size.0 * v.scale, p.size.1 * v.scale);
+            }
+        }
         let layers: Vec<Layer> = pics
             .iter()
             .map(|p| Layer {

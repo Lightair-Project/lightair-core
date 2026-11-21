@@ -45,10 +45,9 @@ pub struct Media {
     /// The names of its audio tracks, when the file has several.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tracks: Vec<String>,
-    /// Its zooms (source time), as edited on the zoom track: a studio_take's (`None`: its look's
-    /// own), drawn by its camera; a video's or a picture's, which magnify its picture inside its
-    /// box (a zoom that follows the pointer needs a take's input log: elsewhere it looks at the
-    /// middle).
+    /// A studio_take's own zooms (source time), drawn by its camera inside its look; `None`: its
+    /// look's own. In a project they're moved onto the sequence's zoom track
+    /// ([`Sequence::absorb_take_zooms`]), which zooms the whole canvas, and left empty here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub zooms: Option<Vec<crate::edit::Zoom>>,
 }
@@ -1089,6 +1088,11 @@ pub struct Sequence {
     /// Markers on the timeline (ms, in order).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub markers: Vec<u64>,
+    /// The zoom track (timeline time, in order, not overlapping): each zoom magnifies the whole
+    /// canvas (every layer, as the frame is composed) around where it looks: a region (a point and
+    /// its scale, fractions of the frame) or the pointer of the take under it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub zooms: Vec<crate::edit::Zoom>,
     /// How it was last exported (the export panel opens with it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub export: Option<crate::exporter::ExportSettings>,
@@ -1270,6 +1274,7 @@ impl Sequence {
             tracks: vec![Track::new(TrackKind::Video), Track::new(TrackKind::Audio)],
             proxies: true,
             markers: Vec::new(),
+            zooms: Vec::new(),
             export: None,
             background: None,
         }
@@ -1412,6 +1417,57 @@ impl Sequence {
         self.tracks[t].clips.push(clip);
         self.tracks[t].sort();
         id
+    }
+
+    /// Moves the studio_takes' own zooms (their look's, or as edited on them) onto the zoom track,
+    /// through each of their clips on the picture tracks, so the zoom track is where every zoom is
+    /// (a take's camera then zooms no more: its zooms are left empty). Zooms that would overlap
+    /// one already on the track are left out; a take whose folder isn't here keeps its own. Whether
+    /// anything changed.
+    pub fn absorb_take_zooms(&mut self) -> bool {
+        let mut changed = false;
+        let takes: Vec<Id> = self
+            .media
+            .iter()
+            // a take not on this device yet keeps its own (its look can't be read)
+            .filter(|m| {
+                m.studio_take.as_ref().is_some_and(|f| f.is_dir()) && m.zooms.as_ref().is_none_or(|z| !z.is_empty())
+            })
+            .map(|m| m.id)
+            .collect();
+        for id in takes {
+            let Some(m) = self.media(id).cloned() else { continue };
+            let own = m.zooms.clone().unwrap_or_else(|| take_look_zooms(&m));
+            let clips: Vec<Clip> = self
+                .tracks
+                .iter()
+                .filter(|t| t.kind == TrackKind::Video)
+                .flat_map(|t| t.clips.iter())
+                .filter(|c| c.media == id && c.content.is_none())
+                .cloned()
+                .collect();
+            for c in &clips {
+                let speed = c.speed.max(0.05) as f64;
+                for z in &own {
+                    let (s0, s1) = (z.start_ms.max(c.in_ms), z.end_ms.min(c.out_ms));
+                    if s1 <= s0 {
+                        continue;
+                    }
+                    let at = |s: u64| c.start_ms + ((s - c.in_ms) as f64 / speed) as u64;
+                    let (a, b) = (at(s0), at(s1));
+                    if self.zooms.iter().any(|o| a < o.end_ms && o.start_ms < b) {
+                        continue;
+                    }
+                    self.zooms.push(crate::edit::Zoom { start_ms: a, end_ms: b, ..*z });
+                }
+            }
+            self.zooms.sort_by_key(|z| z.start_ms);
+            if let Some(m) = self.media.iter_mut().find(|m| m.id == id) {
+                m.zooms = Some(Vec::new());
+            }
+            changed = true;
+        }
+        changed
     }
 
     /// The main track: the bottom video track (where the magnet keeps clips end to end).
@@ -1923,6 +1979,18 @@ impl Project {
     /// Removes the project (its file; the media it uses stay).
     pub fn delete(workspace: &Path, id: Id) -> std::io::Result<()> {
         std::fs::remove_file(Self::path(workspace, id))
+    }
+}
+
+/// A studio_take's own zooms: its look file's, else the automatic ones from its input log.
+pub fn take_look_zooms(m: &Media) -> Vec<crate::edit::Zoom> {
+    let Some(folder) = &m.studio_take else { return Vec::new() };
+    let look = m.look.clone().unwrap_or_else(|| folder.join("edit.json"));
+    match crate::edit::Edit::load(&look) {
+        Ok(e) => e.zooms,
+        Err(_) => lightair_store::input_log::Log::read(&folder.join("input.bin"))
+            .map(|log| crate::zoom::auto(&log, m.duration_ms))
+            .unwrap_or_default(),
     }
 }
 

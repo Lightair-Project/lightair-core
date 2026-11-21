@@ -778,8 +778,9 @@ fn a_takes_zooms_from_the_zoom_track_show() {
 }
 
 #[test]
-fn a_videos_zooms_magnify_it_where_they_look() {
+fn the_zoom_track_magnifies_the_whole_canvas() {
     use lightair_render::edit::{Focus, Zoom};
+    use lightair_render::sequence::{ShapeKind, ShapeStyle};
     let dir = tempfile::tempdir().unwrap();
     // left half red, right half blue
     let Some(file) =
@@ -791,26 +792,64 @@ fn a_videos_zooms_magnify_it_where_they_look() {
     let mut seq = Sequence::new((640, 180), 30);
     let id = seq.add_media(Media::from_file(&file).unwrap());
     seq.place(id, 0, None).unwrap();
+    // a white square over it, in the middle of the left half (another layer)
+    let square = Content::Shape(ShapeStyle {
+        shape: ShapeKind::Rectangle,
+        width: 20.0,
+        height: 20.0,
+        fill: Some((0xFFFFFF, 1.0)),
+        stroke: None,
+        radius: 0.0,
+    });
+    let sq = seq.place_content(square, 0, 3_000);
+    seq.clip_mut(sq).unwrap().transform.x = -160.0;
     let Ok(mut r) = SequenceRenderer::new(&seq) else { return };
-    let (w, _) = (640, 180);
-    let flat = r.frame(1_500);
+    let w = 640;
+    let flat = r.frame(2_500);
     assert!(px(&flat, w, 600, 90)[2] > 150, "blue on the right");
-    // a region zoom on the left half: red fills the frame, right edge too
-    seq.media[0].zooms = Some(vec![Zoom {
-        start_ms: 0,
-        end_ms: 3_000,
-        scale: 2.0,
-        focus: Focus::Point { x: 0.25, y: 0.5 },
-        auto: false,
-    }]);
+    let beside = px(&flat, w, 160 + 16, 90);
+    assert!(beside[0] > 150 && beside[1] < 100, "red beside the square: {beside:?}");
+    // a region on the left half, 2x: the video and the square both magnified
+    seq.zooms =
+        vec![Zoom { start_ms: 0, end_ms: 3_000, scale: 2.0, focus: Focus::Point { x: 0.25, y: 0.5 }, auto: false }];
     r.set(&seq).unwrap();
     let zoomed = r.frame(2_500);
     let right = px(&zoomed, w, 600, 90);
-    assert!(right[0] > 150 && right[2] < 100, "the left half magnified: {right:?}");
-    // a still frame's moment before the zoom has eased in is between the two; after it, as it was
-    seq.media[0].zooms = Some(Vec::new());
+    assert!(right[0] > 150 && right[2] < 100, "the left half fills the frame: {right:?}");
+    let grown = px(&zoomed, w, 320 + 16, 90);
+    assert!(grown.iter().all(|c| *c > 200), "the square grew with it: {grown:?}");
+    seq.zooms.clear();
     r.set(&seq).unwrap();
     assert!(px(&r.frame(1_500), w, 600, 90)[2] > 150, "as it was");
+}
+
+#[test]
+fn a_takes_own_zooms_move_onto_the_zoom_track() {
+    use lightair_render::edit::{Focus, Zoom};
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("Take.lightair-take");
+    std::fs::create_dir_all(&folder).unwrap();
+    let Some(_) = lavfi(&folder, "screen.mp4", "testsrc2=size=640x360:rate=30:duration=3") else {
+        eprintln!("FFmpeg isn't installed; skipping");
+        return;
+    };
+    std::fs::write(
+        folder.join("take.json"),
+        r#"{"duration_ms":3000,"video":[{"name":"Screen","file":"screen.mp4"}],"audio":[]}"#,
+    )
+    .unwrap();
+    let mut m = Media::studio_take_parts(&folder).into_iter().next().expect("the screen");
+    m.zooms = Some(vec![Zoom { start_ms: 1_000, end_ms: 2_000, scale: 2.0, focus: Focus::Pointer, auto: true }]);
+    let mut seq = Sequence::new((640, 360), 30);
+    let id = seq.add_media(m);
+    // placed a second in, from half a second into the take
+    let c = seq.place(id, 1_000, None).unwrap();
+    seq.clip_mut(c).unwrap().in_ms = 500;
+    assert!(seq.absorb_take_zooms());
+    assert_eq!(seq.zooms.len(), 1);
+    assert_eq!((seq.zooms[0].start_ms, seq.zooms[0].end_ms), (1_500, 2_500));
+    assert_eq!(seq.media[0].zooms, Some(Vec::new()));
+    assert!(!seq.absorb_take_zooms(), "once");
 }
 
 #[test]
