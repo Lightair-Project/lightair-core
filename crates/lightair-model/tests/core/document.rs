@@ -420,3 +420,15 @@ fn destinations_reorder_and_undo() {
     doc.undo();
     assert_eq!(names(&doc), ["C", "A", "B"]);
 }
+
+#[test]
+fn an_encoding_sends_every_frame_unless_told_otherwise() {
+    let old = r#"{"encoder":"h264","bitrate_kbps":4500,"keyframe_s":2,"height":null,"audio_kbps":160}"#;
+    let enc: lightair_model::Encoding = serde_json::from_str(old).unwrap();
+    assert_eq!(enc.fps_divisor, 1, "before frame rates: every frame");
+    let rates = lightair_model::Encoding::frame_rates(60.0);
+    assert_eq!(rates, vec![(1, 60.0), (2, 30.0), (3, 20.0), (4, 15.0)]);
+    assert_eq!(lightair_model::Encoding::frame_rates(30.0).len(), 3, "30, 15, 10");
+    assert_eq!(lightair_model::Encoding::frame_rates(24.0), vec![(1, 24.0), (2, 12.0)]);
+    assert_eq!(lightair_model::Canvas::landscape().fps(), 60.0);
+}

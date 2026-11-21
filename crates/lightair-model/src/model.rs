@@ -156,6 +156,11 @@ pub struct Canvas {
 }
 
 impl Canvas {
+    /// Frames a second.
+    pub fn fps(&self) -> f64 {
+        self.fps_num as f64 / self.fps_den.max(1) as f64
+    }
+
     pub fn landscape() -> Self {
         Self { id: Id::new(), name: "Landscape".into(), width: 1920, height: 1080, fps_num: 60, fps_den: 1 }
     }
@@ -866,11 +871,33 @@ pub struct Encoding {
     /// Output height; the width follows the canvas. `None`: the canvas's own size.
     pub height: Option<u32>,
     pub audio_kbps: u32,
+    /// Encode every this many canvas frames: 1 sends all of them, 2 half (60 fps → 30 fps).
+    #[serde(default = "one_divisor")]
+    pub fps_divisor: u32,
+}
+
+fn one_divisor() -> u32 {
+    1
 }
 
 impl Default for Encoding {
     fn default() -> Self {
-        Self { encoder: VideoEncoder::H264, bitrate_kbps: 6000, keyframe_s: 2, height: None, audio_kbps: 160 }
+        Self {
+            encoder: VideoEncoder::H264,
+            bitrate_kbps: 6000,
+            keyframe_s: 2,
+            height: None,
+            audio_kbps: 160,
+            fps_divisor: 1,
+        }
+    }
+}
+
+impl Encoding {
+    /// The frame rates a canvas running at `fps` can send at, as divisors (1-4, none under 10
+    /// frames a second), with the rate each gives.
+    pub fn frame_rates(fps: f64) -> Vec<(u32, f64)> {
+        (1..=4u32).map(|d| (d, fps / d as f64)).filter(|(d, rate)| *d == 1 || *rate >= 10.0).collect()
     }
 }
 
