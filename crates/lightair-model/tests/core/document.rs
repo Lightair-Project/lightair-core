@@ -120,7 +120,7 @@ fn removing_a_canvas_retargets_outputs() {
     let square = lightair_model::Canvas::square();
     let sq = square.id;
     doc.apply(&Command::AddCanvas { canvas: square }).unwrap();
-    let mut clips = doc.workspace().outputs.clips;
+    let mut clips = doc.workspace().outputs.clips.clone();
     clips.canvas = Some(sq);
     doc.apply(&Command::SetClipSettings { settings: clips }).unwrap();
     doc.apply(&Command::SetLayout { scene, object, canvas: sq, layout: Layout::boxed(0.0, 0.0, 1080.0, 1080.0) })
@@ -437,4 +437,31 @@ fn an_encoding_sends_every_frame_unless_told_otherwise() {
     assert_eq!(lightair_model::Encoding::frame_rates(30.0).len(), 3, "30, 15, 10");
     assert_eq!(lightair_model::Encoding::frame_rates(24.0), vec![(1, 24.0), (2, 12.0)]);
     assert_eq!(lightair_model::Canvas::landscape().fps(), 60.0);
+}
+
+#[test]
+fn clips_keep_a_buffer_for_each_canvas_chosen() {
+    let (mut doc, ..) = setup();
+    let ws = doc.workspace().clone();
+    let primary = ws.primary_canvas().id;
+    let vertical = lightair_model::Canvas::vertical();
+    let v = vertical.id;
+    doc.apply(&Command::AddCanvas { canvas: vertical }).unwrap();
+    let ws = doc.workspace().clone();
+    let clips = ws.outputs.clips.clone();
+    assert_eq!(clips.targets(&ws), vec![primary], "until a choice is made: the primary canvas, as before");
+    // both
+    let both = clips.with_canvas(&ws, v, true);
+    assert_eq!(both.targets(&ws), vec![primary, v]);
+    doc.apply(&Command::SetClipSettings { settings: both.clone() }).unwrap();
+    // an old workspace's single canvas is still its choice
+    let old: lightair_model::ClipSettings = serde_json::from_str(&format!(r#"{{"enabled":true,"seconds":60,"format":"{v}"}}"#)).unwrap();
+    assert_eq!(old.targets(&ws), vec![v]);
+    // never none at all
+    assert_eq!(both.with_canvas(&ws, primary, false).targets(&ws), vec![v]);
+    assert_eq!(both.with_canvas(&ws, primary, false).with_canvas(&ws, v, false).targets(&ws), vec![v]);
+    // removing a canvas drops its buffer
+    doc.apply(&Command::RemoveCanvas { canvas: v }).unwrap();
+    assert_eq!(doc.workspace().outputs.clips.targets(doc.workspace()), vec![primary]);
+    assert!(doc.apply(&Command::SetClipSettings { settings: both }).is_err(), "a canvas that's gone");
 }

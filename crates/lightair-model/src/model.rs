@@ -914,20 +914,49 @@ impl Default for OutputSettings {
     }
 }
 
-/// The replay buffer behind the Clip button.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+/// The replay buffer behind the Clip button: one buffer per canvas chosen.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClipSettings {
     pub enabled: bool,
     /// Seconds kept in the buffer (and saved per clip).
     pub seconds: u32,
-    /// Canvas to clip; `None` = the primary canvas.
+    /// Canvas to clip; `None` = the primary canvas. Superseded by `canvases`, kept so older
+    /// workspaces clip what they did.
     #[serde(alias = "format")]
     pub canvas: Option<Id>,
+    /// The canvases kept in a buffer each, saved together by the Clip button. Empty: `canvas`, or
+    /// else the primary canvas.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub canvases: Vec<Id>,
 }
 
 impl Default for ClipSettings {
     fn default() -> Self {
-        Self { enabled: false, seconds: 60, canvas: None }
+        Self { enabled: false, seconds: 60, canvas: None, canvases: Vec::new() }
+    }
+}
+
+impl ClipSettings {
+    /// The canvases with a replay buffer, in the workspace's order (at least one).
+    pub fn targets(&self, workspace: &Workspace) -> Vec<Id> {
+        let chosen: Vec<Id> = match (self.canvases.is_empty(), self.canvas) {
+            (false, _) => self.canvases.clone(),
+            (true, Some(f)) => vec![f],
+            (true, None) => vec![workspace.primary_canvas().id],
+        };
+        let out: Vec<Id> = workspace.canvases.iter().map(|f| f.id).filter(|id| chosen.contains(id)).collect();
+        if out.is_empty() { vec![workspace.primary_canvas().id] } else { out }
+    }
+
+    /// These settings with `canvas` kept in a buffer or not (never none at all).
+    pub fn with_canvas(&self, workspace: &Workspace, canvas: Id, on: bool) -> ClipSettings {
+        let mut canvases = self.targets(workspace);
+        if on && !canvases.contains(&canvas) {
+            canvases.push(canvas);
+        } else if !on && canvases.len() > 1 {
+            canvases.retain(|f| *f != canvas);
+        }
+        ClipSettings { canvases, canvas: None, ..self.clone() }
     }
 }
 

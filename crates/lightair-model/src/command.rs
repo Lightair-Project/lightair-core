@@ -528,6 +528,7 @@ impl Command {
                 if workspace.outputs.clips.canvas == Some(*canvas) {
                     workspace.outputs.clips.canvas = None;
                 }
+                workspace.outputs.clips.canvases.retain(|f| f != canvas);
                 if workspace.outputs.virtual_camera.canvas == Some(*canvas) {
                     workspace.outputs.virtual_camera.canvas = None;
                 }
@@ -919,10 +920,10 @@ impl Command {
             }
             Command::SetStreamBitrate { kbps } => workspace.outputs.stream_bitrate_kbps = (*kbps).clamp(500, 51_000),
             Command::SetClipSettings { settings } => {
-                if let Some(f) = settings.canvas {
-                    workspace.canvas(f).ok_or(CommandError::NoCanvas(f))?;
+                for f in settings.canvas.iter().chain(&settings.canvases) {
+                    workspace.canvas(*f).ok_or(CommandError::NoCanvas(*f))?;
                 }
-                workspace.outputs.clips = ClipSettings { seconds: settings.seconds.clamp(10, 300), ..*settings }
+                workspace.outputs.clips = ClipSettings { seconds: settings.seconds.clamp(10, 300), ..settings.clone() }
             }
             Command::SetSceneTransition { scene, transition } => {
                 scene_mut(workspace, *scene)?.transition =
