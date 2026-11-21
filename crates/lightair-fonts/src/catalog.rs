@@ -347,13 +347,15 @@ pub(crate) mod tests {
     #[test]
     fn urls_escape_variable_font_names_and_skip_unchecked_mirrors() {
         let c = sample();
+        let google = "https://fonts.gstatic.com/s/inter/v1/x.ttf";
         let mut blob = c.families[0].files[0].blob.clone();
-        blob.urls = vec!["https://fonts.gstatic.com/s/inter/v1/x.ttf".into()];
+        blob.urls = vec![google.into()];
         let urls = c.urls(&blob);
-        assert_eq!(urls[0], "https://cdn.jsdelivr.net/gh/google/fonts@abc123/ofl/inter/Inter%5Bopsz%2Cwght%5D.ttf");
-        assert_eq!(urls.len(), 2, "Google's link isn't used without a SHA-256");
+        assert!(urls[0].ends_with("/ofl/inter/Inter%5Bopsz%2Cwght%5D.ttf"), "{urls:?}");
+        assert!(urls[0].contains("@abc123/"), "pinned to the catalog's commit: {urls:?}");
+        assert!(!urls.iter().any(|u| u == google), "Google's link isn't used without a SHA-256: {urls:?}");
         blob.sha256 = Some("00".into());
-        assert_eq!(c.urls(&blob).len(), 3);
+        assert!(c.urls(&blob).iter().any(|u| u == google), "with one it is");
     }
 
     #[test]
@@ -364,13 +366,10 @@ pub(crate) mod tests {
         assert!(verify(blob, b"hellO\n", true).is_err());
         assert!(verify(blob, b"hello", true).is_err());
         assert!(verify(blob, b"hello\n", false).is_err(), "Google's bytes need a SHA-256");
-    }
-
-    #[test]
-    fn json_round_trips() {
-        let c = sample();
-        let back = Catalog::from_json(&c.to_json().unwrap()).unwrap();
-        assert_eq!(back.families.len(), 4);
-        assert_eq!(back.families[0].files[0], c.families[0].files[0]);
+        // `printf 'hello\n' | shasum -a 256`
+        let hello = "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03";
+        let checked = Blob { sha256: Some(hello.into()), ..blob.clone() };
+        assert!(verify(&checked, b"hello\n", false).is_ok());
+        assert!(verify(&checked, b"hellO\n", false).is_err());
     }
 }

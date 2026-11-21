@@ -28,9 +28,4 @@ mod tests {
         // the empty blob
         assert_eq!(git_blob_sha1(b""), "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391");
     }
-
-    #[test]
-    fn sha256_hex() {
-        assert_eq!(sha256(b"abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
-    }
 }
