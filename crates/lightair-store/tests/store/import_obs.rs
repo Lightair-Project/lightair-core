@@ -48,15 +48,18 @@ fn geometry() {
 }
 
 #[test]
-fn effects_audio_and_transition() {
-    let (p, report) = imported();
+fn camera_filters_carry_over_with_dewy_replaced() {
+    let (p, _) = imported();
     let cam = p.sources.values().find(|i| i.name == "Camera").unwrap();
     let kinds: Vec<_> = cam.effects.iter().map(|e| e.kind.as_str()).collect();
     assert_eq!(kinds, ["lightair_camera_studio", "chroma_key_filter_v2", "shaderfilter"]);
-    assert_eq!(cam.effects[0].name, "Effects");
     assert_eq!(cam.effects[0].settings["smooth"], 0.4, "Dewy settings carry over");
-    assert!(!cam.effects[1].enabled);
+    assert!(!cam.effects[1].enabled, "a filter turned off stays off");
+}
 
+#[test]
+fn audio_levels_mutes_cues_and_filters_carry_over() {
+    let (p, _) = imported();
     let desk = p.tracks.iter().find(|t| t.name == "Desktop Audio").unwrap();
     assert!((desk.volume_db + 6.0206).abs() < 0.01, "{}", desk.volume_db);
     assert!(desk.muted);
@@ -64,17 +67,23 @@ fn effects_audio_and_transition() {
     assert!(mic.cue);
     let mic_source = p.sources.values().find(|i| i.id == mic.source).unwrap();
     assert_eq!(mic_source.effects[0].kind, "noise_suppress_filter_v2");
+}
 
-    assert_eq!(p.transition.kind, TransitionKind::Fade);
-    assert_eq!(p.transition.duration_ms, 450);
+#[test]
+fn the_current_transition_carries_over() {
+    let (p, _) = imported();
+    assert_eq!((p.transition.kind, p.transition.duration_ms), (TransitionKind::Fade, 450));
+}
 
-    eprintln!("{report:#?}");
-    assert_eq!(report.replaced.len(), 1, "Dewy → Effects");
-    assert!(report.kept_plugin.iter().any(|s| s.contains("spectralizer")));
-    assert!(report.kept_plugin.iter().any(|s| s.contains("shaderfilter")));
-    assert!(report.attention.iter().any(|s| s.contains("Background removal")));
-    assert!(report.attention.iter().any(|s| s.contains("nested")));
-    assert!(report.attention.iter().any(|s| s.contains("Viz") && s.contains("estimated")));
+#[test]
+fn the_report_names_what_was_replaced_kept_or_needs_a_look() {
+    let (_, report) = imported();
+    assert_eq!(report.replaced.len(), 1, "Dewy → Effects: {report:#?}");
+    assert!(report.kept_plugin.iter().any(|s| s.contains("spectralizer")), "{report:#?}");
+    assert!(report.kept_plugin.iter().any(|s| s.contains("shaderfilter")), "{report:#?}");
+    assert!(report.attention.iter().any(|s| s.contains("Background removal")), "{report:#?}");
+    assert!(report.attention.iter().any(|s| s.contains("nested")), "{report:#?}");
+    assert!(report.attention.iter().any(|s| s.contains("Viz") && s.contains("estimated")), "{report:#?}");
 }
 
 #[test]

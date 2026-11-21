@@ -10,22 +10,36 @@ fn item(path: &Path) -> Item {
 }
 
 #[test]
-fn entries_are_added_and_read_back() {
+fn entries_added_to_a_workspace_read_back_newest_first() {
     let workspace = tempfile::tempdir().unwrap();
     let media = tempfile::tempdir().unwrap();
-    let a = media.path().join("a.mp4");
-    fs::write(&a, b"x").unwrap();
-    let mut first = item(&a);
+    let mut first = item(&media.path().join("a.mp4"));
     first.markers.push(lightair_store::recordings::Marker { at_ms: 1500, label: "Intro".into() });
     Index::add_to(workspace.path(), first.clone()).unwrap();
     let clip = Item::new(Kind::Clip, "Clip", vec![File::new(media.path().join("c.mp4"))], 1_800_000_000_000);
     Index::add_to(workspace.path(), clip.clone()).unwrap();
     let index = Index::load(workspace.path());
-    assert_eq!(index.items.len(), 2);
-    assert_eq!(index.newest_first()[0].id, clip.id);
-    assert_eq!(index.get(first.id), Some(&first));
-    assert!(index.get(first.id).unwrap().matches("intro"), "markers are searched");
-    assert_eq!(index.get(clip.id).unwrap().missing().len(), 1, "c.mp4 was never written");
+    assert_eq!(index.get(first.id), Some(&first), "markers and all");
+    let order: Vec<_> = index.newest_first().iter().map(|i| i.id).collect();
+    assert_eq!(order, [clip.id, first.id]);
+}
+
+#[test]
+fn a_search_finds_an_item_by_its_markers() {
+    let media = tempfile::tempdir().unwrap();
+    let mut it = item(&media.path().join("a.mp4"));
+    it.markers.push(lightair_store::recordings::Marker { at_ms: 1500, label: "Intro".into() });
+    assert!(it.matches("intro"));
+    assert!(!it.matches("outro"));
+}
+
+#[test]
+fn a_file_thats_not_on_disk_is_missing() {
+    let media = tempfile::tempdir().unwrap();
+    let here = media.path().join("a.mp4");
+    fs::write(&here, b"x").unwrap();
+    assert!(item(&here).missing().is_empty());
+    assert_eq!(item(&media.path().join("never written.mp4")).missing().len(), 1);
 }
 
 #[test]

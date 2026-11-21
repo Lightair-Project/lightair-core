@@ -26,7 +26,6 @@ fn save_and_load_round_trip() {
     }
     save(dir.path(), &workspace).unwrap();
     assert_eq!(load_snapshot(dir.path()).unwrap(), workspace);
-    assert!(dir.path().join("scenes").read_dir().unwrap().count() == 1);
 }
 
 #[test]

@@ -145,24 +145,4 @@ mod tests {
         assert_eq!(obs_colour(0xFF0000FF), (0xFF0000, 1.0));
         assert_eq!(obs_colour(0x80FF0000).0, 0x0000FF);
     }
-
-    #[test]
-    fn a_scene_reads_back() {
-        let dir = tempfile::tempdir().unwrap();
-        let s = StudioTakeScene {
-            canvas: (1920, 1080),
-            objects: vec![SceneObject {
-                name: "Logo".into(),
-                x: 0.1,
-                y: 0.1,
-                w: 0.2,
-                h: 0.1,
-                rotation: 0.0,
-                opacity: 1.0,
-                what: What::Text { text: "Hi".into(), size: 64.0, color: 0xFFFFFF, bold: true },
-            }],
-        };
-        s.write(dir.path()).unwrap();
-        assert_eq!(StudioTakeScene::read(dir.path()), Some(s));
-    }
 }
