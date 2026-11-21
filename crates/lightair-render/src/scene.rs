@@ -73,7 +73,7 @@ pub fn unsupported(workspace: &Workspace, scene: Id) -> Vec<Unsupported> {
     for o in &scene.objects {
         let Some(source) = o.source.and_then(|s| workspace.sources.get(&s)) else { continue };
         for e in source.effects.iter().filter(|e| e.enabled) {
-            if !drawn(&e.kind) && !e.kind.starts_with("audio.") {
+            if !drawn(e) && !e.kind.starts_with("audio.") {
                 out.push(Unsupported { object: o.id, source: source.id, effect: e.kind.clone() });
             }
         }
@@ -81,9 +81,16 @@ pub fn unsupported(workspace: &Workspace, scene: Id) -> Vec<Unsupported> {
     out
 }
 
-/// Whether the renderer draws an effect of this kind.
-fn drawn(kind: &str) -> bool {
-    kind.starts_with("fx.") || kind == "color_filter_v2"
+/// Whether the renderer draws an effect: the shader effects, the colour filter, and a LUT
+/// from a `.cube` file (libobs's `clut_filter`; its `.png` strips aren't read).
+fn drawn(e: &lightair_model::Effect) -> bool {
+    e.kind.starts_with("fx.") || e.kind == "color_filter_v2" || cube_of(e).is_some()
+}
+
+/// A `clut_filter`'s `.cube` file.
+fn cube_of(e: &lightair_model::Effect) -> Option<&str> {
+    let path = e.settings.get("image_path")?.as_str()?;
+    (e.kind == "clut_filter" && path.to_ascii_lowercase().ends_with(".cube")).then_some(path)
 }
 
 /// One picture to draw, owned (the pictures live until the frame is drawn).
@@ -109,13 +116,21 @@ struct Draw {
 pub struct SceneRenderer {
     compositor: Compositor,
     size: (u32, u32),
+    /// Where relative file paths in effects are (the workspace's folder).
+    folder: Option<std::path::PathBuf>,
 }
 
 impl SceneRenderer {
     /// Frames `size` pixels (a canvas's size, or smaller for a preview: the canvas is scaled to
     /// the width).
     pub fn new(size: (u32, u32)) -> Result<SceneRenderer, String> {
-        Ok(SceneRenderer { compositor: Compositor::new_linear(size, false)?, size })
+        Ok(SceneRenderer { compositor: Compositor::new_linear(size, false)?, size, folder: None })
+    }
+
+    /// The workspace's folder: where relative file paths in effects (a LUT's) are found, as a
+    /// portable copy (`project.export`) names its `assets/…`.
+    pub fn set_folder(&mut self, folder: Option<std::path::PathBuf>) {
+        self.folder = folder;
     }
 
     /// The compositor, to present into a layer or a surface instead of reading frames back.
@@ -236,7 +251,7 @@ impl SceneRenderer {
                 }
                 let source = workspace.sources.get(&o.source?)?;
                 let shot = pictures.picture(source)?;
-                Some(placed(o.clone(), layout, source, shot, k))
+                Some(placed(o.clone(), layout, source, shot, k, self.folder.as_deref()))
             })
             .collect()
     }
@@ -306,7 +321,7 @@ impl Draw {
 }
 
 /// One object's picture where its layout puts it, `k` output pixels per canvas pixel.
-fn placed(object: Object, l: Layout, source: &Source, shot: Shot, k: f32) -> Draw {
+fn placed(object: Object, l: Layout, source: &Source, shot: Shot, k: f32, folder: Option<&std::path::Path>) -> Draw {
     let (w, h) = (shot.size.0.max(1) as f32, shot.size.1.max(1) as f32);
     let c = l.crop;
     let (cl, ct) = ((c.left as f32).min(w - 1.0), (c.top as f32).min(h - 1.0));
@@ -353,7 +368,7 @@ fn placed(object: Object, l: Layout, source: &Source, shot: Shot, k: f32) -> Dra
             border_color: [ch(0), ch(8), ch(16), ch(24)],
         }
     });
-    let (filter, opacity, effects) = effects_of(source);
+    let (filter, opacity, effects) = effects_of(source, folder);
     Draw {
         shot,
         center: ((l.x + l.width / 2.0) * k, (l.y + l.height / 2.0) * k),
@@ -374,7 +389,7 @@ fn placed(object: Object, l: Layout, source: &Source, shot: Shot, k: f32) -> Dra
 
 /// A source's effects as the compositor draws them: the colour filter, its opacity, and the
 /// shader effects (each with the catalog's defaults under its own settings).
-fn effects_of(source: &Source) -> (Filter, f32, Vec<ClipEffect>) {
+fn effects_of(source: &Source, folder: Option<&std::path::Path>) -> (Filter, f32, Vec<ClipEffect>) {
     let mut filter = Filter::default();
     let mut opacity = 1.0;
     let mut effects = vec![];
@@ -393,6 +408,18 @@ fn effects_of(source: &Source) -> (Filter, f32, Vec<ClipEffect>) {
                 settings.extend(own.iter().map(|(k, v)| (k.clone(), v.clone())));
             }
             effects.push(ClipEffect::new(e.kind.clone(), settings));
+        } else if let Some(cube) = cube_of(e) {
+            // libobs's LUT filter: lightair-render's own (a relative path: in the workspace's
+            // folder, as a portable copy names its assets)
+            let path = std::path::Path::new(cube);
+            let file = match folder {
+                Some(f) if path.is_relative() => f.join(path),
+                _ => path.to_path_buf(),
+            };
+            let mut settings = Map::new();
+            settings.insert("file".into(), Value::from(file.to_string_lossy().into_owned()));
+            settings.insert("amount".into(), Value::from(num("clut_amount", 1.0).clamp(0.0, 1.0) as f64));
+            effects.push(ClipEffect::new("fx.lut", settings));
         }
     }
     (filter, opacity, effects)

@@ -239,6 +239,38 @@ fn effects_are_drawn_and_the_rest_listed() {
     assert_eq!(left[0].effect, "chroma_key_filter_v2");
 }
 
+/// The desktop's LUT filter (`clut_filter` with a `.cube`), its file named relative to the
+/// workspace's folder as a portable copy names it.
+#[test]
+fn a_desktop_lut_is_drawn() {
+    let Some(mut r) = renderer() else { return };
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("assets")).unwrap();
+    // a 2×2×2 table that inverts
+    let mut cube = String::from("LUT_3D_SIZE 2\n");
+    for b in 0..2 {
+        for g in 0..2 {
+            for r in 0..2 {
+                cube += &format!("{} {} {}\n", 1 - r, 1 - g, 1 - b);
+            }
+        }
+    }
+    std::fs::write(dir.path().join("assets/invert.cube"), cube).unwrap();
+    let mut s = Setup::new();
+    s.effect("red", "clut_filter", json!({"image_path": "assets/invert.cube", "clut_amount": 1.0}));
+    let mut l = Layout::boxed(0.0, 0.0, W as f32, H as f32);
+    l.fit = Fit::Stretch;
+    let scene = s.scene(vec![s.object("red", l)]);
+    assert!(unsupported(&s.ws, scene).is_empty(), "a .cube LUT is drawn");
+    r.set_folder(Some(dir.path().to_path_buf()));
+    let f = r.frame(&s.ws, scene, s.canvas, &mut Test, 0.0);
+    assert!(is(&f, 160, 90, [0, 255, 255]), "inverted by the table: {:?}", px(&f, 160, 90));
+    // a .png strip isn't read: listed for the app to mark
+    s.effect("blue", "clut_filter", json!({"image_path": "/x/strip.png"}));
+    let scene = s.scene(vec![s.object("blue", l)]);
+    assert_eq!(unsupported(&s.ws, scene).len(), 1);
+}
+
 #[test]
 fn transitions_between_two_scenes() {
     let Some(mut r) = renderer() else { return };
