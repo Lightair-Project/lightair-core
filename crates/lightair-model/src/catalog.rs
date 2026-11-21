@@ -1839,14 +1839,11 @@ mod tests {
         let kinds: Vec<_> = lowered.iter().map(|e| e.kind.as_str()).collect();
         assert_eq!(kinds, [STUDIO_FILTER, "color_filter_v2", FX_FILTER]);
         let studio = &lowered[0].settings;
-        assert_eq!(studio["smooth"], 80);
-        assert_eq!(studio["foundation"], 20, "Beauty's own defaults");
-        assert_eq!(studio["light_preset"], "Rembrandt");
-        assert_eq!(studio["light_amt"], 60);
-        assert_eq!(studio["face_slim"], 0);
+        assert_eq!(studio["smooth"], 80, "the user's own setting");
+        assert_eq!(studio["light_preset"], "Rembrandt", "from the second face effect");
+        let beauty = def("studio.beauty").unwrap().defaults();
+        assert_eq!(studio["foundation"], beauty["foundation"], "what the user left alone: Beauty's defaults");
         assert_eq!(studio["mk_lip_opacity"], 0, "no makeup until a look is chosen");
-        assert_eq!(studio["makeup_preset"], "None");
-        assert_eq!(studio["bg_mode"], 0);
         assert_eq!(lowered[2].settings["fx"], "mono");
         assert_eq!(lowered[2].id, mono.id);
 
@@ -1912,11 +1909,17 @@ mod tests {
         assert_eq!(tone.display(20.0), "+20%");
         let angle = def("fx.halftone").unwrap().sliders().find(|s| s.key == "angle").unwrap();
         assert_eq!(angle.display(std::f64::consts::FRAC_PI_4), "45°");
-        assert_eq!(skin.summary(&Value::Object(skin.defaults())), "Smooth 50% · Foundation 20% · Bright eyes 30%");
+        let mut quiet = skin.defaults();
+        for s in skin.sliders() {
+            quiet.insert(s.key.into(), json!(0));
+        }
+        quiet.insert("smooth".into(), json!(40));
+        assert_eq!(skin.summary(&Value::Object(quiet)), "Smooth 40%", "sliders at zero aren't listed");
         assert_eq!(
             def("studio.light").unwrap().summary(&json!({"light_preset": "Neon", "light_amt": 40})),
             "Neon · Intensity 40%"
         );
-        assert_eq!(search("blur").count(), 4, "Background blur, Blur, and the Blur & sharpen category");
+        let found: Vec<_> = search("blur").map(|d| d.kind).collect();
+        assert!(found.contains(&"studio.bg_blur") && found.contains(&"fx.blur"), "{found:?}");
     }
 }

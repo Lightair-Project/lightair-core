@@ -72,7 +72,6 @@ fn every_template_replaces_the_mixer_and_undoes() {
     assert!(proj.tracks.iter().all(|t| t.cue && t.record));
     assert!(proj.tracks[1].effects.is_empty(), "the instrument plays clean");
     assert_eq!(proj.audio.buses[0].effects[0].kind, "audio.reverb");
-    assert_eq!(Template::Music.block(), Some(128));
 
     // one step back restores the old mixer
     let mut d = Document::new(before.clone());

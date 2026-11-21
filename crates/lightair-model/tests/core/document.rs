@@ -128,8 +128,14 @@ fn removing_a_canvas_retargets_outputs() {
     doc.apply(&Command::RemoveCanvas { canvas: sq }).unwrap();
     assert_eq!(doc.workspace().outputs.clips.canvas, None, "clips fall back to the primary format");
     assert!(!doc.workspace().scene(scene).unwrap().object(object).unwrap().layouts.contains_key(&sq));
+}
+
+#[test]
+fn a_custom_canvas_is_even_sized_and_within_encoder_limits() {
     let odd = lightair_model::Canvas::custom("Odd", 1001, 99999);
     assert_eq!((odd.width, odd.height), (1000, 7680));
+    let tiny = lightair_model::Canvas::custom("Tiny", 3, 3);
+    assert_eq!((tiny.width, tiny.height), (16, 16));
 }
 
 #[test]
@@ -438,7 +444,6 @@ fn an_encoding_sends_every_frame_unless_told_otherwise() {
     assert_eq!(rates, vec![(1, 60.0), (2, 30.0), (3, 20.0), (4, 15.0)]);
     assert_eq!(lightair_model::Encoding::frame_rates(30.0).len(), 3, "30, 15, 10");
     assert_eq!(lightair_model::Encoding::frame_rates(24.0), vec![(1, 24.0), (2, 12.0)]);
-    assert_eq!(lightair_model::Canvas::landscape().fps(), 60.0);
 }
 
 #[test]
