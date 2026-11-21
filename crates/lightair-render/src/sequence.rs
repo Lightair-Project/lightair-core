@@ -45,7 +45,10 @@ pub struct Media {
     /// The names of its audio tracks, when the file has several.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tracks: Vec<String>,
-    /// A studio_take's zooms (source time), as edited on the zoom track; `None`: its look's own.
+    /// Its zooms (source time), as edited on the zoom track: a studio_take's (`None`: its look's
+    /// own), drawn by its camera; a video's or a picture's, which magnify its picture inside its
+    /// box (a zoom that follows the pointer needs a take's input log: elsewhere it looks at the
+    /// middle).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub zooms: Option<Vec<crate::edit::Zoom>>,
 }

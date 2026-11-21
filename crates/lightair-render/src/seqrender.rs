@@ -83,6 +83,8 @@ pub struct SequenceRenderer {
     /// Proxies found, by medium (looked for again when the sequence is set).
     proxies: HashMap<Id, Option<PathBuf>>,
     placed: Vec<Placed>,
+    /// The cameras of videos' and pictures' zooms, by medium, with the zooms they were made for.
+    zoom_cams: HashMap<Id, (Vec<crate::edit::Zoom>, crate::zoom::Camera)>,
     /// Previews drawn into IOSurfaces for the window (macOS), not read back.
     zero_copy: bool,
     /// Windows: the composition visual previews are presented into (`IDCompositionVisual*`).
@@ -139,6 +141,7 @@ impl SequenceRenderer {
             out,
             proxies: HashMap::new(),
             placed: Vec::new(),
+            zoom_cams: HashMap::new(),
             zero_copy: false,
             #[cfg(windows)]
             visual: 0,
@@ -526,6 +529,21 @@ impl SequenceRenderer {
         }
     }
 
+    /// Where a video's or picture's zooms have the camera at timeline time `t` on `clip` (its
+    /// source time), when it has any. The camera is stepped once per set of zooms, as a take's.
+    fn zoom_view(&mut self, m: &Media, clip: &Clip, t: u64) -> Option<crate::zoom::View> {
+        let zooms = m.zooms.as_ref().filter(|z| !z.is_empty())?;
+        let at = clip.source_at(t)?;
+        let fresh = self.zoom_cams.get(&m.id).is_none_or(|(z, _)| z != zooms);
+        if fresh {
+            // a little past the last zoom, so the camera has settled back
+            let len = zooms.iter().map(|z| z.end_ms).max().unwrap_or(0) + 2_000;
+            let cam = crate::zoom::Camera::build(zooms, len, |_| None);
+            self.zoom_cams.insert(m.id, (zooms.clone(), cam));
+        }
+        self.zoom_cams.get(&m.id).map(|(_, c)| c.at(at))
+    }
+
     /// One clip as a layer at `t`, with its animations, shifted by a transition.
     fn layer_of(&mut self, clip: &Clip, t: u64, sh: Shift, out: &mut Vec<Pic>) {
         let Some((picture, size, premultiplied)) = self.picture(clip, t) else { return };
@@ -544,6 +562,13 @@ impl SequenceRenderer {
         let center = (center.0 + (l - r) / 2.0 * draw.0, center.1 + (top - b) / 2.0 * draw.1);
         let draw = (draw.0 * (1.0 - l - r), draw.1 * (1.0 - top - b));
         let mut uv = (l, top, 1.0 - l - r, 1.0 - top - b);
+        // a video's or picture's zooms (a take's are its camera's): the picture magnified inside
+        // its box, around where the zoom looks
+        if let Some(view) = media.as_ref().filter(|m| m.studio_take.is_none()).and_then(|m| self.zoom_view(m, clip, t))
+        {
+            let (rx, ry, rw, rh) = view.rect();
+            uv = (uv.0 + rx * uv.2, uv.1 + ry * uv.3, rw * uv.2, rh * uv.3);
+        }
         if clip.flip_h {
             uv = (uv.0 + uv.2, uv.1, -uv.2, uv.3);
         }

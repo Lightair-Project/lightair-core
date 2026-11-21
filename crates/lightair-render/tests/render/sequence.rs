@@ -778,6 +778,42 @@ fn a_takes_zooms_from_the_zoom_track_show() {
 }
 
 #[test]
+fn a_videos_zooms_magnify_it_where_they_look() {
+    use lightair_render::edit::{Focus, Zoom};
+    let dir = tempfile::tempdir().unwrap();
+    // left half red, right half blue
+    let Some(file) =
+        lavfi(dir.path(), "halves.mp4", "color=c=red:s=320x180:d=3[a];color=c=blue:s=320x180:d=3[b];[a][b]hstack")
+    else {
+        eprintln!("FFmpeg isn't installed; skipping");
+        return;
+    };
+    let mut seq = Sequence::new((640, 180), 30);
+    let id = seq.add_media(Media::from_file(&file).unwrap());
+    seq.place(id, 0, None).unwrap();
+    let Ok(mut r) = SequenceRenderer::new(&seq) else { return };
+    let (w, _) = (640, 180);
+    let flat = r.frame(1_500);
+    assert!(px(&flat, w, 600, 90)[2] > 150, "blue on the right");
+    // a region zoom on the left half: red fills the frame, right edge too
+    seq.media[0].zooms = Some(vec![Zoom {
+        start_ms: 0,
+        end_ms: 3_000,
+        scale: 2.0,
+        focus: Focus::Point { x: 0.25, y: 0.5 },
+        auto: false,
+    }]);
+    r.set(&seq).unwrap();
+    let zoomed = r.frame(2_500);
+    let right = px(&zoomed, w, 600, 90);
+    assert!(right[0] > 150 && right[2] < 100, "the left half magnified: {right:?}");
+    // a still frame's moment before the zoom has eased in is between the two; after it, as it was
+    seq.media[0].zooms = Some(Vec::new());
+    r.set(&seq).unwrap();
+    assert!(px(&r.frame(1_500), w, 600, 90)[2] > 150, "as it was");
+}
+
+#[test]
 fn a_phones_portrait_video_is_shown_upright() {
     // stored on its side (640×360: red left, blue right) with a quarter turn to show it by, as a
     // phone records portrait video
