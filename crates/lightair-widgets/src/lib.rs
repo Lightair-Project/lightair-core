@@ -276,10 +276,10 @@ mod tests {
             fields: r#"{"title":{"type":"text","value":"x"}}"#.into(),
             folder: None,
         };
-        let path = std::env::temp_dir().join(format!("lightair-{}.lwidget", std::process::id()));
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Test.lwidget");
         export(&c, "Test", (400, 200), &path).unwrap();
         assert_eq!(import(&path).unwrap(), c);
-        let _ = std::fs::remove_file(path);
     }
 
     #[test]
@@ -302,10 +302,9 @@ mod tests {
     #[test]
     fn folders_round_trip() {
         let c = customize("goal").unwrap();
-        let dir = std::env::temp_dir().join(format!("lightair-folder-{}", std::process::id()));
-        write_folder(&c, &dir).unwrap();
-        assert!(import_folder(&dir).unwrap().same_code(&c));
-        let _ = std::fs::remove_dir_all(dir);
+        let dir = tempfile::tempdir().unwrap();
+        write_folder(&c, dir.path()).unwrap();
+        assert!(import_folder(dir.path()).unwrap().same_code(&c));
     }
 
     #[test]

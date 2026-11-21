@@ -1284,6 +1284,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1_smol",
+ "tempfile",
  "tracing",
  "tungstenite",
  "zip",

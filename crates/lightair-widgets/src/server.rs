@@ -708,8 +708,8 @@ mod tests {
 
     #[test]
     fn widgets_get_only_their_platforms_events() {
-        let dir = std::env::temp_dir().join(format!("lightair-widget-store-{}", std::process::id()));
-        let w = Widgets::start(Hub::new(), dir.clone()).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let w = Widgets::start(Hub::new(), dir.path().into()).unwrap();
         let every = crate::Instance::new("label", None);
         let mut youtube = crate::Instance::new("label", None);
         youtube.platforms = vec!["youtube".into()];
@@ -748,7 +748,67 @@ mod tests {
             serde_json::from_str::<Value>(&w.shared.load_message(&youtube.id)).unwrap()["session"]["counts"]["follow"],
             1
         );
-        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn get(port: u16, path: &str) -> (u16, Vec<u8>) {
+        use std::io::Read;
+        let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        write!(s, "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n").unwrap();
+        let mut out = Vec::new();
+        s.read_to_end(&mut out).unwrap();
+        let head_end = out.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+        let status = std::str::from_utf8(&out[9..12]).unwrap().parse().unwrap();
+        (status, out[head_end + 4..].to_vec())
+    }
+
+    fn encoded(path: &std::path::Path) -> String {
+        path.to_str().unwrap().bytes().map(|b| format!("%{b:02X}")).collect()
+    }
+
+    #[test]
+    fn a_page_reads_only_the_files_its_settings_name_and_only_with_its_key() {
+        let store = tempfile::tempdir().unwrap();
+        let files = tempfile::tempdir().unwrap();
+        let (logo, secret) = (files.path().join("logo.png"), files.path().join("keys.txt"));
+        std::fs::write(&logo, b"png").unwrap();
+        std::fs::write(&secret, b"stream key").unwrap();
+        let w = Widgets::start(Hub::new(), store.path().into()).unwrap();
+        let custom = crate::Custom {
+            html: String::new(),
+            css: String::new(),
+            js: String::new(),
+            fields: r#"{"image":{"type":"text","value":""}}"#.into(),
+            folder: None,
+        };
+        let mut i = crate::Instance::new("custom", Some(custom));
+        i.fields = json!({"image": logo.to_str().unwrap()});
+        w.set_instances(vec![i.clone()]);
+        let file = |key: &str, path: &std::path::Path| {
+            get(w.port(), &format!("/w/{}/file?key={key}&path={}", i.id, encoded(path)))
+        };
+        assert_eq!(file(&i.key, &logo), (200, b"png".to_vec()), "what its settings name");
+        assert_eq!(file(&i.key, &secret).0, 404, "nothing else on this computer");
+        assert_eq!(file("guess", &logo).0, 404, "not without its key");
+    }
+
+    #[test]
+    fn automations_run_from_a_page_only_with_this_computers_key() {
+        let store = tempfile::tempdir().unwrap();
+        let w = Widgets::start(Hub::new(), store.path().into()).unwrap();
+        let ran = Arc::new(Mutex::new(Vec::<String>::new()));
+        let seen = ran.clone();
+        w.set_run_hook(
+            "s3cret".into(),
+            Box::new(move |name| {
+                seen.lock().push(name.to_string());
+                Ok(())
+            }),
+        );
+        assert_eq!(get(w.port(), "/run/Raid%20alert?key=guess").0, 403);
+        assert_eq!(get(w.port(), "/run/Raid%20alert").0, 403);
+        assert!(ran.lock().is_empty());
+        assert_eq!(get(w.port(), "/run/Raid%20alert?key=s3cret").0, 200);
+        assert_eq!(*ran.lock(), ["Raid alert"]);
     }
 
     #[test]
