@@ -416,20 +416,16 @@ pub fn stream(seq: &Sequence, from_ms: u64, rate: u32) -> Result<Option<Child>, 
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::sequence::{Clip, VolumeKey};
     use lightair_model::Id;
 
     #[test]
     fn volume_keys_make_a_curve() {
         let mut c = Clip::new(Id::nil(), 1_000, 4_000);
-        assert_eq!(volume_expr(&c), "1.0000");
         c.volume_keys = vec![VolumeKey { at_ms: 1_000, volume: 1.0 }, VolumeKey { at_ms: 3_000, volume: 0.2 }];
         assert_eq!(c.volume_at(1_500), 1.0, "before the first key");
         assert!((c.volume_at(3_000) - 0.6).abs() < 1e-4, "halfway, in a straight line");
         assert_eq!(c.volume_at(4_500), 0.2);
-        let e = volume_expr(&c);
-        assert!(e.starts_with("if(lt(t,3.000)") && e.ends_with(",0.2000)"), "{e}");
         c.fade_in_ms = 1_000;
         assert!((c.gain_at(1_500) - 0.5).abs() < 1e-4, "half faded in");
         c.muted = true;

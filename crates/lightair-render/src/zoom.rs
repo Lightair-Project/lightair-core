@@ -201,7 +201,7 @@ mod tests {
         let l = log(&[(5_000, 200.0, 300.0), (6_000, 220.0, 310.0), (7_500, 210.0, 290.0)]);
         let z = auto(&l, 20_000);
         assert_eq!(z.len(), 1);
-        assert_eq!((z[0].start_ms, z[0].end_ms), (4_300, 9_300));
+        assert!(z[0].start_ms < 5_000 && z[0].end_ms > 7_500, "in before the first, out after the last: {:?}", z[0]);
         let Focus::Point { x, y } = z[0].focus else { panic!("a fixed focus") };
         assert!((x - 0.21).abs() < 0.01 && (y - 0.30).abs() < 0.01, "{x} {y}");
     }

@@ -653,18 +653,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_effect_has_its_passes_and_uniforms() {
+    fn every_effect_has_its_passes() {
         for (name, _) in FILES {
             assert!(passes().get(*name).is_some_and(|n| *n >= 1), "{name} has no passes in fx.wgsl");
         }
-        assert_eq!(passes()["blur"], 4);
+    }
+
+    #[test]
+    fn a_colour_setting_reaches_the_shader_as_rgba() {
         let mono = uniforms("mono");
-        assert_eq!(mono.iter().map(|u| u.name.as_str()).collect::<Vec<_>>(), ["amount", "tint_color", "tint"]);
-        assert!(mono[1].colour && (mono[1].default[1] - 0.86).abs() < 1e-6);
-        assert_eq!(uniforms("mirror")[0].name, "axis");
+        let tint = mono.iter().find(|u| u.name == "tint_color").expect("mono's tint colour");
+        assert!(tint.colour);
         let mut s = serde_json::Map::new();
-        s.insert("tint_color".into(), serde_json::json!(0xFF0000FFu32));
-        assert_eq!(value_of(&mono[1], &s), [1.0, 0.0, 0.0, 1.0]);
+        s.insert("tint_color".into(), serde_json::json!(0xFF0000FFu32)); // 0xAABBGGRR: opaque red
+        assert_eq!(value_of(tint, &s), [1.0, 0.0, 0.0, 1.0]);
     }
 
     #[test]

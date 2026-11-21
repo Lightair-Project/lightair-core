@@ -9,5 +9,4 @@ mod layer;
 mod mix;
 mod scene;
 mod sequence;
-mod speed;
 mod surface;

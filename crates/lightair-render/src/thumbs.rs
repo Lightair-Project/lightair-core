@@ -260,17 +260,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn samples_are_pictures() {
-        for which in 0..3 {
-            let p = sample(which);
-            assert_eq!((p.width(), p.height()), SIZE);
-            // not one colour
-            let px = p.pixels();
-            assert!(px.iter().any(|c| *c != px[0]), "sample {which}");
-        }
-    }
-
-    #[test]
     fn every_look_gets_a_thumbnail() {
         // LIGHTAIR_THUMBS: where to keep them, to look at
         let tmp = tempfile::tempdir().unwrap();

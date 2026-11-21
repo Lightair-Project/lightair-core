@@ -1,5 +1,5 @@
-//! How fast the Editor's frames come (run by hand: `cargo test -p lightair-render --test render
-//! speed:: -- --ignored --nocapture`). Needs FFmpeg and a GPU.
+//! How fast the Editor's frames come: a measurement, not a test. Needs FFmpeg and a GPU.
+//! `cargo run -p lightair-render --release --example editor_fps`
 
 use std::process::Command;
 use std::time::Instant;
@@ -36,11 +36,10 @@ fn source(dir: &std::path::Path, name: &str, size: &str, fps: u32) -> std::path:
     src
 }
 
-#[test]
-#[ignore = "a measurement; run by hand"]
-fn frames_per_second() {
+fn main() {
     let dir = tempfile::tempdir().unwrap();
     if media::ffmpeg().is_err() {
+        eprintln!("needs FFmpeg");
         return;
     }
     for (name, size, fps, seq_size) in
@@ -64,21 +63,4 @@ fn frames_per_second() {
             eprintln!("{size}@{fps}, frames at {:?}: {n} frames in {s:.2} s = {:.1} fps", r.out_size(), n as f64 / s);
         }
     }
-}
-
-#[test]
-#[ignore = "a measurement; run by hand"]
-fn swizzle_cost() {
-    let mut v = vec![7u8; 1920 * 1080 * 4];
-    let start = Instant::now();
-    for p in v.as_chunks_mut::<4>().0 {
-        p.swap(0, 2);
-    }
-    eprintln!("swap per pixel: {:?}", start.elapsed());
-    let start = Instant::now();
-    for w in v.as_chunks_mut::<4>().0.iter_mut() {
-        let x = u32::from_le_bytes(*w);
-        *w = ((x & 0xFF00FF00) | ((x & 0xFF) << 16) | ((x >> 16) & 0xFF)).to_le_bytes();
-    }
-    eprintln!("as u32: {:?}", start.elapsed());
 }

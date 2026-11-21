@@ -297,4 +297,13 @@ mod tests {
         assert!(s.contains("So this") && !s.contains("um"), "{s}");
         assert!(s.contains("works"), "{s}");
     }
+
+    #[test]
+    fn the_ranges_to_cut_are_fillers_and_the_middle_of_long_pauses() {
+        let t = Transcript {
+            language: "en".into(),
+            words: vec![w(0, 400, "So"), w(400, 700, "um"), w(700, 1_000, "this"), w(4_000, 4_400, "works")],
+        };
+        assert_eq!(tightening(&t, 0, 5_000, 1_000, 300), vec![(400, 700), (1_150, 3_850)]);
+    }
 }

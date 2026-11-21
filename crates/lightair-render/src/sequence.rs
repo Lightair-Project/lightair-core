@@ -2068,9 +2068,12 @@ mod tests {
         let ws = tempfile::tempdir().unwrap();
         let mut a = Project::new("Intro", (1920, 1080), 30);
         a.save(ws.path()).unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(5));
         let mut b = Project::new("Tutorial", (1080, 1920), 60);
+        // saved later: the same millisecond doesn't count (no guessed sleep)
         b.save(ws.path()).unwrap();
+        while b.modified_ms <= a.modified_ms {
+            b.save(ws.path()).unwrap();
+        }
         let list = Project::list(ws.path());
         assert_eq!(list.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["Tutorial", "Intro"], "latest first");
         assert_eq!(Project::load(ws.path(), a.id).unwrap().name, "Intro");
@@ -2203,17 +2206,10 @@ mod tests {
         let pieces: Vec<(u64, u64, u64)> = s.tracks[0].clips.iter().map(|c| (c.start_ms, c.in_ms, c.out_ms)).collect();
         assert_eq!(pieces[..3], [(0, 1_000, 2_000), (1_000, 3_000, 6_000), (4_000, 8_000, 10_000)]);
         assert_eq!(s.clip(next).unwrap().start_ms, 7_000, "the next clip moved up by what was cut");
-        // fillers and long pauses
-        let w = |a: u64, b: u64, t: &str| crate::speech::Word { start_ms: a, end_ms: b, text: t.into() };
-        let t = crate::speech::Transcript {
-            language: "en".into(),
-            words: vec![w(0, 400, "So"), w(400, 700, "um"), w(700, 1_000, "this"), w(4_000, 4_400, "works")],
-        };
-        assert_eq!(crate::speech::tightening(&t, 0, 5_000, 1_000, 300), vec![(400, 700), (1_150, 3_850)]);
     }
 
     #[test]
-    fn delete_left_right_magnet_markers_and_links() {
+    fn deleting_left_and_right_of_the_playhead_and_the_magnet_closing_the_gap() {
         let mut s = Sequence::new((1920, 1080), 30);
         let a = video(&mut s, "a", 4_000);
         let b = video(&mut s, "b", 4_000);
@@ -2228,18 +2224,31 @@ mod tests {
         // the second's end cut at 5 s (2 s into it)
         s.delete_right(5_000, &[]);
         assert_eq!(s.clip(second).unwrap().end_ms(), 5_000);
+    }
+
+    #[test]
+    fn a_marker_toggles_and_one_near_the_playhead_is_taken_away() {
+        let mut s = Sequence::new((1920, 1080), 30);
         s.toggle_marker(2_000, 50);
         s.toggle_marker(500, 50);
-        assert_eq!(s.markers, vec![500, 2_000]);
+        assert_eq!(s.markers, vec![500, 2_000], "in time order");
         s.toggle_marker(2_020, 50);
         assert_eq!(s.markers, vec![500], "one near is taken away");
-        // a detached sound goes with its video
+    }
+
+    #[test]
+    fn a_detached_sound_stays_linked_to_its_video() {
+        let mut s = Sequence::new((1920, 1080), 30);
+        let a = video(&mut s, "a", 4_000);
+        let b = video(&mut s, "b", 4_000);
+        let first = s.append(a).unwrap();
+        let second = s.append(b).unwrap();
         let sound = s.detach_sound(second).unwrap();
         let mut both = s.linked(second);
         both.sort();
         let mut want = vec![second, sound];
         want.sort();
         assert_eq!(both, want);
-        assert_eq!(s.linked(first), vec![first]);
+        assert_eq!(s.linked(first), vec![first], "the other clip isn't");
     }
 }

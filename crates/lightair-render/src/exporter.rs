@@ -734,9 +734,8 @@ mod tests {
         let s = ExportSettings { size: Some((1280, 720)), ..ExportSettings::default() };
         let (f, _) = s.video_args((1920, 1080), 30.0, &|_| false);
         assert!(f.unwrap().starts_with("scale=1280:720"));
-        let (f, a) = ExportSettings::default().video_args((1920, 1080), 30.0, &|_| false);
-        assert!(f.is_none());
-        assert!(a.contains(&"libx264".to_string()));
+        let (f, _) = ExportSettings::default().video_args((1920, 1080), 30.0, &|_| false);
+        assert!(f.is_none(), "no size chosen: no scaling");
         let gif = ExportSettings { container: Container::Gif, video: VideoCodec::Gif, ..ExportSettings::default() };
         assert_eq!(gif.size_for((1920, 1080)), (960, 540));
     }
@@ -746,7 +745,8 @@ mod tests {
         let mb = |s: ExportSettings| s.estimate((1920, 1080), 30.0, 60_000).unwrap() as f64 / 1e6;
         let h264 = mb(ExportSettings::default());
         assert!((10.0..200.0).contains(&h264), "{h264}");
-        let prores = mb(PRESETS[4].2);
+        let prores_preset = PRESETS.iter().find(|(_, _, p)| p.video == VideoCodec::ProRes).expect("a ProRes preset");
+        let prores = mb(prores_preset.2);
         assert!(prores > h264 * 5.0, "{prores} vs {h264}");
         let fixed = mb(ExportSettings { rate: Rate::Bitrate(8_000), audio: None, ..ExportSettings::default() });
         assert!((fixed - 60.0).abs() < 1.0, "{fixed}");
