@@ -414,7 +414,7 @@ pub struct Device {
 
 const TWITCH_SCOPES: &str = "channel:manage:broadcast user:write:chat user:read:chat moderator:manage:banned_users moderator:manage:chat_messages \
                   channel:read:redemptions channel:edit:commercial channel:manage:polls channel:manage:predictions channel:manage:raids \
-                  moderator:manage:shoutouts clips:edit";
+                  moderator:manage:shoutouts clips:edit channel:read:stream_key";
 
 /// Starts Twitch's device code flow (its flow for public clients: no redirect, no secret).
 pub fn device_start() -> Result<Device, String> {

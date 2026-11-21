@@ -715,3 +715,187 @@ mod tests {
         );
     }
 }
+
+// ── The stream key and ingest through sign-in (the desktop's outputs-upgrades §14, Lightair
+// Live's studio-plan F4) ──────────────────────────────────────────────────────────────────────
+
+/// Where a stream goes when its key comes through sign-in, and the YouTube broadcast made
+/// for it (to end when the stream does). The key is never stored: kept only while streaming.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Ingest {
+    pub url: String,
+    pub key: String,
+    pub broadcast: Option<String>,
+}
+
+/// The signed-in account's stream key: Twitch (Helix `streams/key`, scope
+/// `channel:read:stream_key`; an older sign-in without it is asked to sign in again).
+pub fn stream_key(platform: &str) -> Result<String, String> {
+    match platform {
+        "twitch" => {
+            let me = twitch_me()?;
+            let v = call("twitch", "GET", &format!("{HELIX}/streams/key?broadcaster_id={me}"), None).map_err(|e| {
+                if e.contains("401") || e.to_lowercase().contains("scope") {
+                    "Twitch needs you to sign in again to give Lightair your stream key.".to_string()
+                } else {
+                    e
+                }
+            })?;
+            twitch_key_of(&v)
+        }
+        other => Err(format!("{other} doesn't give its stream key through sign-in")),
+    }
+}
+
+fn twitch_key_of(v: &Value) -> Result<String, String> {
+    v["data"][0]["stream_key"]
+        .as_str()
+        .filter(|k| !k.is_empty())
+        .map(String::from)
+        .ok_or_else(|| "Twitch didn't give the stream key".into())
+}
+
+/// The channel's reusable stream (made once if there's none): its id and where it ingests.
+pub fn youtube_ingest() -> Result<(String, Ingest), String> {
+    let v = call(
+        "youtube",
+        "GET",
+        &format!("{YT}/liveStreams?part=id,snippet,cdn,contentDetails&mine=true&maxResults=50"),
+        None,
+    )?;
+    if let Some(found) = youtube_reusable(&v) {
+        return Ok(found);
+    }
+    let made = call(
+        "youtube",
+        "POST",
+        &format!("{YT}/liveStreams?part=id,snippet,cdn,contentDetails"),
+        Some(youtube_stream_body()),
+    )?;
+    youtube_stream_of(&made).ok_or_else(|| "YouTube didn't make a stream key".into())
+}
+
+fn youtube_stream_body() -> Value {
+    json!({
+        "snippet": {"title": "Lightair"},
+        "cdn": {"frameRate": "variable", "ingestionType": "rtmp", "resolution": "variable"},
+        "contentDetails": {"isReusable": true}
+    })
+}
+
+/// A liveStream's id and ingest (RTMPS where given).
+fn youtube_stream_of(s: &Value) -> Option<(String, Ingest)> {
+    let info = &s["cdn"]["ingestionInfo"];
+    let url = info["rtmpsIngestionAddress"].as_str().filter(|u| !u.is_empty()).or(info["ingestionAddress"].as_str())?;
+    let key = info["streamName"].as_str().filter(|k| !k.is_empty())?;
+    Some((s["id"].as_str()?.to_string(), Ingest { url: url.to_string(), key: key.to_string(), broadcast: None }))
+}
+
+/// The first reusable RTMP stream in a `liveStreams.list` answer.
+fn youtube_reusable(v: &Value) -> Option<(String, Ingest)> {
+    v["items"]
+        .as_array()?
+        .iter()
+        .filter(|s| s["contentDetails"]["isReusable"].as_bool() == Some(true))
+        .filter(|s| s["cdn"]["ingestionType"].as_str().is_none_or(|t| t == "rtmp"))
+        .find_map(youtube_stream_of)
+}
+
+/// A broadcast made now and bound to the channel's reusable stream: it goes live by itself
+/// when the stream arrives and ends when it stops (`enableAutoStart`, `enableAutoStop`).
+/// `privacy`: "public", "unlisted" or "private". About 150 quota units.
+pub fn youtube_create_broadcast(title: &str, privacy: &str) -> Result<Ingest, String> {
+    let (stream, mut ingest) = youtube_ingest()?;
+    let title = if title.trim().is_empty() { "Live" } else { title.trim() };
+    let b = call(
+        "youtube",
+        "POST",
+        &format!("{YT}/liveBroadcasts?part=id,snippet,status,contentDetails"),
+        Some(youtube_broadcast_body(title, privacy, &rfc3339_now())),
+    )?;
+    let id = b["id"].as_str().ok_or("YouTube didn't make the broadcast")?.to_string();
+    call(
+        "youtube",
+        "POST",
+        &format!("{YT}/liveBroadcasts/bind?id={id}&part=id,contentDetails&streamId={stream}"),
+        None,
+    )?;
+    ingest.broadcast = Some(id);
+    Ok(ingest)
+}
+
+fn youtube_broadcast_body(title: &str, privacy: &str, start: &str) -> Value {
+    let privacy = if matches!(privacy, "public" | "unlisted" | "private") { privacy } else { "public" };
+    json!({
+        "snippet": {"title": title.chars().take(100).collect::<String>(), "scheduledStartTime": start},
+        "status": {"privacyStatus": privacy, "selfDeclaredMadeForKids": false},
+        "contentDetails": {"enableAutoStart": true, "enableAutoStop": true, "latencyPreference": "normal"}
+    })
+}
+
+/// Ends a broadcast made by `youtube_create_broadcast` (when the stream ends).
+pub fn youtube_end_broadcast(id: &str) -> Result<(), String> {
+    call(
+        "youtube",
+        "POST",
+        &format!("{YT}/liveBroadcasts/transition?broadcastStatus=complete&id={id}&part=status"),
+        None,
+    )
+    .map(|_| ())
+}
+
+/// Now, as `2026-11-22T10:04:05Z`.
+fn rfc3339_now() -> String {
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+    rfc3339(secs)
+}
+
+fn rfc3339(secs: i64) -> String {
+    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    // civil from days (Howard Hinnant's algorithm)
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", rem / 3600, rem / 60 % 60, rem % 60)
+}
+
+#[cfg(test)]
+mod ingest_tests {
+    use super::*;
+
+    #[test]
+    fn keys_and_ingests_are_read_from_the_answers() {
+        assert_eq!(twitch_key_of(&json!({"data": [{"stream_key": "live_1_abc"}]})).unwrap(), "live_1_abc");
+        assert!(twitch_key_of(&json!({"data": []})).is_err());
+        let list = json!({"items": [
+            {"id": "once", "contentDetails": {"isReusable": false},
+             "cdn": {"ingestionType": "rtmp", "ingestionInfo": {"ingestionAddress": "rtmp://a.rtmp.youtube.com/live2", "streamName": "k0"}}},
+            {"id": "s1", "contentDetails": {"isReusable": true},
+             "cdn": {"ingestionType": "rtmp", "ingestionInfo": {"ingestionAddress": "rtmp://a.rtmp.youtube.com/live2", "rtmpsIngestionAddress": "rtmps://a.rtmps.youtube.com/live2", "streamName": "k1"}}}
+        ]});
+        let (id, ingest) = youtube_reusable(&list).unwrap();
+        assert_eq!(
+            (id.as_str(), ingest.url.as_str(), ingest.key.as_str()),
+            ("s1", "rtmps://a.rtmps.youtube.com/live2", "k1")
+        );
+        assert!(youtube_reusable(&json!({"items": []})).is_none());
+        assert_eq!(youtube_stream_body()["contentDetails"]["isReusable"], true);
+        let b = youtube_broadcast_body("My show", "secret", "2026-11-22T10:00:00Z");
+        assert_eq!(b["status"]["privacyStatus"], "public");
+        assert_eq!(b["contentDetails"]["enableAutoStart"], true);
+        assert_eq!(b["snippet"]["scheduledStartTime"], "2026-11-22T10:00:00Z");
+    }
+
+    #[test]
+    fn times_are_rfc3339() {
+        assert_eq!(rfc3339(0), "1970-01-01T00:00:00Z");
+        assert_eq!(rfc3339(1_795_349_045), "2026-11-22T12:04:05Z");
+        assert_eq!(rfc3339(951_782_400), "2000-02-29T00:00:00Z");
+    }
+}
