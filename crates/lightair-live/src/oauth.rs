@@ -7,13 +7,17 @@
 //!   clients come with a secret that isn't secret (it ships in every copy); it's sent too.
 //! - **Twitch**: the device code flow (Twitch's flow for public clients): the browser opens
 //!   twitch.tv/activate with the code filled in; no secret in the app.
-//! - **Kick**: authorization code with PKCE to a fixed loopback address (Kick wants the exact
-//!   redirect registered: `http://127.0.0.1:47801/callback` unless set otherwise).
+//! - **Kick**: authorization code with PKCE through shroudy (shroudy.rs), the owner's broker that
+//!   holds Lightair's Kick secret, so no copy of Lightair carries it: Kick sends the browser to
+//!   shroudy's callback, which sends it on to `http://127.0.0.1:47801/callback` (the desktop) or
+//!   `app.lightair.live:/oauth/kick` (Lightair Live), as the state names; the code is exchanged
+//!   and refreshed at shroudy. With the person's own Kick app (its id and secret in Settings),
+//!   straight to Kick at the loopback address they registered.
 //! - **X**: authorization code with PKCE (its Livestream API), to
 //!   `http://127.0.0.1:47802/callback`; a public ("Native App") client, or with its secret as
 //!   HTTP Basic for a confidential one.
 //!
-//! Each app's ids come from the build (`LIGHTAIR_YOUTUBE_CLIENT_ID`, … set when building) or
+//! Each app's ids (but Kick's) come from the build (`LIGHTAIR_YOUTUBE_CLIENT_ID`, … set when building) or
 //! the environment at run time; docs/official-apis.md says how to register them. Tokens are kept
 //! by the app (the Keychain): [`set_store`].
 
@@ -26,6 +30,7 @@ use base64::Engine;
 use serde_json::{Value, json};
 
 use crate::net;
+use crate::shroudy::{self, Broker};
 
 /// The platforms with an official sign-in Lightair supports.
 pub const PROVIDERS: &[&str] = &["youtube", "twitch", "kick", "x", "spotify"];
@@ -61,7 +66,8 @@ fn app(provider: &str) -> Option<App> {
     let (id, secret) = match provider {
         "youtube" => (option_env!("LIGHTAIR_YOUTUBE_CLIENT_ID"), option_env!("LIGHTAIR_YOUTUBE_CLIENT_SECRET")),
         "twitch" => (option_env!("LIGHTAIR_TWITCH_CLIENT_ID"), None),
-        "kick" => (option_env!("LIGHTAIR_KICK_CLIENT_ID"), option_env!("LIGHTAIR_KICK_CLIENT_SECRET")),
+        // Lightair's own Kick app is at shroudy, which holds its secret ([`broker`])
+        "kick" => (None, None),
         "x" => (option_env!("LIGHTAIR_X_CLIENT_ID"), option_env!("LIGHTAIR_X_CLIENT_SECRET")),
         "spotify" => (option_env!("LIGHTAIR_SPOTIFY_CLIENT_ID"), None),
         _ => return None,
@@ -98,9 +104,15 @@ pub fn wants_secret(provider: &str) -> bool {
     matches!(provider, "youtube" | "kick")
 }
 
-/// Whether this copy of Lightair has `provider`'s app (an id to sign in with).
+/// Whether this copy of Lightair has `provider`'s app (an id to sign in with, or shroudy).
 pub fn available(provider: &str) -> bool {
-    app(provider).is_some()
+    app(provider).is_some() || broker(provider).is_some()
+}
+
+/// Where `provider`'s sign-in goes through shroudy (shroudy.rs): Kick, unless the person's own
+/// Kick app is set (Settings, or `LIGHTAIR_KICK_CLIENT_ID` at run time).
+fn broker(provider: &str) -> Option<Broker> {
+    (provider == "kick" && app(provider).is_none()).then(Broker::kick)
 }
 
 type Get = Box<dyn Fn(&str) -> Option<String> + Send + Sync>;
@@ -177,7 +189,7 @@ pub(crate) fn encode(s: &str) -> String {
     out
 }
 
-fn post_form(url: &str, fields: &[(&str, &str)]) -> Result<Value, String> {
+pub(crate) fn post_form(url: &str, fields: &[(&str, &str)]) -> Result<Value, String> {
     post_form_as(url, fields, None)
 }
 
@@ -259,7 +271,7 @@ fn wait_for_code(listener: &TcpListener, state: &str, timeout: Duration) -> Resu
     }
 }
 
-fn decode(s: &str) -> String {
+pub(crate) fn decode(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
@@ -287,10 +299,9 @@ pub type Prompt = Box<dyn Fn(&str) + Send>;
 
 /// Signs in to `provider` (opens the browser, waits up to five minutes): the account's name.
 pub fn sign_in(provider: &str, prompt: Prompt) -> Result<String, String> {
-    let app = app(provider).ok_or_else(|| {
-        format!("this copy of Lightair has no {provider} app to sign in with (docs/official-apis.md)")
-    })?;
-    let _ = app;
+    if !available(provider) {
+        return Err(format!("this copy of Lightair has no {provider} app to sign in with (docs/official-apis.md)"));
+    }
     match provider {
         "twitch" => twitch_device(&prompt),
         "youtube" | "kick" | "x" | "spotify" => code_flow(provider, &prompt),
@@ -305,18 +316,27 @@ pub struct Pending {
     pub redirect: String,
     pub state: String,
     verifier: String,
+    /// Through shroudy: where the code is exchanged.
+    broker: Option<Broker>,
+}
+
+/// A PKCE pair (RFC 7636, S256): the verifier and its challenge.
+fn pkce() -> (String, String) {
+    use sha2::Digest;
+    let verifier = b64url(&random(48));
+    let challenge = b64url(&sha2::Sha256::digest(verifier.as_bytes()));
+    (verifier, challenge)
 }
 
 /// The first step of the authorization code flow with PKCE: the page to open (in the browser,
 /// or a phone's sign-in sheet) and what finishing it needs. `redirect` is where the platform
 /// sends the browser back (registered with the app).
 pub fn authorize(provider: &str, redirect: &str) -> Result<(String, Pending), String> {
+    if let Some(broker) = broker(provider) {
+        return authorize_via(provider, &broker, redirect);
+    }
     let app = app(provider).ok_or_else(|| format!("no {provider} app to sign in with (docs/official-apis.md)"))?;
-    let verifier = b64url(&random(48));
-    let challenge = {
-        use sha2::Digest;
-        b64url(&sha2::Sha256::digest(verifier.as_bytes()))
-    };
+    let (verifier, challenge) = pkce();
     let state = b64url(&random(16));
     let (auth, scope) = match provider {
         "youtube" => ("https://accounts.google.com/o/oauth2/v2/auth", "https://www.googleapis.com/auth/youtube"),
@@ -338,16 +358,39 @@ pub fn authorize(provider: &str, redirect: &str) -> Result<(String, Pending), St
     if provider == "youtube" {
         url.push_str("&access_type=offline&prompt=consent");
     }
-    Ok((url, Pending { provider: provider.into(), redirect: redirect.into(), state, verifier }))
+    Ok((url, Pending { provider: provider.into(), redirect: redirect.into(), state, verifier, broker: None }))
 }
 
-/// Finishes a sign-in with the code the platform sent back (checked against its state):
-/// exchanges it, finds who signed in and keeps the token. The account's name.
-pub fn complete(pending: &Pending, code: &str, state: &str) -> Result<String, String> {
+/// The first step of a sign-in through `broker` (shroudy, which holds the platform's secret):
+/// shroudy's sign-in page and what finishing it needs. `redirect` is one of the return addresses
+/// shroudy knows for `provider` ([`shroudy::KICK_RETURNS`]); the state names it.
+pub fn authorize_via(provider: &str, broker: &Broker, redirect: &str) -> Result<(String, Pending), String> {
+    let returns = match provider {
+        "kick" => shroudy::KICK_RETURNS,
+        other => return Err(format!("no sign-in through shroudy for {other}")),
+    };
+    let name = returns.iter().find(|(_, url)| *url == redirect).map(|(name, _)| *name).ok_or_else(|| {
+        let known: Vec<_> = returns.iter().map(|(_, url)| *url).collect();
+        format!("the sign-in service sends {provider} back only to {}, not {redirect}", known.join(" or "))
+    })?;
+    let (verifier, challenge) = pkce();
+    let state = format!("{name}.{}", b64url(&random(16)));
+    let url = broker.authorize_url(&state, &challenge);
+    let pending =
+        Pending { provider: provider.into(), redirect: redirect.into(), state, verifier, broker: Some(broker.clone()) };
+    Ok((url, pending))
+}
+
+/// Exchanges the code the platform sent back (checked against its state first): the token
+/// answer, not yet kept.
+pub fn exchange_code(pending: &Pending, code: &str, state: &str) -> Result<Value, String> {
     if state != pending.state {
         return Err("that sign-in came back for another request; try again".into());
     }
     let provider = pending.provider.as_str();
+    if let Some(broker) = &pending.broker {
+        return broker.exchange(code, &pending.verifier);
+    }
     let app = app(provider).ok_or_else(|| format!("no {provider} app to sign in with"))?;
     let fields = vec![
         ("grant_type", "authorization_code"),
@@ -363,7 +406,13 @@ pub fn complete(pending: &Pending, code: &str, state: &str) -> Result<String, St
             v["error_description"].as_str().or(v["error"].as_str()).unwrap_or("")
         ));
     }
-    keep_token(provider, v)
+    Ok(v)
+}
+
+/// Finishes a sign-in with the code the platform sent back (checked against its state):
+/// exchanges it, finds who signed in and keeps the token. The account's name.
+pub fn complete(pending: &Pending, code: &str, state: &str) -> Result<String, String> {
+    keep_token(&pending.provider, exchange_code(pending, code, state)?)
 }
 
 /// A token answer kept, with when it runs out and who it's for: the account's name.
@@ -385,6 +434,8 @@ fn code_flow(provider: &str, prompt: &Prompt) -> Result<String, String> {
         _ => None,
     };
     let port: u16 = match fixed {
+        // shroudy sends the browser back to the one address it knows
+        Some(default) if broker(provider).is_some() => default,
         Some(default) => std::env::var(format!("LIGHTAIR_{}_REDIRECT_PORT", provider.to_uppercase()))
             .ok()
             .and_then(|p| p.parse().ok())
@@ -558,14 +609,19 @@ pub fn token(provider: &str) -> Option<String> {
     if v["expires_at"].as_i64().unwrap_or(0) - 60 > now() {
         return v["access_token"].as_str().map(String::from);
     }
-    let app = app(provider)?;
     let refresh = v["refresh_token"].as_str()?.to_string();
-    let fields = vec![
-        ("grant_type", "refresh_token"),
-        ("client_id", app.client_id.as_str()),
-        ("refresh_token", refresh.as_str()),
-    ];
-    let t = exchange(provider, &app, token_url(provider), fields).ok()?;
+    let t = match broker(provider) {
+        Some(broker) => broker.refresh(&refresh).ok()?,
+        None => {
+            let app = app(provider)?;
+            let fields = vec![
+                ("grant_type", "refresh_token"),
+                ("client_id", app.client_id.as_str()),
+                ("refresh_token", refresh.as_str()),
+            ];
+            exchange(provider, &app, token_url(provider), fields).ok()?
+        }
+    };
     let access = t["access_token"].as_str()?.to_string();
     v["access_token"] = json!(access);
     if let Some(r) = t["refresh_token"].as_str() {
@@ -583,6 +639,77 @@ pub fn client_id(provider: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use super::{Broker, authorize, authorize_via, exchange_code, shroudy};
+
+    const DESKTOP: &str = "http://127.0.0.1:47801/callback";
+
+    /// The sign-in page and its query, decoded.
+    fn page(url: &str) -> (&str, Vec<(String, String)>) {
+        let (page, q) = url.split_once('?').unwrap();
+        let q = q.split('&').map(|kv| kv.split_once('=').unwrap()).map(|(k, v)| (k.into(), super::decode(v))).collect();
+        (page, q)
+    }
+
+    fn get<'a>(q: &'a [(String, String)], k: &str) -> &'a str {
+        q.iter().find(|(key, _)| key == k).map(|(_, v)| v.as_str()).unwrap_or_else(|| panic!("no {k} in {q:?}"))
+    }
+
+    /// No Kick secret in any copy of Lightair: the sign-in page is shroudy's, which adds the
+    /// client id; the app gives only PKCE's challenge and a state naming where to come back.
+    #[test]
+    fn kick_signs_in_at_shroudy_with_nothing_secret() {
+        let (url, pending) = authorize("kick", DESKTOP).unwrap();
+        let (at, q) = page(&url);
+        assert_eq!(at, format!("{}/authorize", shroudy::KICK));
+        let mut keys: Vec<_> = q.iter().map(|(k, _)| k.as_str()).collect();
+        keys.sort();
+        assert_eq!(keys, ["code_challenge", "code_challenge_method", "state"], "{url}");
+        assert_eq!(get(&q, "code_challenge_method"), "S256");
+        let state = get(&q, "state");
+        assert_eq!(state, pending.state);
+        assert!(state.strip_prefix("desktop.").is_some_and(|nonce| nonce.len() >= 16), "{state}");
+    }
+
+    /// shroudy sends the browser back to the address the state names: the phone's, or none.
+    #[test]
+    fn the_state_names_where_the_browser_comes_back() {
+        let (_, pending) = authorize("kick", "app.lightair.live:/oauth/kick").unwrap();
+        assert!(pending.state.starts_with("phone."), "{}", pending.state);
+        let err = authorize("kick", "http://127.0.0.1:9/elsewhere").unwrap_err();
+        assert!(err.contains("http://127.0.0.1:47801/callback"), "says where it can come back: {err}");
+    }
+
+    /// The code is exchanged at shroudy with the verifier of the challenge the sign-in page
+    /// got (PKCE), and never a client id or secret.
+    #[test]
+    fn the_code_is_exchanged_at_shroudy_with_its_verifier() {
+        use sha2::Digest;
+        let (base, got) = shroudy::fake::shroudy(200, r#"{"access_token":"a1","refresh_token":"r1","expires_in":3600}"#);
+        let (url, pending) = authorize_via("kick", &Broker::at(&base), DESKTOP).unwrap();
+        let (_, q) = page(&url);
+        let token = exchange_code(&pending, "c0de", get(&q, "state")).unwrap();
+        assert_eq!(token["access_token"], "a1");
+        let req = got.recv().unwrap();
+        assert_eq!((req.method.as_str(), req.path.as_str()), ("POST", "/v1/lightair/oauth/kick/token"));
+        assert_eq!(req.header("content-type"), Some("application/x-www-form-urlencoded"));
+        let form = req.form();
+        assert_eq!(get(&form, "grant_type"), "authorization_code");
+        assert_eq!(get(&form, "code"), "c0de");
+        let verifier = get(&form, "code_verifier");
+        let challenge = super::b64url(&sha2::Sha256::digest(verifier.as_bytes()));
+        assert_eq!(challenge, get(&q, "code_challenge"), "the verifier answers the challenge");
+        assert!(form.iter().all(|(k, _)| k != "client_secret" && k != "client_id"), "{form:?}");
+    }
+
+    /// A code that came back for another sign-in isn't exchanged at all.
+    #[test]
+    fn a_code_for_another_sign_in_is_refused_before_asking_shroudy() {
+        // nothing listens here: asking would fail differently
+        let (_, pending) = authorize_via("kick", &Broker::at("http://127.0.0.1:9/v1/lightair/oauth/kick"), DESKTOP).unwrap();
+        let err = exchange_code(&pending, "c0de", "desktop.someone-else").unwrap_err();
+        assert!(err.contains("another request"), "{err}");
+    }
+
     #[test]
     fn query_values_round_trip() {
         assert_eq!(super::encode("a b&c/é"), "a%20b%26c%2F%C3%A9");

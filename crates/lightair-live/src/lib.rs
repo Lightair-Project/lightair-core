@@ -27,6 +27,7 @@ pub mod kick;
 pub mod moderate;
 pub mod niconico;
 pub mod oauth;
+pub mod shroudy;
 pub mod official;
 pub mod send;
 pub mod showroom;
