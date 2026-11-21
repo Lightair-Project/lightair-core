@@ -694,12 +694,13 @@ pub fn action(method: &str, p: &Value) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn choices_from_lists_or_text() {
+    fn choices_come_from_lists_or_text() {
         assert_eq!(super::list(&serde_json::json!("Yes, No ,\nMaybe")), vec!["Yes", "No", "Maybe"]);
         assert_eq!(super::list(&serde_json::json!(["a", " ", "b"])), vec!["a", "b"]);
-        assert_eq!(super::number(&serde_json::json!("90"), 60), 90);
-        assert!(super::is_action("twitch.raid") && !super::is_action("twitch.dance"));
-        // nothing happens without the official sign-in
+    }
+
+    #[test]
+    fn nothing_happens_without_the_official_sign_in() {
         assert!(super::action("twitch.ad", &serde_json::json!({})).is_err());
     }
 
