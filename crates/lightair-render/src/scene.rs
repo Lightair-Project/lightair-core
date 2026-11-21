@@ -142,6 +142,17 @@ impl SceneRenderer {
         self.size
     }
 
+    /// Frames stay on the GPU ([`SceneRenderer::target`]); [`SceneRenderer::frame`] and
+    /// [`SceneRenderer::transition`] then return nothing (see [`Compositor::keep_on_gpu`]).
+    pub fn keep_on_gpu(&mut self, keep: bool) {
+        self.compositor.keep_on_gpu(keep);
+    }
+
+    /// The texture the frames are drawn into ([`Compositor::target`]).
+    pub fn target(&self) -> &wgpu::Texture {
+        self.compositor.target()
+    }
+
     /// `scene` in `canvas`, now (`time_s`: the clock moving effects run on). RGBA, top row
     /// first; nothing when presented into a layer.
     pub fn frame(
@@ -291,6 +302,7 @@ impl SceneRenderer {
                     Picture::Rgba(b) => Pixels::Rgba(b),
                     #[cfg(any(target_os = "macos", target_os = "ios"))]
                     Picture::Buffer(b) => Pixels::Buffer(b),
+                    Picture::Texture(t) => Pixels::Texture(t),
                 },
                 size: d.shot.size,
                 center: d.center,

@@ -719,6 +719,7 @@ impl SequenceRenderer {
                     Picture::Rgba(b) => Pixels::Rgba(b),
                     #[cfg(any(target_os = "macos", target_os = "ios"))]
                     Picture::Buffer(b) => Pixels::Buffer(b),
+                    Picture::Texture(t) => Pixels::Texture(t),
                 },
                 size: p.size,
                 center: p.center,

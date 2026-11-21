@@ -4,6 +4,7 @@ mod background;
 mod effects;
 mod export;
 mod exporter;
+mod gpu_target;
 mod layer;
 mod mix;
 mod scene;

@@ -11,7 +11,7 @@
 //!   them (springs, evaluated deterministically).
 
 pub mod compose;
-pub use compose::set_backends;
+pub use compose::{SharedGpu, set_backends, shared_gpu};
 pub mod edit;
 pub mod export;
 pub mod exporter;

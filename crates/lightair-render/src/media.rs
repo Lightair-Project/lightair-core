@@ -91,6 +91,8 @@ pub enum Picture {
     Rgba(Vec<u8>),
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     Buffer(crate::texture::PixelBuffer),
+    /// A texture on the shared device (see [`crate::compose::Pixels::Texture`]).
+    Texture(wgpu::Texture),
 }
 
 impl Picture {
@@ -100,6 +102,7 @@ impl Picture {
             Picture::Rgba(b) => std::borrow::Cow::Borrowed(b),
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             Picture::Buffer(b) => std::borrow::Cow::Owned(b.rgba().unwrap_or_default()),
+            Picture::Texture(t) => std::borrow::Cow::Owned(crate::compose::read_texture(t).unwrap_or_default()),
         }
     }
 

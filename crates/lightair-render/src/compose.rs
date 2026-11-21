@@ -275,13 +275,17 @@ enum Sprite {
 
 /// A picture in a frame of layers: RGBA (straight alpha), placed with its centre at `center`
 /// (result pixels), drawn `draw` big, turned `rotation` degrees, at `opacity`.
-/// A layer's pixels: RGBA bytes (uploaded), or (macOS, iOS) a decoder's IOSurface-backed
-/// buffer, drawn over the same memory.
+/// A layer's pixels: RGBA bytes (uploaded), (macOS, iOS) a decoder's IOSurface-backed buffer
+/// drawn over the same memory, or a texture already on the shared device.
 #[derive(Clone, Copy)]
 pub enum Pixels<'a> {
     Rgba(&'a [u8]),
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     Buffer(&'a crate::texture::PixelBuffer),
+    /// A texture on the shared device ([`shared_gpu`]), drawn as it is: `Rgba8Unorm` or
+    /// `Bgra8Unorm` holding sRGB-encoded colours (as uploaded bytes are), with
+    /// `TEXTURE_BINDING`. A phone's camera frames converted on the GPU, pictures made once.
+    Texture(&'a wgpu::Texture),
 }
 
 pub struct Layer<'a> {
@@ -356,11 +360,14 @@ pub struct Compositor {
     /// Picture layers' textures, by position in the frame.
     slots: Vec<(wgpu::Texture, (u32, u32))>,
     /// macOS, iOS: the decoders' buffers drawn in the last frame (their memory is the slots'
-    /// textures), and which slots hold such a texture.
+    /// textures).
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     held: Vec<crate::texture::PixelBuffer>,
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    /// The slots holding a texture that isn't the compositor's own (a decoder's buffer, a
+    /// caller's texture): never written into.
     imported: std::collections::HashSet<usize>,
+    /// Frames stay in [`Compositor::target`], neither read back nor presented.
+    keep: bool,
     /// Clip effects, made when first used, and each slot's picture through its effects.
     fx: Option<crate::fx::Fx>,
     fx_out: Vec<Option<wgpu::Texture>>,
@@ -497,6 +504,68 @@ fn gpu() -> Result<(wgpu::Device, wgpu::Queue), String> {
     .clone()
 }
 
+/// The device every compositor draws with, and the instance and adapter it was made from.
+pub struct SharedGpu {
+    pub instance: wgpu::Instance,
+    pub adapter: wgpu::Adapter,
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
+}
+
+/// The shared device (made on first use, as for a compositor): for textures a caller makes for
+/// [`Pixels::Texture`], and surfaces it presents [`Compositor::target`] into.
+pub fn shared_gpu() -> Result<SharedGpu, String> {
+    let (device, queue) = gpu()?;
+    let (instance, adapter) = base()?.clone();
+    Ok(SharedGpu { instance, adapter, device, queue })
+}
+
+/// A texture's pixels read back (RGBA8 or BGRA8, given as RGBA, top row first); `None` for
+/// another format or when the GPU fails. Slow: for thumbnails and tests, not per frame.
+pub fn read_texture(texture: &wgpu::Texture) -> Option<Vec<u8>> {
+    let bgra = match texture.format() {
+        wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Rgba8UnormSrgb => false,
+        wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb => true,
+        _ => return None,
+    };
+    let (device, queue) = gpu().ok()?;
+    let (w, h) = (texture.width(), texture.height());
+    let row = padded_row(w);
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: (row * h) as u64,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder = device.create_command_encoder(&Default::default());
+    encoder.copy_texture_to_buffer(
+        texture.as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buffer,
+            layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(row), rows_per_image: Some(h) },
+        },
+        wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+    );
+    queue.submit([encoder.finish()]);
+    let slice = buffer.slice(..);
+    slice.map_async(wgpu::MapMode::Read, |_| {});
+    device.poll(wgpu::PollType::wait_indefinitely()).ok()?;
+    let mut out = Vec::with_capacity((w * h * 4) as usize);
+    {
+        let data = slice.get_mapped_range().ok()?;
+        for y in 0..h as usize {
+            let start = y * row as usize;
+            out.extend_from_slice(&data[start..start + w as usize * 4]);
+        }
+    }
+    if bgra {
+        for px in out.as_chunks_mut::<4>().0 {
+            px.swap(0, 2);
+        }
+    }
+    Some(out)
+}
+
 impl Compositor {
     /// A compositor making `size` frames with this look (RGBA).
     pub fn new(size: (u32, u32), look: Look) -> Result<Compositor, String> {
@@ -609,7 +678,9 @@ impl Compositor {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: out_format,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
         let readback = device.create_buffer(&wgpu::BufferDescriptor {
@@ -634,8 +705,8 @@ impl Compositor {
             slots: Vec::new(),
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             held: Vec::new(),
-            #[cfg(any(target_os = "macos", target_os = "ios"))]
             imported: Default::default(),
+            keep: false,
             fx: None,
             fx_out: Vec::new(),
             #[cfg(target_os = "macos")]
@@ -804,6 +875,21 @@ impl Compositor {
     /// A frame of picture layers on black, back to front.
     /// Frames start transparent (`true`) or black: where nothing covers the frame, it's see-
     /// through. Pixels come premultiplied either way (over black, the same picture).
+    /// Frames stay on the GPU in [`Compositor::target`] from now on: [`Compositor::layers`] and
+    /// [`Compositor::render`] draw and return nothing, with no read-back and no presenting into
+    /// an attached layer, surface or visual. For a caller that draws the frame on to its own
+    /// targets (a phone's preview and its hardware encoders).
+    pub fn keep_on_gpu(&mut self, keep: bool) {
+        self.keep = keep;
+    }
+
+    /// The texture frames are drawn into: the compositor's size, `Rgba8UnormSrgb` for a linear
+    /// compositor (`Bgra8UnormSrgb` if asked for BGRA), else `Rgba8Unorm`/`Bgra8Unorm`;
+    /// sampleable. Its content is the last frame drawn while [`Compositor::keep_on_gpu`] is on.
+    pub fn target(&self) -> &wgpu::Texture {
+        &self.target
+    }
+
     pub fn set_transparent(&mut self, transparent: bool) {
         self.transparent = transparent;
     }
@@ -840,11 +926,18 @@ impl Compositor {
                         }
                     }
                 }
+                Pixels::Texture(t) => {
+                    let size = (t.width(), t.height());
+                    if i < self.slots.len() {
+                        self.slots[i] = (t.clone(), size);
+                    } else {
+                        self.slots.push((t.clone(), size));
+                    }
+                    self.imported.insert(i);
+                    continue;
+                }
             };
-            #[cfg(any(target_os = "macos", target_os = "ios"))]
             let imported = self.imported.remove(&i);
-            #[cfg(not(any(target_os = "macos", target_os = "ios")))]
-            let imported = false;
             if !imported && self.slots.get(i).is_some_and(|(_, s)| *s == l.size) {
                 Self::upload(&self.queue, &self.slots[i].0, rgba, l.size);
             } else {
@@ -1062,18 +1155,18 @@ impl Compositor {
         // a layer's drawable, when frames are presented into one
         #[cfg(any(target_os = "ios", target_os = "macos"))]
         let drawable = match (&self.layer, &self.layer_config) {
-            (Some(s), Some(c)) => acquire(s, &self.device, c),
+            (Some(s), Some(c)) if !self.keep => acquire(s, &self.device, c),
             _ => None,
         };
         #[cfg(any(target_os = "ios", target_os = "macos"))]
         {
-            self.missed = self.layer.is_some() && drawable.is_none();
+            self.missed = !self.keep && self.layer.is_some() && drawable.is_none();
         }
         #[cfg(target_os = "macos")]
         let view = match (&drawable, &self.surface) {
             (Some(d), _) => d.texture.create_view(&Default::default()),
-            (None, Some(s)) => s.texture.create_view(&Default::default()),
-            (None, None) => self.target.create_view(&Default::default()),
+            (None, Some(s)) if !self.keep => s.texture.create_view(&Default::default()),
+            (None, _) => self.target.create_view(&Default::default()),
         };
         #[cfg(target_os = "ios")]
         let view = match &drawable {
@@ -1082,12 +1175,12 @@ impl Compositor {
         };
         #[cfg(windows)]
         let presented = match (&self.visual, &self.visual_config) {
-            (Some(s), Some(c)) => acquire(s, &self.device, c),
+            (Some(s), Some(c)) if !self.keep => acquire(s, &self.device, c),
             _ => None,
         };
         #[cfg(windows)]
         {
-            self.missed = self.visual.is_some() && presented.is_none();
+            self.missed = !self.keep && self.visual.is_some() && presented.is_none();
         }
         #[cfg(windows)]
         let view = match &presented {
@@ -1159,6 +1252,16 @@ impl Compositor {
             self.queue.submit([encoder.finish()]);
             self.queue.present(d);
             // a decoder's buffers drawn: done with before they go back to it
+            if !self.held.is_empty() {
+                let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+            }
+            return Vec::new();
+        }
+        // kept on the GPU for the caller (its next submission sees it); a decoder's buffers
+        // drawn are waited for, as above
+        if self.keep {
+            self.queue.submit([encoder.finish()]);
+            #[cfg(any(target_os = "ios", target_os = "macos"))]
             if !self.held.is_empty() {
                 let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
             }
