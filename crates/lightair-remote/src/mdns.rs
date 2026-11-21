@@ -24,11 +24,24 @@ pub struct Advertiser {
     fingerprint: String,
     state: Mutex<(bool, bool)>,
     fullname: Mutex<Option<String>>,
+    /// `role` in the TXT record ("" for a desktop: none, as before).
+    role: String,
 }
 
 impl Advertiser {
     /// Starts advertising `port` (the TLS port) on every interface.
     pub fn start(desktop: DesktopInfo, port: u16, short_fingerprint: &str) -> Result<Advertiser, String> {
+        Self::start_as(desktop, port, short_fingerprint, "")
+    }
+
+    /// As [`Self::start`], saying what this is in the TXT record's `role` (docs/05 §8: a phone's
+    /// Studio is `studio-mobile`, so a desktop lists it as a phone to control).
+    pub fn start_as(
+        desktop: DesktopInfo,
+        port: u16,
+        short_fingerprint: &str,
+        role: &str,
+    ) -> Result<Advertiser, String> {
         let daemon = ServiceDaemon::new().map_err(|e| e.to_string())?;
         let a = Advertiser {
             daemon,
@@ -37,6 +50,7 @@ impl Advertiser {
             fingerprint: short_fingerprint.to_owned(),
             state: Mutex::new((false, false)),
             fullname: Mutex::new(None),
+            role: role.to_owned(),
         };
         a.register()?;
         Ok(a)
@@ -59,7 +73,7 @@ impl Advertiser {
         let (pairing, live) = *self.state.lock();
         let flag = |b: bool| if b { "1" } else { "0" };
         let version = crate::secure::PROTOCOL.to_string();
-        let props = [
+        let mut props = vec![
             ("id", self.desktop.id.as_str()),
             ("n", self.desktop.name.as_str()),
             ("v", version.as_str()),
@@ -67,6 +81,9 @@ impl Advertiser {
             ("pair", flag(pairing)),
             ("live", flag(live)),
         ];
+        if !self.role.is_empty() {
+            props.push(("role", self.role.as_str()));
+        }
         // instance names must be unique on the network: the name, then the id's start
         let short: String = self.desktop.id.chars().filter(char::is_ascii_alphanumeric).take(8).collect();
         let instance = format!("{} ({short})", self.desktop.name);
