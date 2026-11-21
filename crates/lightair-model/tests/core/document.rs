@@ -388,3 +388,35 @@ fn a_destination_from_before_options_is_adaptive() {
     assert!(!back.options.adaptive_bitrate);
     assert_eq!(back.options.reconnect, Some(lightair_model::Reconnect { retries: 3, delay_s: 7 }));
 }
+
+#[test]
+fn destinations_reorder_and_undo() {
+    let (mut doc, ..) = setup();
+    let make = |name: &str| lightair_model::Destination {
+        id: lightair_model::Id::new(),
+        name: name.into(),
+        server: "rtmp://example.com/live".into(),
+        enabled: true,
+        canvas: None,
+        platform: None,
+        encoding: None,
+        audio_mix: None,
+        vod_mix: None,
+        chat: None,
+        options: Default::default(),
+    };
+    let (a, b, c) = (make("A"), make("B"), make("C"));
+    let (a_id, c_id) = (a.id, c.id);
+    for d in [a, b, c] {
+        doc.apply(&Command::AddDestination { destination: d }).unwrap();
+    }
+    let names = |doc: &Document| doc.workspace().outputs.destinations.iter().map(|d| d.name.clone()).collect::<Vec<_>>();
+    assert_eq!(names(&doc), ["A", "B", "C"]);
+    doc.apply(&Command::MoveDestination { destination: c_id, to: 0 }).unwrap();
+    assert_eq!(names(&doc), ["C", "A", "B"]);
+    doc.apply(&Command::MoveDestination { destination: a_id, to: 99 }).unwrap();
+    assert_eq!(names(&doc), ["C", "B", "A"], "past the end: last");
+    assert!(doc.apply(&Command::MoveDestination { destination: lightair_model::Id::new(), to: 0 }).is_err());
+    doc.undo();
+    assert_eq!(names(&doc), ["C", "A", "B"]);
+}

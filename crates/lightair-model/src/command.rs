@@ -275,6 +275,11 @@ pub enum Command {
     RemoveDestination {
         destination: Id,
     },
+    /// Puts a destination at place `to` in the list (its order is the order they start in).
+    MoveDestination {
+        destination: Id,
+        to: usize,
+    },
     SetDestinationEnabled {
         destination: Id,
         enabled: bool,
@@ -443,6 +448,7 @@ impl Command {
             Command::SetEffectSettings { .. } => "Change effect".into(),
             Command::AddDestination { .. } => "Add destination".into(),
             Command::RemoveDestination { .. } => "Remove destination".into(),
+            Command::MoveDestination { .. } => "Reorder destinations".into(),
             Command::SetDestinationEnabled { .. } => "Toggle destination".into(),
             Command::SetDestinationCanvas { .. } => "Change destination canvas".into(),
             Command::SetRecordingSettings { .. } => "Change recording settings".into(),
@@ -857,6 +863,12 @@ impl Command {
                 if workspace.outputs.destinations.len() == before {
                     return Err(CommandError::NoDestination(*destination));
                 }
+            }
+            Command::MoveDestination { destination, to } => {
+                let list = &mut workspace.outputs.destinations;
+                let idx = list.iter().position(|d| d.id == *destination).ok_or(CommandError::NoDestination(*destination))?;
+                let d = list.remove(idx);
+                list.insert((*to).min(list.len()), d);
             }
             Command::SetDestinationEnabled { destination, enabled } => {
                 workspace
