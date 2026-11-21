@@ -1085,7 +1085,7 @@ pub struct Destination {
 }
 
 /// How a destination's connection is run (as opposed to how it is encoded).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct StreamOptions {
     /// Lower the bitrate when the connection can't keep up and raise it again when it can
@@ -1095,11 +1095,15 @@ pub struct StreamOptions {
     /// When this connection drops: its own tries and delay; `None`: the workspace's
     /// (`OutputSettings::reconnect`).
     pub reconnect: Option<Reconnect>,
+    /// Which network connection to send over, and which kind of address.
+    pub network: NetworkOptions,
+    /// Hold the stream back this long before it goes out; `None`: no delay.
+    pub delay: Option<StreamDelay>,
 }
 
 impl Default for StreamOptions {
     fn default() -> Self {
-        Self { adaptive_bitrate: true, reconnect: None }
+        Self { adaptive_bitrate: true, reconnect: None, network: NetworkOptions::default(), delay: None }
     }
 }
 
@@ -1107,6 +1111,35 @@ impl StreamOptions {
     pub fn is_default(&self) -> bool {
         *self == Self::default()
     }
+}
+
+/// Which way out a destination takes.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NetworkOptions {
+    /// The network interface to send over (its system name, "en0"), found again by name each time
+    /// going live since addresses change; `None`: whichever the system picks.
+    pub interface: Option<String>,
+    pub ip_family: IpFamily,
+}
+
+/// Which kind of address a destination connects with.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IpFamily {
+    /// Either, as the system prefers.
+    #[default]
+    Auto,
+    V4,
+    V6,
+}
+
+/// A delay before a destination's stream goes out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StreamDelay {
+    pub seconds: u32,
+    /// After a dropped connection, carry on from where it stopped instead of skipping ahead.
+    pub preserve_cutoff: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

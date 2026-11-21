@@ -18,8 +18,8 @@ pub use document::{Change, Document};
 pub use hierarchy::Frame;
 pub use model::{
     AudioMix, AudioSetup, Bus, Canvas, ClipSettings, Crop, Destination, Direction, Effect, Encoding, Fit, Id, Layout,
-    MASTER_ID, Master, MixerStrip, MultitrackFormat, MultitrackPoint, Object, OutputSettings, Reconnect,
-    RecordingSettings, Route, Scene, ScreenZoomPointer, Send, Shape, ShapeKind, Source, Stinger, StreamOptions, Track,
+    IpFamily, MASTER_ID, Master, MixerStrip, MultitrackFormat, NetworkOptions, MultitrackPoint, Object, OutputSettings, Reconnect,
+    RecordingSettings, Route, Scene, ScreenZoomPointer, Send, Shape, ShapeKind, Source, Stinger, StreamDelay, StreamOptions, Track,
     TrackChannels,
     TransitionKind, TransitionSettings, VideoEncoder, VirtualCameraSettings, Workspace,
 };

@@ -384,9 +384,15 @@ fn a_destination_from_before_options_is_adaptive() {
     let mut d = d;
     d.options.adaptive_bitrate = false;
     d.options.reconnect = Some(lightair_model::Reconnect { retries: 3, delay_s: 7 });
+    d.options.network.interface = Some("en0".into());
+    d.options.network.ip_family = lightair_model::IpFamily::V4;
+    d.options.delay = Some(lightair_model::StreamDelay { seconds: 30, preserve_cutoff: true });
     let back: lightair_model::Destination = serde_json::from_str(&serde_json::to_string(&d).unwrap()).unwrap();
     assert!(!back.options.adaptive_bitrate);
     assert_eq!(back.options.reconnect, Some(lightair_model::Reconnect { retries: 3, delay_s: 7 }));
+    assert_eq!(back.options.network.interface.as_deref(), Some("en0"));
+    assert_eq!(back.options.network.ip_family, lightair_model::IpFamily::V4);
+    assert_eq!(back.options.delay, Some(lightair_model::StreamDelay { seconds: 30, preserve_cutoff: true }));
 }
 
 #[test]
