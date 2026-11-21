@@ -1177,6 +1177,11 @@ impl Compositor {
             self.queue.present(frame);
             return Vec::new();
         }
+        // a layer or visual that gave no texture: nothing shown and nothing read back (frames for
+        // it are presented, never returned); the caller draws it again (`missed`)
+        if self.missed {
+            return Vec::new();
+        }
         let row = padded_row(self.size.0);
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
