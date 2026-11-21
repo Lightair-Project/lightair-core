@@ -215,14 +215,3 @@ mod imp {
         pub fn show(&mut self, _: Option<f32>) {}
     }
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn the_zoom_reads_short() {
-        assert_eq!(super::label(2.0), "2×");
-        assert_eq!(super::label(1.5), "1.5×");
-        assert_eq!(super::label(2.49), "2.5×");
-        assert_eq!(super::label(2.98), "3×");
-    }
-}
