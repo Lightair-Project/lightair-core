@@ -24,11 +24,18 @@ fn server(password: Option<&str>) -> (Server, Calls) {
                 ]}, {"id": "s2", "name": "BRB", "objects": []}],
                 "sources": [{"id": "src1", "name": "Cam", "kind": "lightair_camera"}],
                 "tracks": [{"id": "t1", "name": "Cam", "source": "src1", "volume_db": -6.0, "muted": false}],
-                "outputs": {"recording": {"active": false, "paused": false}},
+                "canvases": [{"id": "c1", "name": "Landscape", "width": 1920, "height": 1080}],
+                "outputs": {
+                    "recording": {"active": false, "paused": false},
+                    "streaming": {"active": true, "destinations": [
+                        {"id": "d1", "name": "Twitch", "canvas": "c1", "active": true, "state": "active", "seconds": 12.0, "bytes": 4000, "total_frames": 700, "dropped": {"network": 2, "encoder": 1}},
+                        {"id": "d2", "name": "YouTube", "canvas": "c1", "active": false, "state": "idle", "seconds": 0.0},
+                    ]},
+                },
             })),
             "app.version" => Ok(json!({"version": "0.1.0", "workspace": "Test"})),
             "screenshot" => Ok(json!({"mime": "image/png", "data": "iVBORw0KGgo=", "width": 2, "height": 2})),
-            "record.start" | "scene.switch" | "object.update" | "audio.set" => Ok(json!({})),
+            "record.start" | "scene.switch" | "object.update" | "audio.set" | "output.start" | "output.stop" => Ok(json!({})),
             _ => Err(ApiError::new(crate::ErrorKind::Unknown, "no such method")),
         }
     });
@@ -162,6 +169,36 @@ fn obs_websocket_identifies_and_answers() {
     let e = read_json(&mut ws);
     assert_eq!(e["d"]["eventType"], "CurrentProgramSceneChanged");
     assert_eq!(e["d"]["eventData"]["sceneName"], "BRB");
+}
+
+#[test]
+fn obs_websocket_has_each_destination_as_an_output() {
+    let (srv, calls) = server(None);
+    let mut ws = connect(&format!("ws://127.0.0.1:{}/", srv.addr().port()));
+    read_json(&mut ws);
+    ws.send(Message::text(json!({"op": 1, "d": {"rpcVersion": 1}}).to_string())).unwrap();
+    assert_eq!(read_json(&mut ws)["op"], 2);
+    let mut ask = |kind: &str, data: Value| {
+        ws.send(Message::text(json!({"op": 6, "d": {"requestType": kind, "requestId": "x", "requestData": data}}).to_string()))
+            .unwrap();
+        read_json(&mut ws)["d"].clone()
+    };
+    let list = ask("GetOutputList", json!({}));
+    assert_eq!(list["responseData"]["outputs"][0]["outputName"], "Twitch");
+    assert_eq!(list["responseData"]["outputs"][0]["outputWidth"], 1920);
+    assert_eq!(list["responseData"]["outputs"][1]["outputActive"], false);
+    let status = ask("GetOutputStatus", json!({"outputName": "Twitch"}));
+    assert_eq!(status["responseData"]["outputActive"], true);
+    assert_eq!(status["responseData"]["outputSkippedFrames"], 1, "the encoder's");
+    assert_eq!(status["responseData"]["outputTotalFrames"], 700);
+    assert_eq!(ask("GetOutputStatus", json!({"outputName": "Nope"}))["requestStatus"]["code"], 600);
+    // start one that's idle; refuse starting one that's live
+    assert_eq!(ask("StartOutput", json!({"outputName": "YouTube"}))["requestStatus"]["result"], true);
+    assert_eq!(calls.lock().last().unwrap(), &("output.start".to_string(), json!({"output": "d2"})));
+    assert_eq!(ask("StartOutput", json!({"outputName": "Twitch"}))["requestStatus"]["code"], 500);
+    assert_eq!(ask("StopOutput", json!({"outputName": "YouTube"}))["requestStatus"]["code"], 501);
+    assert_eq!(ask("ToggleOutput", json!({"outputName": "Twitch"}))["responseData"]["outputActive"], false);
+    assert_eq!(calls.lock().last().unwrap(), &("output.stop".to_string(), json!({"output": "d1"})));
 }
 
 #[test]

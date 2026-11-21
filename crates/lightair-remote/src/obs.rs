@@ -148,6 +148,11 @@ impl crate::ws::Protocol for Session {
     }
 }
 
+/// The destinations in a `state.get` answer.
+fn destinations(state: &Value) -> Vec<Value> {
+    state["outputs"]["streaming"]["destinations"].as_array().cloned().unwrap_or_default()
+}
+
 /// Lightair's event in OBS's name, with OBS's fields.
 fn translate(e: &Event) -> Option<(u64, &'static str, Value)> {
     let d = &e.data;
@@ -344,6 +349,15 @@ impl Session {
             .and_then(|t| t.iter().find(|t| t["source"] == input["id"]))
             .ok_or((INVALID_FIELD, format!("The input `{key}` has no sound.")))?;
         Ok((input, track))
+    }
+
+    /// The destination an output request names (`outputName`: its name or id).
+    fn destination(&self, d: &Value) -> Result<Value, Status> {
+        let key = d.get("outputName").and_then(Value::as_str).ok_or((MISSING_FIELD, "Your request is missing the `outputName` field.".into()))?;
+        destinations(&self.state()?)
+            .into_iter()
+            .find(|x| x["name"] == key || x["id"] == key)
+            .ok_or((NOT_FOUND, format!("No output was found by the name of `{key}`.")))
     }
 
     fn output_status(&self, which: &str) -> Result<Value, Status> {
@@ -774,6 +788,54 @@ impl Session {
                 Value::Null
             }
             "ToggleStream" => json!({"outputActive": self.output("streaming", "stream", None)?["outputActive"]}),
+            // Lightair's destinations, each as an output of its own (OBS has them from multistream
+            // plugins): by name (or id)
+            "GetOutputList" => {
+                let canvases = self.state()?["canvases"].clone();
+                let outputs: Vec<Value> = destinations(&self.state()?)
+                    .iter()
+                    .map(|d| {
+                        let c = canvases.as_array().and_then(|c| c.iter().find(|c| c["id"] == d["canvas"]));
+                        json!({
+                            "outputName": d["name"],
+                            "outputKind": "rtmp_output",
+                            "outputWidth": c.map_or(0, |c| c["width"].as_u64().unwrap_or(0)),
+                            "outputHeight": c.map_or(0, |c| c["height"].as_u64().unwrap_or(0)),
+                            "outputActive": d["active"],
+                            "outputFlags": {"OBS_OUTPUT_AUDIO": true, "OBS_OUTPUT_VIDEO": true, "OBS_OUTPUT_ENCODED": true, "OBS_OUTPUT_MULTI_TRACK": false, "OBS_OUTPUT_SERVICE": true},
+                        })
+                    })
+                    .collect();
+                json!({"outputs": outputs})
+            }
+            "GetOutputStatus" => {
+                let d = self.destination(d)?;
+                let secs = d["seconds"].as_f64().unwrap_or(0.0);
+                json!({
+                    "outputActive": d["active"],
+                    "outputReconnecting": d["state"] == "reconnecting",
+                    "outputTimecode": timecode(secs),
+                    "outputDuration": (secs * 1000.0) as u64,
+                    "outputCongestion": 0,
+                    "outputBytes": d["bytes"].as_u64().unwrap_or(0),
+                    "outputSkippedFrames": d["dropped"]["encoder"].as_u64().unwrap_or(0),
+                    "outputTotalFrames": d["total_frames"].as_u64().unwrap_or(0),
+                })
+            }
+            "StartOutput" | "StopOutput" | "ToggleOutput" => {
+                let d = self.destination(d)?;
+                let active = d["active"].as_bool().unwrap_or(false);
+                let method = match (kind, active) {
+                    ("StartOutput", true) => return Err((OUTPUT_RUNNING, "The output is already running.".into())),
+                    ("StopOutput", false) => return Err((OUTPUT_NOT_RUNNING, "The output is not running.".into())),
+                    ("StartOutput", false) => "output.start",
+                    ("StopOutput", true) => "output.stop",
+                    (_, true) => "output.stop",
+                    (_, false) => "output.start",
+                };
+                self.call(method, json!({"output": d["id"]}))?;
+                if kind == "ToggleOutput" { json!({"outputActive": !active}) } else { Value::Null }
+            }
             "GetVirtualCamStatus" => json!({"outputActive": self.output_status("virtual_camera")?["active"]}),
             "StartVirtualCam" => {
                 self.output("virtual_camera", "vcam", Some(true))?;
@@ -928,6 +990,11 @@ const REQUESTS: &[&str] = &[
     "StartStream",
     "StopStream",
     "ToggleStream",
+    "GetOutputList",
+    "GetOutputStatus",
+    "StartOutput",
+    "StopOutput",
+    "ToggleOutput",
     "GetVirtualCamStatus",
     "StartVirtualCam",
     "StopVirtualCam",
