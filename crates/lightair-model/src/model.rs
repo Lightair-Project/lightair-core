@@ -1128,12 +1128,36 @@ pub struct StreamOptions {
     pub network: NetworkOptions,
     /// Hold the stream back this long before it goes out; `None`: no delay.
     pub delay: Option<StreamDelay>,
+    /// Where the stream key comes from: pasted (kept in the credential store), or fetched
+    /// through the account signed in on the platform.
+    pub account_key: AccountKey,
 }
 
 impl Default for StreamOptions {
     fn default() -> Self {
-        Self { adaptive_bitrate: true, reconnect: None, network: NetworkOptions::default(), delay: None }
+        Self {
+            adaptive_bitrate: true,
+            reconnect: None,
+            network: NetworkOptions::default(),
+            delay: None,
+            account_key: AccountKey::default(),
+        }
     }
+}
+
+/// Where a destination's stream key comes from.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountKey {
+    /// The key pasted for it (in the credential store).
+    #[default]
+    Pasted,
+    /// The signed-in account's own key, fetched each time going live and never stored (Twitch's
+    /// stream key; YouTube's reusable stream).
+    Account,
+    /// YouTube: a new broadcast each time going live, bound to the channel's stream, started and
+    /// ended by YouTube as the video arrives and stops.
+    NewBroadcast,
 }
 
 impl StreamOptions {

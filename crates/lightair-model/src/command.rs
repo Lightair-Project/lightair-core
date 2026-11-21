@@ -867,7 +867,8 @@ impl Command {
             }
             Command::MoveDestination { destination, to } => {
                 let list = &mut workspace.outputs.destinations;
-                let idx = list.iter().position(|d| d.id == *destination).ok_or(CommandError::NoDestination(*destination))?;
+                let idx =
+                    list.iter().position(|d| d.id == *destination).ok_or(CommandError::NoDestination(*destination))?;
                 let d = list.remove(idx);
                 list.insert((*to).min(list.len()), d);
             }

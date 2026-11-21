@@ -377,7 +377,8 @@ fn a_scene_can_have_its_own_transition() {
 #[test]
 fn a_destination_from_before_options_is_adaptive() {
     // Old workspaces have no `options`: they get the defaults, and defaults aren't written back.
-    let json = r#"{"id":"00000000-0000-0000-0000-000000000001","name":"Twitch","server":"rtmp://x/app","enabled":true}"#;
+    let json =
+        r#"{"id":"00000000-0000-0000-0000-000000000001","name":"Twitch","server":"rtmp://x/app","enabled":true}"#;
     let d: lightair_model::Destination = serde_json::from_str(json).unwrap();
     assert!(d.options.adaptive_bitrate);
     assert!(!serde_json::to_string(&d).unwrap().contains("options"));
@@ -416,7 +417,8 @@ fn destinations_reorder_and_undo() {
     for d in [a, b, c] {
         doc.apply(&Command::AddDestination { destination: d }).unwrap();
     }
-    let names = |doc: &Document| doc.workspace().outputs.destinations.iter().map(|d| d.name.clone()).collect::<Vec<_>>();
+    let names =
+        |doc: &Document| doc.workspace().outputs.destinations.iter().map(|d| d.name.clone()).collect::<Vec<_>>();
     assert_eq!(names(&doc), ["A", "B", "C"]);
     doc.apply(&Command::MoveDestination { destination: c_id, to: 0 }).unwrap();
     assert_eq!(names(&doc), ["C", "A", "B"]);
@@ -455,7 +457,8 @@ fn clips_keep_a_buffer_for_each_canvas_chosen() {
     assert_eq!(both.targets(&ws), vec![primary, v]);
     doc.apply(&Command::SetClipSettings { settings: both.clone() }).unwrap();
     // an old workspace's single canvas is still its choice
-    let old: lightair_model::ClipSettings = serde_json::from_str(&format!(r#"{{"enabled":true,"seconds":60,"format":"{v}"}}"#)).unwrap();
+    let old: lightair_model::ClipSettings =
+        serde_json::from_str(&format!(r#"{{"enabled":true,"seconds":60,"format":"{v}"}}"#)).unwrap();
     assert_eq!(old.targets(&ws), vec![v]);
     // never none at all
     assert_eq!(both.with_canvas(&ws, primary, false).targets(&ws), vec![v]);
