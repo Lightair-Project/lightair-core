@@ -196,7 +196,7 @@ pub fn import(path: &std::path::Path) -> Result<Custom, String> {
     let mut c = Custom::empty();
     for i in 0..zip.len() {
         let mut f = zip.by_index(i).map_err(|e| e.to_string())?;
-        let name = f.name().rsplit('/').next().unwrap_or("").to_ascii_lowercase();
+        let name = f.name().map_err(|e| e.to_string())?.rsplit('/').next().unwrap_or("").to_ascii_lowercase();
         let mut text = String::new();
         if std::io::Read::read_to_string(&mut f, &mut text).is_err() {
             continue;
