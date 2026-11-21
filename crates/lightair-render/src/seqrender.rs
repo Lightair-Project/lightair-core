@@ -554,7 +554,7 @@ impl SequenceRenderer {
     /// clips change: a zoom that follows the pointer follows the take under it (its input log,
     /// through where its screen is in the frame).
     fn canvas_view(&mut self, t: u64) -> Option<crate::zoom::View> {
-        if self.seq.zooms.is_empty() {
+        if self.seq.zooms.is_empty() || self.seq.zooms_hidden {
             return None;
         }
         if self.canvas.as_ref().is_none_or(|(z, _)| *z != self.seq.zooms) {

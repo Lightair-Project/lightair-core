@@ -818,6 +818,11 @@ fn the_zoom_track_magnifies_the_whole_canvas() {
     assert!(right[0] > 150 && right[2] < 100, "the left half fills the frame: {right:?}");
     let grown = px(&zoomed, w, 320 + 16, 90);
     assert!(grown.iter().all(|c| *c > 200), "the square grew with it: {grown:?}");
+    // the zoom track switched off: kept, not drawn
+    seq.zooms_hidden = true;
+    r.set(&seq).unwrap();
+    assert!(px(&r.frame(2_500), w, 600, 90)[2] > 150, "not zoomed while the track is off");
+    seq.zooms_hidden = false;
     seq.zooms.clear();
     r.set(&seq).unwrap();
     assert!(px(&r.frame(1_500), w, 600, 90)[2] > 150, "as it was");

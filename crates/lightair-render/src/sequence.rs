@@ -1093,6 +1093,9 @@ pub struct Sequence {
     /// its scale, fractions of the frame) or the pointer of the take under it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub zooms: Vec<crate::edit::Zoom>,
+    /// The zoom track switched off: its zooms kept but not drawn (in the preview or the export).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub zooms_hidden: bool,
     /// How it was last exported (the export panel opens with it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub export: Option<crate::exporter::ExportSettings>,
@@ -1275,6 +1278,7 @@ impl Sequence {
             proxies: true,
             markers: Vec::new(),
             zooms: Vec::new(),
+            zooms_hidden: false,
             export: None,
             background: None,
         }
