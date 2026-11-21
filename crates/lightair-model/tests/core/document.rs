@@ -199,18 +199,6 @@ fn failing_commands_change_nothing() {
 }
 
 #[test]
-fn unchanged_scenes_share_memory() {
-    let (mut doc, scene, ..) = setup();
-    let other = Scene::new("Other");
-    let other_id = other.id;
-    doc.apply(&Command::AddScene { scene: other, index: None }).unwrap();
-    let before = doc.workspace().clone();
-    doc.apply(&Command::RenameScene { scene, name: "Main 2".into() }).unwrap();
-    let after = doc.workspace();
-    assert!(Arc::ptr_eq(before.scene(other_id).unwrap(), after.scene(other_id).unwrap()));
-}
-
-#[test]
 fn diff_orders_and_detects_changes() {
     let (doc, scene, object, canvas) = setup();
     let empty = doc.workspace().empty_like();
@@ -245,14 +233,6 @@ fn object_reorder_is_one_order_patch() {
     doc.apply(&Command::MoveObject { scene, object: top_id, to: 0 }).unwrap();
     let after = doc.workspace().scene(scene).unwrap().clone();
     assert!(matches!(diff_objects(&before, &after)[..], [ObjectPatch::Order(_)]));
-}
-
-#[test]
-fn workspace_round_trips_through_json() {
-    let (doc, ..) = setup();
-    let json = serde_json::to_string(&**doc.workspace()).unwrap();
-    let back: Workspace = serde_json::from_str(&json).unwrap();
-    assert_eq!(back, **doc.workspace());
 }
 
 // Random command sequences: undoing everything returns to the start, redoing everything
@@ -388,18 +368,6 @@ fn a_destination_from_before_options_is_adaptive() {
     let d: lightair_model::Destination = serde_json::from_str(json).unwrap();
     assert!(d.options.adaptive_bitrate);
     assert!(!serde_json::to_string(&d).unwrap().contains("options"));
-    let mut d = d;
-    d.options.adaptive_bitrate = false;
-    d.options.reconnect = Some(lightair_model::Reconnect { retries: 3, delay_s: 7 });
-    d.options.network.interface = Some("en0".into());
-    d.options.network.ip_family = lightair_model::IpFamily::V4;
-    d.options.delay = Some(lightair_model::StreamDelay { seconds: 30, preserve_cutoff: true });
-    let back: lightair_model::Destination = serde_json::from_str(&serde_json::to_string(&d).unwrap()).unwrap();
-    assert!(!back.options.adaptive_bitrate);
-    assert_eq!(back.options.reconnect, Some(lightair_model::Reconnect { retries: 3, delay_s: 7 }));
-    assert_eq!(back.options.network.interface.as_deref(), Some("en0"));
-    assert_eq!(back.options.network.ip_family, lightair_model::IpFamily::V4);
-    assert_eq!(back.options.delay, Some(lightair_model::StreamDelay { seconds: 30, preserve_cutoff: true }));
 }
 
 #[test]

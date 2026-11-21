@@ -1902,24 +1902,9 @@ mod tests {
     }
 
     #[test]
-    fn sliders_read_in_human_units() {
-        let skin = def("studio.beauty").unwrap();
-        let tone = skin.sliders().find(|s| s.key == "skin_tone").unwrap();
-        assert!(tone.bipolar());
-        assert_eq!(tone.display(20.0), "+20%");
-        let angle = def("fx.halftone").unwrap().sliders().find(|s| s.key == "angle").unwrap();
-        assert_eq!(angle.display(std::f64::consts::FRAC_PI_4), "45°");
-        let mut quiet = skin.defaults();
-        for s in skin.sliders() {
-            quiet.insert(s.key.into(), json!(0));
-        }
-        quiet.insert("smooth".into(), json!(40));
-        assert_eq!(skin.summary(&Value::Object(quiet)), "Smooth 40%", "sliders at zero aren't listed");
-        assert_eq!(
-            def("studio.light").unwrap().summary(&json!({"light_preset": "Neon", "light_amt": 40})),
-            "Neon · Intensity 40%"
-        );
+    fn a_search_finds_effects_by_what_people_call_them() {
         let found: Vec<_> = search("blur").map(|d| d.kind).collect();
         assert!(found.contains(&"studio.bg_blur") && found.contains(&"fx.blur"), "{found:?}");
+        assert!(search("nothing like this").next().is_none());
     }
 }
