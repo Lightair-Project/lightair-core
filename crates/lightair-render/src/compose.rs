@@ -490,8 +490,10 @@ fn instance() -> &'static wgpu::Instance {
 /// The adapter the shared device was made on.
 static ADAPTER: std::sync::OnceLock<wgpu::Adapter> = std::sync::OnceLock::new();
 
+/// The shared device and queue, once made (or given: [`set_device`]).
+static GPU: std::sync::OnceLock<Result<(wgpu::Device, wgpu::Queue), String>> = std::sync::OnceLock::new();
+
 fn gpu() -> Result<(wgpu::Device, wgpu::Queue), String> {
-    static GPU: std::sync::OnceLock<Result<(wgpu::Device, wgpu::Queue), String>> = std::sync::OnceLock::new();
     GPU.get_or_init(|| {
         let adapter = base()?.1.clone();
         let _ = ADAPTER.set(adapter.clone());
@@ -502,6 +504,27 @@ fn gpu() -> Result<(wgpu::Device, wgpu::Queue), String> {
         pollster::block_on(adapter.request_device(&desc)).map_err(|e| format!("no graphics device: {e}"))
     })
     .clone()
+}
+
+/// The instance and adapter the shared device is (or will be) made on, without making it: for a
+/// caller that makes the device itself, with extensions of its own ([`set_device`]).
+pub fn shared_adapter() -> Result<(wgpu::Instance, wgpu::Adapter), String> {
+    base().cloned()
+}
+
+/// Uses `device` and `queue`, made on [`shared_adapter`]'s adapter, as the shared device (a
+/// phone's camera frames imported zero-copy need Vulkan extensions wgpu doesn't ask for; an
+/// editor presenting into its own surface on the same device). Once, before anything draws:
+/// false when the shared device exists already.
+pub fn set_device(device: wgpu::Device, queue: wgpu::Queue) -> bool {
+    let Ok((_, adapter)) = base() else { return false };
+    let mut given = false;
+    GPU.get_or_init(|| {
+        given = true;
+        let _ = ADAPTER.set(adapter.clone());
+        Ok((device, queue))
+    });
+    given
 }
 
 /// The device every compositor draws with, and the instance and adapter it was made from.
