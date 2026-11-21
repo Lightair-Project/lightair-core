@@ -105,12 +105,23 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn paths_filters_and_random() {
+    fn paths_and_filters_fill_in() {
         let ctx = json!({"name": "Mochi", "args": ["@pal", "x"], "vars": {"deaths": 3.0}});
         assert_eq!(render("Hi {{ name }}! {{ args.0 | strip_at }} {{vars.deaths}}", &ctx), "Hi Mochi! pal 3");
         assert_eq!(render("{{ nobody | default: friend }} {{ name|upper }}", &ctx), "friend MOCHI");
-        let r: i64 = render("{{ random 2 2 }}", &ctx).parse().unwrap();
-        assert_eq!(r, 2);
+    }
+
+    #[test]
+    fn a_random_number_stays_in_its_range() {
+        for _ in 0..200 {
+            let r: i64 = render("{{ random 3 1 }}", &json!({})).parse().unwrap();
+            assert!((1..=3).contains(&r), "{r}");
+        }
+    }
+
+    #[test]
+    fn a_value_that_is_only_a_number_stays_a_number() {
+        let ctx = json!({"vars": {"deaths": 3.0}});
         assert_eq!(render_value(&json!({"n": "{{vars.deaths}}", "s": "a"}), &ctx), json!({"n": 3.0, "s": "a"}));
     }
 }

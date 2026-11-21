@@ -19,3 +19,6 @@ base64 = "0.22"
 flate2 = "1"
 # The same TLS as lightair-live (rustls, the system's verifier): lightair_live::net::tls_config.
 ureq = { version = "3", default-features = false, features = ["rustls-no-provider", "platform-verifier", "gzip"] }
+
+[dev-dependencies]
+tempfile = "3"

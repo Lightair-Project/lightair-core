@@ -878,7 +878,7 @@ mod tests {
 
     #[test]
     fn commands_run_steps_with_their_arguments() {
-        let dir = std::env::temp_dir().join(format!("lightair-automation-test-{}", new_id()));
+        let dir = tempfile::tempdir().unwrap();
         let calls = Arc::new(Mutex::new(Vec::<(String, Value)>::new()));
         let seen = calls.clone();
         let host: Host = Arc::new(move |m, p| {
@@ -886,7 +886,7 @@ mod tests {
             Ok(json!({}))
         });
         let hub = Hub::new();
-        let a = Automations::start(hub.clone(), dir.clone(), host);
+        let a = Automations::start(hub.clone(), dir.path().into(), host);
         a.set(Automation {
             id: "so".into(),
             name: "Shoutout".into(),
@@ -917,15 +917,10 @@ mod tests {
         assert_eq!(calls[0].0, "chat.send");
         assert_eq!(calls[0].1["text"], "Go follow pal!");
         assert_eq!(a.vars()["shoutouts"], json!(1.0));
-        let _ = std::fs::remove_dir_all(dir);
     }
 
-    #[test]
-    fn files_midi_and_controllers_set_automations_off() {
-        let dir = std::env::temp_dir().join(format!("lightair-automation-test-{}", new_id()));
-        let host: Host = Arc::new(|_, _| Ok(json!({})));
-        let a = Automations::start(Hub::new(), dir.clone(), host);
-        let make = |id: &str, trigger: Trigger, value: &str| Automation {
+    fn setting(id: &str, trigger: Trigger, value: &str) -> Automation {
+        Automation {
             id: id.into(),
             name: id.into(),
             enabled: true,
@@ -935,35 +930,64 @@ mod tests {
             queue: String::new(),
             cooldown: 0.0,
             user_cooldown: 0.0,
-        };
-        a.set(make("file", Trigger::File { path: "/tmp/deaths.txt".into() }, "{{ file.text }}"));
-        a.set(make("pad", Trigger::Midi { message: "note".into(), number: 36, channel: 0 }, "{{ midi.value }}"));
-        a.set(make("fader", Trigger::Midi { message: "cc".into(), number: -1, channel: 2 }, "{{ midi.number }}"));
-        a.set(make("start", Trigger::Controller { button: "Start".into() }, "{{ controller.device }}"));
-        assert_eq!(a.watched_files(), vec!["/tmp/deaths.txt".to_string()]);
-        assert!(a.wants("midi") && a.wants("controller"));
-        a.file_changed("/tmp/other.txt", "x");
-        a.file_changed("/tmp/deaths.txt", "7");
-        a.midi("note", 10, 37, 100, "Pads");
-        a.midi("note", 10, 36, 90, "Pads");
-        a.midi("cc", 1, 7, 50, "Faders");
-        a.midi("cc", 2, 7, 50, "Faders");
-        a.controller("South", "Pad");
-        a.controller("start", "Pad");
-        wait_for(|| ["file", "pad", "fader", "start"].iter().all(|k| a.vars().contains_key(*k)));
-        let v = a.vars();
-        assert_eq!(
-            (v["file"].clone(), v["pad"].clone(), v["fader"].clone(), v["start"].clone()),
-            (json!(7.0), json!(90.0), json!(7.0), json!("Pad"))
-        );
-        let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+
+    fn quiet_host() -> Host {
+        Arc::new(|_, _| Ok(json!({})))
     }
 
     #[test]
-    fn conditions() {
+    fn a_watched_file_sets_off_its_automation_with_its_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = Automations::start(Hub::new(), dir.path().into(), quiet_host());
+        a.set(setting("file", Trigger::File { path: "/watched/deaths.txt".into() }, "{{ file.text }}"));
+        assert_eq!(a.watched_files(), vec!["/watched/deaths.txt".to_string()]);
+        a.file_changed("/watched/other.txt", "x");
+        a.file_changed("/watched/deaths.txt", "7");
+        wait_for(|| a.vars().contains_key("file"));
+        assert_eq!(a.vars()["file"], json!(7.0));
+    }
+
+    #[test]
+    fn midi_notes_and_controls_set_off_only_their_automations() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = Automations::start(Hub::new(), dir.path().into(), quiet_host());
+        a.set(setting("pad", Trigger::Midi { message: "note".into(), number: 36, channel: 0 }, "{{ midi.value }}"));
+        a.set(setting("fader", Trigger::Midi { message: "cc".into(), number: -1, channel: 2 }, "{{ midi.number }}"));
+        assert!(a.wants("midi"));
+        a.midi("note", 10, 37, 100, "Pads"); // another note
+        a.midi("note", 10, 36, 90, "Pads"); // any channel, this note
+        a.midi("cc", 1, 7, 50, "Faders"); // another channel
+        a.midi("cc", 2, 7, 50, "Faders"); // any control on channel 2
+        wait_for(|| a.vars().contains_key("pad") && a.vars().contains_key("fader"));
+        assert_eq!((a.vars()["pad"].clone(), a.vars()["fader"].clone()), (json!(90.0), json!(7.0)));
+    }
+
+    #[test]
+    fn a_controller_button_sets_off_its_automation_whatever_its_case() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = Automations::start(Hub::new(), dir.path().into(), quiet_host());
+        a.set(setting("start", Trigger::Controller { button: "Start".into() }, "{{ controller.device }}"));
+        assert!(a.wants("controller"));
+        a.controller("South", "Other pad");
+        a.controller("start", "Pad");
+        wait_for(|| a.vars().contains_key("start"));
+        assert_eq!(a.vars()["start"], json!("Pad"));
+    }
+
+    #[test]
+    fn conditions_compare_numbers_and_text_ignoring_case() {
         let ctx = json!({"value": 25, "name": "Mochi"});
-        assert!(check(&Condition { left: "{{ value }}".into(), op: ">=".into(), right: "10".into() }, &ctx));
-        assert!(!check(&Condition { left: "{{ name }}".into(), op: "is".into(), right: "sora".into() }, &ctx));
-        assert!(check(&Condition { left: "{{ name }}".into(), op: "contains".into(), right: "och".into() }, &ctx));
+        let holds = |left: &str, op: &str, right: &str| {
+            check(&Condition { left: left.into(), op: op.into(), right: right.into() }, &ctx)
+        };
+        assert!(holds("{{ value }}", ">=", "10"));
+        assert!(!holds("{{ value }}", ">=", "30"));
+        assert!(!holds("{{ name }}", ">=", "10"), "text never compares as a number");
+        assert!(holds("{{ name }}", "is", "mochi"));
+        assert!(!holds("{{ name }}", "is", "sora"));
+        assert!(holds("{{ name }}", "contains", "OCH"));
+        assert!(!holds("{{ name }}", "no such test", "Mochi"), "an unknown test never holds");
     }
 }
