@@ -1065,11 +1065,14 @@ pub struct StreamOptions {
     /// (RTMP/RTMPS; the other protocols manage congestion themselves). Gives the destination
     /// an encoder of its own, since the encoder's bitrate is what changes.
     pub adaptive_bitrate: bool,
+    /// When this connection drops: its own tries and delay; `None`: the workspace's
+    /// (`OutputSettings::reconnect`).
+    pub reconnect: Option<Reconnect>,
 }
 
 impl Default for StreamOptions {
     fn default() -> Self {
-        Self { adaptive_bitrate: true }
+        Self { adaptive_bitrate: true, reconnect: None }
     }
 }
 

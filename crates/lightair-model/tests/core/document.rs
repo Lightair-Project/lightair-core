@@ -383,6 +383,8 @@ fn a_destination_from_before_options_is_adaptive() {
     assert!(!serde_json::to_string(&d).unwrap().contains("options"));
     let mut d = d;
     d.options.adaptive_bitrate = false;
+    d.options.reconnect = Some(lightair_model::Reconnect { retries: 3, delay_s: 7 });
     let back: lightair_model::Destination = serde_json::from_str(&serde_json::to_string(&d).unwrap()).unwrap();
     assert!(!back.options.adaptive_bitrate);
+    assert_eq!(back.options.reconnect, Some(lightair_model::Reconnect { retries: 3, delay_s: 7 }));
 }
