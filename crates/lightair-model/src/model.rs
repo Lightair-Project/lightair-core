@@ -1052,6 +1052,31 @@ pub struct Destination {
     /// CHZZK channel…); `None`: no chat.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chat: Option<String>,
+    /// How the connection is run: adaptive bitrate, and the options after it.
+    #[serde(default, skip_serializing_if = "StreamOptions::is_default")]
+    pub options: StreamOptions,
+}
+
+/// How a destination's connection is run (as opposed to how it is encoded).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StreamOptions {
+    /// Lower the bitrate when the connection can't keep up and raise it again when it can
+    /// (RTMP/RTMPS; the other protocols manage congestion themselves). Gives the destination
+    /// an encoder of its own, since the encoder's bitrate is what changes.
+    pub adaptive_bitrate: bool,
+}
+
+impl Default for StreamOptions {
+    fn default() -> Self {
+        Self { adaptive_bitrate: true }
+    }
+}
+
+impl StreamOptions {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

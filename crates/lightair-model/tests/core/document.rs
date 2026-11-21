@@ -342,6 +342,7 @@ fn removing_a_mix_takes_it_off_destinations() {
         audio_mix: Some(mix),
         vod_mix: Some(mix),
         chat: None,
+        options: Default::default(),
     };
     doc.apply(&Command::AddDestination { destination }).unwrap();
     doc.apply(&Command::RemoveMix { mix }).unwrap();
@@ -371,4 +372,17 @@ fn a_scene_can_have_its_own_transition() {
     assert_eq!(doc.workspace().scene(scene).unwrap().stinger, Some(st));
     doc.apply(&Command::SetSceneTransition { scene, transition: None }).unwrap();
     assert_eq!(doc.workspace().scene(scene).unwrap().transition, None, "back to the default");
+}
+
+#[test]
+fn a_destination_from_before_options_is_adaptive() {
+    // Old workspaces have no `options`: they get the defaults, and defaults aren't written back.
+    let json = r#"{"id":"00000000-0000-0000-0000-000000000001","name":"Twitch","server":"rtmp://x/app","enabled":true}"#;
+    let d: lightair_model::Destination = serde_json::from_str(json).unwrap();
+    assert!(d.options.adaptive_bitrate);
+    assert!(!serde_json::to_string(&d).unwrap().contains("options"));
+    let mut d = d;
+    d.options.adaptive_bitrate = false;
+    let back: lightair_model::Destination = serde_json::from_str(&serde_json::to_string(&d).unwrap()).unwrap();
+    assert!(!back.options.adaptive_bitrate);
 }
