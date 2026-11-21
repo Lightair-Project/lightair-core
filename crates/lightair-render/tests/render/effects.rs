@@ -103,3 +103,56 @@ fn cropped_and_mirrored() {
     assert!(at(&f, 280, 90)[2] > 200, "the right half stays where it was");
     assert!(at(&f, 40, 90).iter().all(|v| *v < 30), "the cut part is gone: {:?}", at(&f, 40, 90));
 }
+
+/// A colour look-up table ("fx.lut", a .cube file): every colour graded through it, by `amount`;
+/// an unreadable file leaves the picture as it was.
+#[test]
+fn a_lut_grades_the_picture() {
+    let dir = tempfile::tempdir().unwrap();
+    let Ok(ff) = media::ffmpeg() else { return };
+    let src = dir.path().join("red.mp4");
+    assert!(
+        Command::new(ff)
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=160x90:r=30:d=1", "-pix_fmt", "yuv420p"])
+            .arg(&src)
+            .status()
+            .unwrap()
+            .success()
+    );
+    // a 2³ table that turns every colour round (red → cyan)
+    let mut cube = String::from("TITLE \"Invert\"\nLUT_3D_SIZE 2\n");
+    for b in 0..2 {
+        for g in 0..2 {
+            for r in 0..2 {
+                cube += &format!("{} {} {}\n", 1 - r, 1 - g, 1 - b);
+            }
+        }
+    }
+    let table = dir.path().join("invert.cube");
+    std::fs::write(&table, cube).unwrap();
+    let mut seq = Sequence::new((160, 90), 30);
+    let m = seq.add_media(Media::from_file(&src).unwrap());
+    let clip = seq.append(m).unwrap();
+    let Ok(mut r) = SequenceRenderer::new(&seq) else { return };
+    let mid = (45 * 160 + 80) * 4;
+    let lut = |file: &std::path::Path, amount: f64| {
+        let mut settings = serde_json::Map::new();
+        settings.insert("file".into(), serde_json::json!(file.display().to_string()));
+        settings.insert("amount".into(), serde_json::json!(amount));
+        ClipEffect::new("fx.lut", settings)
+    };
+    let px = |r: &mut SequenceRenderer, s: &Sequence| {
+        r.set(s).unwrap();
+        r.frame(500)[mid..mid + 3].to_vec()
+    };
+    let mut s = seq.clone();
+    s.clip_mut(clip).unwrap().effects = vec![lut(&table, 1.0)];
+    let full = px(&mut r, &s);
+    assert!(full[0] < 40 && full[1] > 200 && full[2] > 200, "cyan: {full:?}");
+    s.clip_mut(clip).unwrap().effects = vec![lut(&table, 0.5)];
+    let half = px(&mut r, &s);
+    assert!((100..160).contains(&half[0]) && (100..160).contains(&half[1]), "halfway: {half:?}");
+    s.clip_mut(clip).unwrap().effects = vec![lut(&dir.path().join("gone.cube"), 1.0)];
+    let gone = px(&mut r, &s);
+    assert!(gone[0] > 200 && gone[1] < 40, "as it was: {gone:?}");
+}
