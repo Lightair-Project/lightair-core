@@ -390,3 +390,203 @@ pub fn fetch(url: &str, ask: &Ask) -> Result<Plan, String> {
     }
     read(&text)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ask() -> Ask {
+        Ask {
+            key: "live_123_abc".into(),
+            client: "Lightair".into(),
+            client_version: "0.9.0".into(),
+            codecs: vec!["h264".into()],
+            machine: Machine {
+                physical_cores: 12,
+                logical_cores: 12,
+                cpu_name: Some("Apple M4 Pro".into()),
+                memory_total: 48 << 30,
+                memory_free: 20 << 30,
+                os_name: "macOS".into(),
+                os_version: "27.2".into(),
+                arm: true,
+                gpus: vec![Gpu { model: "Apple M4 Pro".into(), vendor_id: 0x106b, ..Gpu::default() }],
+            },
+            canvases: vec![
+                CanvasSize { width: 1920, height: 1080, fps_num: 60, fps_den: 1 },
+                CanvasSize { width: 1080, height: 1920, fps_num: 60, fps_den: 1 },
+            ],
+            max_bitrate_kbps: None,
+            max_video_tracks: None,
+            vod_track: false,
+            audio_rate: 48_000,
+            audio_channels: 2,
+        }
+    }
+
+    fn keys(v: &Value) -> Vec<&str> {
+        let mut k: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
+        k.sort();
+        k
+    }
+
+    /// What leaves the machine for the platform: exactly the fields its service documents (the
+    /// machine's cores, memory, system and GPU, the canvases, the caps), nothing else about it.
+    #[test]
+    fn the_request_carries_only_the_documented_fields() {
+        let b = ask().body();
+        assert_eq!(keys(&b), ["authentication", "capabilities", "client", "preferences", "schema_version", "service"]);
+        assert_eq!(b["authentication"], "live_123_abc", "the key goes in the body, nowhere else");
+        assert_eq!(keys(&b["client"]), ["name", "supported_codecs", "version"]);
+        let c = &b["capabilities"];
+        assert_eq!(keys(c), ["cpu", "gaming_features", "gpu", "memory", "system"]);
+        assert_eq!(keys(&c["cpu"]), ["logical_cores", "name", "physical_cores", "speed"]);
+        assert_eq!(keys(&c["memory"]), ["free", "total"]);
+        assert_eq!(
+            keys(&c["system"]),
+            ["arm", "armEmulation", "bits", "build", "name", "release", "revision", "version"]
+        );
+        assert_eq!(
+            keys(&c["gpu"][0]),
+            ["dedicated_video_memory", "device_id", "driver_version", "model", "shared_system_memory", "vendor_id"]
+        );
+        assert_eq!(c["gpu"][0]["vendor_id"], 0x106b);
+        let p = &b["preferences"];
+        assert_eq!(
+            keys(p),
+            [
+                "audio_channels",
+                "audio_fixed_buffering",
+                "audio_max_buffering_ms",
+                "audio_samples_per_sec",
+                "canvases",
+                "composition_gpu_index",
+                "maximum_aggregate_bitrate",
+                "maximum_video_tracks",
+                "vod_track_audio"
+            ]
+        );
+        // the canvases in track order: landscape first, then the vertical one
+        let canvases = p["canvases"].as_array().unwrap();
+        assert_eq!((canvases[0]["width"].as_u64(), canvases[1]["width"].as_u64()), (Some(1920), Some(1080)));
+        assert_eq!(keys(&canvases[0]), ["canvas_height", "canvas_width", "framerate", "height", "width"]);
+    }
+
+    /// What isn't known or wasn't chosen goes as null, as the service expects, not left out.
+    #[test]
+    fn what_isnt_known_goes_as_null() {
+        let mut a = ask();
+        a.machine.cpu_name = None;
+        a.machine.gpus.clear();
+        let b = a.body();
+        for path in [
+            "/preferences/maximum_aggregate_bitrate",
+            "/preferences/maximum_video_tracks",
+            "/capabilities/cpu/name",
+            "/capabilities/gpu",
+        ] {
+            assert_eq!(b.pointer(path), Some(&Value::Null), "{path}");
+        }
+        assert_eq!(ask().body()["capabilities"]["gpu"][0]["driver_version"], Value::Null);
+        a.max_bitrate_kbps = Some(8000);
+        a.max_video_tracks = Some(4);
+        let b = a.body();
+        assert_eq!(
+            (b["preferences"]["maximum_aggregate_bitrate"].as_u64(), b["preferences"]["maximum_video_tracks"].as_u64()),
+            (Some(8000), Some(4))
+        );
+    }
+
+    /// A Dual Format plan shaped as the service answers (the desktop's docs/plans has full ones).
+    const PLAN: &str = r#"{
+        "meta": { "config_id": "plan 7/a" },
+        "status": { "result": "success" },
+        "ingest_endpoints": [
+            { "protocol": "RTMP", "url_template": "rtmp://ingest.example/app/{stream_key}" },
+            { "protocol": "RTMPS", "url_template": "rtmps://ingest.example:443/app/{stream_key}", "authentication": "live_service_key" },
+            { "protocol": "SRT", "url_template": "srt://ingest.example:9000" }
+        ],
+        "encoder_configurations": [
+            { "type": "enc.avc", "width": 1920, "height": 1080, "framerate": { "numerator": 60, "denominator": 1 }, "settings": { "bitrate": 6000 }, "canvas_index": 0 },
+            { "type": "enc.avc", "width": 640, "height": 360, "settings": { "bitrate": 500 }, "canvas_index": 0 },
+            { "type": "enc.avc", "width": 1080, "height": 1920, "settings": { "bitrate": 5000 }, "canvas_index": 1, "unknown": true },
+            { "type": "enc.avc", "width": 360, "height": 640, "settings": { "bitrate": 500 }, "canvas_index": 1 }
+        ],
+        "audio_configurations": { "live": [ { "channels": 2, "settings": { "bitrate": 160 } } ], "vod": [] }
+    }"#;
+
+    /// The plan reads as tracks in order, each from its canvas, ready to run here.
+    #[test]
+    fn a_dual_format_plan_reads_as_tracks_in_order() {
+        let p = read(PLAN).unwrap();
+        assert_eq!(p.verdict, Verdict::Fine);
+        let tracks: Vec<_> = p.video.iter().map(|t| (t.width, t.height, t.canvas)).collect();
+        assert_eq!(tracks, [(1920, 1080, 0), (640, 360, 0), (1080, 1920, 1), (360, 640, 1)]);
+        assert_eq!(p.video_kbps(), 12_000);
+        assert_eq!(p.audio.len(), 1);
+        assert_eq!(p.ingest.len(), 2, "only RTMP and RTMPS endpoints");
+        assert!(p.problems(2, &["enc.avc".into()]).is_empty(), "{:?}", p.problems(2, &["enc.avc".into()]));
+        assert!(read("{\"encoder_configurations\": [{\"type\": \"enc.avc\", \"height\": 1080}]}").is_err(), "no width");
+        assert!(read("not json").is_err());
+    }
+
+    /// A plan that can't run here says why, before anything goes live.
+    #[test]
+    fn what_keeps_a_plan_from_running_is_said() {
+        let p = read(PLAN).unwrap();
+        // only one canvas sent: the vertical tracks name a canvas that isn't there
+        assert!(p.problems(1, &["enc.avc".into()]).iter().any(|w| w.contains("canvas that wasn't sent")));
+        // an encoder this computer doesn't have
+        assert!(p.problems(2, &["other".into()]).iter().any(|w| w.contains("encoder")));
+        // a canvas sent that the plan draws nothing from
+        assert!(p.problems(3, &["enc.avc".into()]).iter().any(|w| w.contains("nothing from canvas 3")));
+        // nowhere to send it
+        let mut no_where = p.clone();
+        no_where.ingest.clear();
+        assert!(!no_where.problems(2, &["enc.avc".into()]).is_empty());
+        assert!(no_where.connect(true, "k").is_none());
+    }
+
+    /// The service's verdict: an error keeps the stream from starting with its words (plain
+    /// text), a warning is said and left to the person.
+    #[test]
+    fn the_services_verdict_comes_with_its_words() {
+        let with = |status: &str| read(&format!(r#"{{"status": {status}}}"#)).unwrap().verdict;
+        assert_eq!(
+            with(r#"{"result": "error", "html_en_us": "<b>Too few</b> encodes &amp; tracks"}"#),
+            Verdict::Refused("Too few encodes & tracks".into())
+        );
+        assert!(
+            matches!(with(r#"{"result": "error"}"#), Verdict::Refused(w) if !w.is_empty()),
+            "words even when none came"
+        );
+        assert_eq!(with(r#"{"result": "warning", "html_en_us": "Heads up"}"#), Verdict::Caution("Heads up".into()));
+        assert!(matches!(with(r#"{"result": "maybe"}"#), Verdict::Caution(_)));
+        let refused =
+            read(r#"{"status": {"result": "error", "html_en_us": "No."}, "encoder_configurations": []}"#).unwrap();
+        assert!(refused.problems(2, &[]).contains(&"No.".to_string()), "the refusal is the first reason");
+    }
+
+    /// The stream key carries the plan's id (the stream name is where the platform reads it),
+    /// any query it had kept.
+    #[test]
+    fn the_key_carries_the_plan_id_and_keeps_its_query() {
+        assert_eq!(with_plan_id("live_abc", "id1"), "live_abc?clientConfigId=id1");
+        assert_eq!(with_plan_id("live_abc?bandwidthtest", "id1"), "live_abc?bandwidthtest&clientConfigId=id1");
+        assert_eq!(with_plan_id("live_abc", "a b/c"), "live_abc?clientConfigId=a%20b%2Fc");
+        assert_eq!(with_plan_id("live_abc", ""), "live_abc", "no plan id: the key as it was");
+    }
+
+    /// Connecting: the endpoint's own key when it gives one, RTMPS when asked and offered, the
+    /// address without its `{stream_key}`.
+    #[test]
+    fn the_connection_uses_the_endpoints_own_key_and_address() {
+        let p = read(PLAN).unwrap();
+        let (server, key) = p.connect(true, "live_mine").unwrap();
+        assert_eq!(server, "rtmps://ingest.example:443/app");
+        assert_eq!(key, "live_service_key?clientConfigId=plan%207%2Fa", "the endpoint's key preferred");
+        let (server, key) = p.connect(false, "live_mine").unwrap();
+        assert_eq!(server, "rtmp://ingest.example/app");
+        assert_eq!(key, "live_mine?clientConfigId=plan%207%2Fa", "no key from it: the person's");
+    }
+}
