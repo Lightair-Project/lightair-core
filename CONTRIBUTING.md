@@ -23,7 +23,7 @@ contributions aren't being merged; issues, ideas and bug reports are very welcom
 - No code copied from elsewhere. If a file comes from another project, say where it comes from
   and under which licence, and expect to be asked whether it can be used on both sets of terms
   (permissive licences such as MIT and Apache-2.0 can; GPL code by others can't).
-- The desktop app (`MoonGoblinDev/lightair`) keeps building and its tests keep passing, since it
+- The desktop app (`Lightair-Project/lightair`) keeps building and its tests keep passing, since it
   builds on these crates.
 
 ## Reporting a problem

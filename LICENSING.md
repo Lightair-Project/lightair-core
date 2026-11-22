@@ -23,7 +23,7 @@ font used by tests, SIL OFL 1.1).
 
 | Product | Licence it uses Lightair Core under |
 |---|---|
-| Lightair, the desktop app ([MoonGoblinDev/lightair](https://github.com/MoonGoblinDev/lightair)) | GPL-3.0-or-later (the desktop app is GPL itself, because it's built on libobs) |
+| Lightair, the desktop app ([Lightair-Project/lightair](https://github.com/Lightair-Project/lightair)) | GPL-3.0-or-later (the desktop app is GPL itself, because it's built on libobs) |
 | Lightair Live and Lightair Editor, the mobile apps | The copyright holder's commercial terms |
 
 This is the same model as Qt and other dual-licensed projects: the code is open under the GPL,

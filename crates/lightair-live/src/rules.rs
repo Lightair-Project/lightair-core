@@ -25,7 +25,7 @@ pub const PUBLIC_KEY: Option<&str> = Some("a8bdd842fef6c26049fe19d7e7eef2d11f2db
 
 /// Where the newest rules are published (`LIGHTAIR_RULES_URL` overrides): `rules/rules.json` in
 /// Lightair's public repository, with its `.sig` next to it.
-const ADDRESS: Option<&str> = Some("https://raw.githubusercontent.com/MoonGoblinDev/lightair/main/rules/rules.json");
+const ADDRESS: Option<&str> = Some("https://raw.githubusercontent.com/Lightair-Project/lightair/main/rules/rules.json");
 
 static DIR: OnceLock<PathBuf> = OnceLock::new();
 /// The newest verified rules (None: built-in only).

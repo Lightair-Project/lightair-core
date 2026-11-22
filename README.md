@@ -1,7 +1,7 @@
 # Lightair Core
 
 The crates every Lightair app is built on: the desktop app
-([MoonGoblinDev/lightair](https://github.com/MoonGoblinDev/lightair)), Lightair Live and Lightair
+([Lightair-Project/lightair](https://github.com/Lightair-Project/lightair)), Lightair Live and Lightair
 Editor all use them, so a fix here reaches all three.
 
 | Crate | Does |

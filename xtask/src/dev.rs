@@ -17,7 +17,7 @@ use anyhow::{Context, bail, ensure};
 
 /// The apps, by short name and folder beside this repo.
 const APPS: &[(&str, &str)] = &[("desktop", "lightair"), ("live", "lightair-live"), ("editor", "lightair-editor")];
-const CORE_URL: &str = "github.com/MoonGoblinDev/lightair-core";
+const CORE_URL: &str = "github.com/Lightair-Project/lightair-core";
 const HOOK_MARK: &str = "# lightair-core link guard";
 
 fn root() -> PathBuf {
