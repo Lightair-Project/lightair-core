@@ -1131,6 +1131,24 @@ pub struct StreamOptions {
     /// Where the stream key comes from: pasted (kept in the credential store), or fetched
     /// through the account signed in on the platform.
     pub account_key: AccountKey,
+    /// Twitch's Enhanced Broadcasting: the stream sent as the several encodes Twitch plans for
+    /// it, in one connection (and with Dual Format, the vertical canvas's too); `None`: one
+    /// encode, as usual.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enhanced: Option<EnhancedBroadcasting>,
+}
+
+/// Enhanced Broadcasting on a destination (Twitch): what to ask its configuration service for.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EnhancedBroadcasting {
+    /// Dual Format: the vertical canvas sent too, for phones held upright; `None`: the
+    /// destination's own canvas only.
+    pub vertical_canvas: Option<Id>,
+    /// The most upload to use, in kbps; `None`: the platform decides.
+    pub max_bitrate_kbps: Option<u32>,
+    /// The most video encodes to run; `None`: the platform decides.
+    pub max_video_tracks: Option<u32>,
 }
 
 impl Default for StreamOptions {
@@ -1141,6 +1159,7 @@ impl Default for StreamOptions {
             network: NetworkOptions::default(),
             delay: None,
             account_key: AccountKey::default(),
+            enhanced: None,
         }
     }
 }

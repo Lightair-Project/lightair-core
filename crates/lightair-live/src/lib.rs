@@ -7,6 +7,7 @@
 //! and the platforms read through their own web pages come next.
 
 pub mod emotes;
+pub mod enhanced_broadcasting;
 pub mod event;
 pub mod hub;
 pub mod images;

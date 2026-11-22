@@ -17,11 +17,11 @@ pub use diff::{ObjectPatch, Patch, diff, diff_objects};
 pub use document::{Change, Document};
 pub use hierarchy::Frame;
 pub use model::{
-    AccountKey, AudioMix, AudioSetup, Bus, Canvas, ClipSettings, Crop, Destination, Direction, Effect, Encoding, Fit,
-    Id, IpFamily, Layout, MASTER_ID, Master, MixerStrip, MultitrackFormat, MultitrackPoint, NetworkOptions, Object,
-    OutputSettings, Reconnect, RecordingSettings, Route, Scene, ScreenZoomPointer, Send, Shape, ShapeKind, Source,
-    Stinger, StreamDelay, StreamOptions, Track, TrackChannels, TransitionKind, TransitionSettings, VideoEncoder,
-    VirtualCameraSettings, Workspace,
+    AccountKey, AudioMix, AudioSetup, Bus, Canvas, ClipSettings, Crop, Destination, Direction, Effect, Encoding,
+    EnhancedBroadcasting, Fit, Id, IpFamily, Layout, MASTER_ID, Master, MixerStrip, MultitrackFormat, MultitrackPoint,
+    NetworkOptions, Object, OutputSettings, Reconnect, RecordingSettings, Route, Scene, ScreenZoomPointer, Send, Shape,
+    ShapeKind, Source, Stinger, StreamDelay, StreamOptions, Track, TrackChannels, TransitionKind, TransitionSettings,
+    VideoEncoder, VirtualCameraSettings, Workspace,
 };
 
 /// `name` made safe for a file name (a canvas, track or workspace name in a file's name): the
