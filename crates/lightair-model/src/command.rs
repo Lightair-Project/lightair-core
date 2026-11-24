@@ -662,6 +662,9 @@ impl Command {
                         seg.scene = None;
                     }
                 }
+                for cam in &mut show.ptz {
+                    cam.scene_presets.remove(scene);
+                }
             }
             Command::RenameScene { scene, name } => scene_mut(workspace, *scene)?.name = name.clone(),
             Command::SetScreenZoomPointer { scene, screen } => scene_mut(workspace, *scene)?.screen = *screen,
@@ -1020,6 +1023,9 @@ impl Command {
                 }
                 for pad in &mut show.pads {
                     pad.volume = pad.volume.clamp(0.0, 100.0);
+                }
+                for cam in &mut show.ptz {
+                    cam.scene_presets.retain(|s, p| known(s) && *p < 128);
                 }
                 workspace.show = show;
             }

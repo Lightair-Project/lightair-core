@@ -90,6 +90,30 @@ pub struct Show {
     /// The rundown: the show's segments in running order.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub rundown: Vec<Segment>,
+    /// PTZ cameras the PTZ panel drives.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ptz: Vec<PtzCamera>,
+}
+
+/// A pan-tilt-zoom camera on the network, driven by VISCA.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PtzCamera {
+    pub id: Id,
+    pub name: String,
+    /// Its address (an IP address or a name).
+    pub host: String,
+    pub port: u16,
+    /// "visca-ip" (Sony's VISCA over IP, UDP) or "visca-tcp" (VISCA over TCP).
+    pub protocol: String,
+    /// The preset (0–127) it goes to when a scene goes on air, by the scene's id.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub scene_presets: BTreeMap<Id, u8>,
+}
+
+impl PtzCamera {
+    pub fn new(name: impl Into<String>, host: impl Into<String>) -> Self {
+        Self { id: Id::new(), name: name.into(), host: host.into(), port: 52381, protocol: "visca-ip".into(), scene_presets: BTreeMap::new() }
+    }
 }
 
 impl Show {
