@@ -27,6 +27,10 @@ pub const FREEZE_KIND: &str = "lightair_freeze";
 pub const SHADER_KIND: &str = "lightair_shader";
 /// Lightair's filter that moves with a track's level.
 pub const AUDIO_REACT_KIND: &str = "lightair_audio_react";
+/// Lightair's crop that follows the face.
+pub const AUTOFRAME_KIND: &str = "lightair_autoframe";
+/// Lightair's blur over the face.
+pub const FACE_BLUR_KIND: &str = "lightair_face_blur";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Category {
@@ -1296,6 +1300,44 @@ pub const CATALOG: &[EffectDef] = &[
                 int: false,
                 log: false,
             }),
+        ],
+        fixed: &[],
+    },
+    EffectDef {
+        kind: AUTOFRAME_KIND,
+        name: "Auto-frame",
+        category: Category::Face,
+        description: "Keeps your face framed: crops in and follows you, smoothly",
+        icon: "scan-face",
+        needs: Needs::Face,
+        controls: &[
+            Control::Choice {
+                key: "shot",
+                label: "Shot",
+                options: &[("Close", Pick::Int(0)), ("Medium", Pick::Int(1)), ("Wide", Pick::Int(2))],
+                default: Pick::Int(1),
+            },
+            f("speed", "Follows", 0.05, 1.0, 0.4, Unit::Percent),
+            f("max_zoom", "Closest", 1.0, 4.0, 2.5, Unit::Number),
+        ],
+        fixed: &[],
+    },
+    EffectDef {
+        kind: FACE_BLUR_KIND,
+        name: "Face blur",
+        category: Category::Blur,
+        description: "Hides the face it sees: pixelated or blurred, following it",
+        icon: "user-x",
+        needs: Needs::Face,
+        controls: &[
+            Control::Choice {
+                key: "style",
+                label: "Style",
+                options: &[("Pixelate", Pick::Int(0)), ("Blur", Pick::Int(1))],
+                default: Pick::Int(0),
+            },
+            f("strength", "Strength", 0.0, 1.0, 0.6, Unit::Percent),
+            f("grow", "Around it", 0.0, 1.0, 0.3, Unit::Percent),
         ],
         fixed: &[],
     },
