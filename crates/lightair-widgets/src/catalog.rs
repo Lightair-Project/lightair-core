@@ -220,6 +220,72 @@ pub const BUILTIN: &[Builtin] = &[
         fields: include_str!("../assets/widgets/heart-rate.json"),
         page: include_str!("../assets/widgets/heart-rate.html"),
     },
+    Builtin {
+        kind: "scoreboard",
+        name: "Scoreboard",
+        icon: "trophy",
+        about: "Two sides, their scores, a period and a clock",
+        size: (900, 120),
+        place: (0.5, 0.04),
+        sound: false,
+        fields: include_str!("../assets/widgets/scoreboard.json"),
+        page: include_str!("../assets/widgets/scoreboard.html"),
+    },
+    Builtin {
+        kind: "lower-third",
+        name: "Lower third",
+        icon: "rectangle-horizontal",
+        about: "A name and title that slides in and out",
+        size: (1100, 220),
+        place: (0.02, 0.92),
+        sound: false,
+        fields: include_str!("../assets/widgets/lower-third.json"),
+        page: include_str!("../assets/widgets/lower-third.html"),
+    },
+    Builtin {
+        kind: "web-data",
+        name: "Web data",
+        icon: "globe",
+        about: "A number or text from a web address (an API), kept up to date",
+        size: (700, 120),
+        place: (0.5, 0.5),
+        sound: false,
+        fields: include_str!("../assets/widgets/web-data.json"),
+        page: include_str!("../assets/widgets/web-data.html"),
+    },
+    Builtin {
+        kind: "input-overlay",
+        name: "Input overlay",
+        icon: "keyboard",
+        about: "Shortcuts pressed, mouse buttons and a game controller, on screen",
+        size: (700, 300),
+        place: (0.98, 0.95),
+        sound: false,
+        fields: include_str!("../assets/widgets/input-overlay.json"),
+        page: include_str!("../assets/widgets/input-overlay.html"),
+    },
+    Builtin {
+        kind: "captions",
+        name: "Captions",
+        icon: "captions",
+        about: "What's said, as live captions (and a translation)",
+        size: (1400, 220),
+        place: (0.5, 0.95),
+        sound: false,
+        fields: include_str!("../assets/widgets/captions.json"),
+        page: include_str!("../assets/widgets/captions.html"),
+    },
+    Builtin {
+        kind: "visualiser",
+        name: "Audio visualiser",
+        icon: "audio-waveform",
+        about: "Bars, a wave or a circle that move with the sound",
+        size: (800, 240),
+        place: (0.5, 0.9),
+        sound: false,
+        fields: include_str!("../assets/widgets/visualiser.json"),
+        page: include_str!("../assets/widgets/visualiser.html"),
+    },
 ];
 
 pub fn by_kind(kind: &str) -> Option<&'static Builtin> {
@@ -279,6 +345,32 @@ pub fn button(
                 _ => Vec::new(),
             })
         }
+        ("scoreboard", _) => {
+            let n = |k: &str| stored.get(k).and_then(Value::as_i64).unwrap_or(0);
+            let running = stored.get("clockRunning").and_then(Value::as_bool).unwrap_or(false);
+            let since = stored.get("clockSince").and_then(Value::as_i64).unwrap_or(0);
+            let used = stored.get("clockUsed").and_then(Value::as_i64).unwrap_or(0);
+            Some(match name {
+                "homeUp" => vec![("home".into(), json!(n("home") + 1))],
+                "homeDown" => vec![("home".into(), json!((n("home") - 1).max(0)))],
+                "awayUp" => vec![("away".into(), json!(n("away") + 1))],
+                "awayDown" => vec![("away".into(), json!((n("away") - 1).max(0)))],
+                "resetScore" => vec![("home".into(), json!(0)), ("away".into(), json!(0)), ("period".into(), json!(1))],
+                "periodUp" => vec![("period".into(), json!(n("period").max(1) + 1))],
+                "clockStart" if !running => vec![("clockRunning".into(), json!(true)), ("clockSince".into(), json!(now_ms()))],
+                "clockPause" if running => {
+                    vec![("clockRunning".into(), json!(false)), ("clockUsed".into(), json!(used + (now_ms() - since).max(0)))]
+                }
+                "clockReset" => vec![
+                    ("clockRunning".into(), json!(false)),
+                    ("clockUsed".into(), json!(0)),
+                    ("clockSince".into(), Value::Null),
+                ],
+                _ => return None,
+            })
+        }
+        ("lower-third", "show") => Some(vec![("shown".into(), json!(true)), ("shownAt".into(), json!(now_ms()))]),
+        ("lower-third", "hide") => Some(vec![("shown".into(), json!(false))]),
         _ => None,
     }
 }

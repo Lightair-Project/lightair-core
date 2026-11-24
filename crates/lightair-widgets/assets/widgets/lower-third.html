@@ -1,0 +1,56 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Lower third</title>
+<style>
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+  body { font-family: var(--font); color: var(--text); display: flex; align-items: flex-end; padding: 0 0 6% 3%; box-sizing: border-box; }
+  #lt { position: relative; display: flex; flex-direction: column; justify-content: center; transform-origin: left center; transition: transform .6s cubic-bezier(.2,.9,.2,1), opacity .5s; }
+  #lt.gone { transform: translateX(-30px); opacity: 0; }
+  #name { font-size: var(--size); font-weight: 800; line-height: 1.1; white-space: nowrap; }
+  #title { font-size: calc(var(--size) * .5); opacity: .85; white-space: nowrap; margin-top: .2em; }
+  /* accent bar */
+  .bar { background: var(--bg); padding: .35em 1em .45em 1.1em; border-left: .3em solid var(--accent); font-size: var(--size); }
+  .bar #name, .bar #title { font-size: inherit; } .bar #title { font-size: .5em; }
+  /* card */
+  .card { background: var(--bg); padding: .4em .9em; border-radius: .35em; font-size: var(--size); box-shadow: 0 .2em .8em rgba(0,0,0,.4); }
+  .card #name, .card #title { font-size: inherit; } .card #title { font-size: .5em; color: var(--accent); opacity: 1; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+  /* minimal */
+  .minimal { text-shadow: 0 .06em .3em rgba(0,0,0,.7); font-size: var(--size); }
+  .minimal #name, .minimal #title { font-size: inherit; } .minimal #title { font-size: .5em; }
+  .minimal::after { content: ""; display: block; height: .08em; width: 2.2em; background: var(--accent); margin-top: .25em; }
+  /* split */
+  .split { font-size: var(--size); }
+  .split #name { background: var(--accent); padding: .15em .6em; font-size: inherit; }
+  .split #title { background: var(--bg); padding: .25em .9em; font-size: .5em; margin-top: 0; align-self: flex-start; }
+</style>
+<script src="/lightair.js"></script>
+</head><body>
+<div id="lt" class="gone"><div id="name"></div><div id="title"></div></div>
+<script>
+  var timer = null;
+  function shown() {
+    var st = lightair.storage || {};
+    if (st.shown === undefined) return !!lightair.fields.showOnLoad;
+    return !!st.shown;
+  }
+  function draw() {
+    var f = lightair.fields, r = document.documentElement.style;
+    r.setProperty('--font', f.font || 'Inter, -apple-system, "Segoe UI", sans-serif');
+    r.setProperty('--size', (f.fontSize || 44) + 'px');
+    r.setProperty('--text', f.textColor || '#fff');
+    r.setProperty('--bg', f.background || 'rgba(12,12,16,0.88)');
+    r.setProperty('--accent', f.accent || '#7C5CFF');
+    document.getElementById('name').textContent = f.name || '';
+    document.getElementById('title').textContent = f.title || '';
+    var lt = document.getElementById('lt'), on = shown();
+    lt.className = (f.style || 'bar') + (on ? '' : ' gone');
+    clearTimeout(timer);
+    var secs = Number(f.autoHide) || 0;
+    if (on && secs > 0) {
+      var since = (lightair.storage || {}).shownAt || Date.now();
+      var left = Math.max(0, since + secs * 1000 - Date.now());
+      timer = setTimeout(function () { lt.className = (f.style || 'bar') + ' gone'; }, left);
+    }
+  }
+  lightair.on('load', draw).on('fields', draw).on('storage', draw);
+</script>
+</body></html>

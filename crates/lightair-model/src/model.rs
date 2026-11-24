@@ -776,6 +776,10 @@ pub struct AudioMix {
     /// The strip's colour in the mixer (0xRRGGBB).
     #[serde(default)]
     pub color: Option<u32>,
+    /// Also played on this output device (its id; "" the default), as it sounds after its
+    /// fader: a second pair of headphones, a speaker in the room, an interface's outputs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device: Option<String>,
 }
 
 impl AudioMix {
@@ -791,6 +795,7 @@ impl AudioMix {
             trim_db: 0.0,
             cue: false,
             color: None,
+            device: None,
         }
     }
 }

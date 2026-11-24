@@ -7,7 +7,7 @@
   var m = location.pathname.match(/^\/w\/([^/]+)/);
   var id = m ? m[1] : '';
   var key = new URLSearchParams(location.search).get('key') || '';
-  var handlers = {}, pointsRef = 0, pointsWaiting = {};
+  var handlers = {}, pointsRef = 0, pointsWaiting = {}, fetchRef = 0, fetchWaiting = {};
   var ws = null;
   var api = (window.lightair = {
     id: id,
@@ -32,6 +32,12 @@
       send({ type: 'points', platform: platform, id: id, name: name, delta: delta, ref: ref });
     },
     store: function (k, v) { api.storage[k] = v; send({ type: 'storage.set', key: k, value: v }); },
+    // reads a web address one of this widget's settings names, through Lightair (pages can't
+    // read most sites themselves); cb({ok, status, body, error})
+    fetch: function (url, cb) {
+      var ref = ++fetchRef; fetchWaiting[ref] = cb || function () {};
+      send({ type: 'fetch', url: url, ref: ref });
+    },
     escape: function (s) {
       return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -111,6 +117,7 @@
         case 'data': api.data[msg.key] = msg.value; emit('data', { key: msg.key, value: msg.value }); break;
         case 'sound': emit('sound', msg); break;
         case 'points': var cb = pointsWaiting[msg.ref]; delete pointsWaiting[msg.ref]; if (cb) cb(msg.ok, msg.balance); break;
+        case 'fetched': var fc = fetchWaiting[msg.ref]; delete fetchWaiting[msg.ref]; if (fc) fc(msg); break;
       }
     };
     ws.onclose = function () { setTimeout(connect, 1000); };

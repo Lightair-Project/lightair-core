@@ -1,0 +1,9 @@
+{
+  "style": {"type": "dropdown", "label": "Style", "value": "bars", "options": {"bars": "Bars", "mirror": "Mirrored bars", "wave": "Wave", "circle": "Circle"}, "group": "Visualiser"},
+  "bands": {"type": "slider", "label": "Bars", "value": 32, "min": 8, "max": 64, "step": 1, "group": "Visualiser"},
+  "gain": {"type": "slider", "label": "Sensitivity", "value": 1, "min": 0.3, "max": 3, "step": 0.1, "group": "Visualiser"},
+  "color": {"type": "colorpicker", "label": "Colour", "value": "#7C5CFF", "group": "Look"},
+  "color2": {"type": "colorpicker", "label": "Second colour", "value": "#21D4FD", "group": "Look"},
+  "gap": {"type": "slider", "label": "Gap", "value": 4, "min": 0, "max": 20, "step": 1, "group": "Look"},
+  "round": {"type": "checkbox", "label": "Round ends", "value": true, "group": "Look"}
+}

@@ -1,0 +1,35 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Captions</title>
+<style>
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+  body { font-family: var(--font); color: var(--text); font-size: var(--size); display: flex; align-items: flex-end; justify-content: center; padding: .3em; box-sizing: border-box; }
+  #box { background: var(--bg); padding: .25em .6em; border-radius: .25em; max-width: 100%; text-align: center; line-height: 1.25; transition: opacity .4s; }
+  #box.gone { opacity: 0; }
+  .t { color: var(--tr); font-size: .85em; }
+  .partial { opacity: .75; }
+</style>
+<script src="/lightair.js"></script>
+</head><body><div id="box" class="gone"></div>
+<script>
+  function draw() {
+    var f = lightair.fields, c = (lightair.data || {}).captions || {}, r = document.documentElement.style, box = document.getElementById('box');
+    r.setProperty('--font', f.font || 'Inter, -apple-system, "Segoe UI", sans-serif');
+    r.setProperty('--size', (f.fontSize || 36) + 'px');
+    r.setProperty('--text', f.textColor || '#fff');
+    r.setProperty('--tr', f.translationColor || '#FFD166');
+    r.setProperty('--bg', f.background || 'rgba(0,0,0,0.7)');
+    var n = Math.max(1, Number(f.lines) || 2), lines = (c.lines || []).slice(-(c.partial ? n - 1 : n)), out = [];
+    box.textContent = '';
+    lines.forEach(function (l) {
+      var d = document.createElement('div'); d.textContent = l.text; box.appendChild(d);
+      if (f.showTranslation && l.translation) { var t = document.createElement('div'); t.className = 't'; t.textContent = l.translation; box.appendChild(t); }
+    });
+    if (c.partial) { var p = document.createElement('div'); p.className = 'partial'; p.textContent = c.partial; box.appendChild(p); }
+    var quiet = (Number(f.hideAfter) || 0) * 1000;
+    var stale = quiet > 0 && c.at && Date.now() - c.at > quiet;
+    box.className = (!box.childNodes.length || stale) ? 'gone' : '';
+  }
+  lightair.on('load', draw).on('fields', draw).on('data', function (e) { if (e.key === 'captions') draw(); });
+  setInterval(draw, 500);
+</script>
+</body></html>

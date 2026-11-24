@@ -295,6 +295,11 @@ impl Widgets {
         Some(format!("http://127.0.0.1:{}/run/{}?key={key}", self.shared.port, percent_encode(automation)))
     }
 
+    /// A widget's settings as it has them (its fields' values, defaults filled in).
+    pub fn fields(&self, id: &str) -> Option<Map<String, Value>> {
+        self.shared.values(id)
+    }
+
     /// A widget of `kind` exists (integrations only ask for what one shows).
     pub fn has_kind(&self, kind: &str) -> bool {
         self.shared.instances.lock().values().any(|i| i.kind == kind)
@@ -669,6 +674,25 @@ fn feed(mut ws: WebSocket<TcpStream>, shared: &Arc<Shared>, instance: &str) -> i
                                 store::set(&shared.store_dir, instance, key, m["value"].clone());
                             }
                         }
+                        // a web address one of its settings names, read for the page (a page can't
+                        // read most addresses itself: they don't allow other sites)
+                        Some("fetch") => {
+                            let url = m["url"].as_str().unwrap_or("").to_string();
+                            let named = shared.values(instance).is_some_and(|v| v.values().any(|x| x.as_str() == Some(url.as_str())));
+                            let (me, reference) = (me.clone(), m["ref"].clone());
+                            if !named || !(url.starts_with("https://") || url.starts_with("http://")) {
+                                let _ = me.send(json!({"type": "fetched", "ref": reference, "ok": false, "error": "not one of its settings"}).to_string());
+                            } else {
+                                std::thread::spawn(move || {
+                                    let answer = fetch_text(&url);
+                                    let reply = match answer {
+                                        Ok((status, body)) => json!({"type": "fetched", "ref": reference, "ok": (200..300).contains(&status), "status": status, "body": body}),
+                                        Err(e) => json!({"type": "fetched", "ref": reference, "ok": false, "error": e}),
+                                    };
+                                    let _ = me.send(reply.to_string());
+                                });
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -691,6 +715,20 @@ fn feed(mut ws: WebSocket<TcpStream>, shared: &Arc<Shared>, instance: &str) -> i
     })();
     shared.conns.lock().retain(|c| c.id != conn);
     result
+}
+
+/// GETs `url` for a page: (status, the body as text, at most a megabyte), within ten seconds.
+fn fetch_text(url: &str) -> Result<(u16, String), String> {
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .tls_config(lightair_live::net::tls_config())
+        .timeout_global(Some(Duration::from_secs(10)))
+        .http_status_as_error(false)
+        .build()
+        .into();
+    let mut res = agent.get(url).header("User-Agent", "Lightair widget").call().map_err(|e| e.to_string())?;
+    let status = res.status().as_u16();
+    let body = res.body_mut().with_config().limit(1 << 20).read_to_string().map_err(|e| e.to_string())?;
+    Ok((status, body))
 }
 
 /// Whether two widgets' code is the same (where it's kept aside).

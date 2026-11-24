@@ -1,0 +1,12 @@
+{
+  "url": {"type": "text", "label": "Web address (JSON or text)", "value": "https://api.github.com/repos/obsproject/obs-studio", "group": "Data"},
+  "path": {"type": "text", "label": "Field (e.g. stargazers_count, data.0.name)", "value": "stargazers_count", "group": "Data"},
+  "template": {"type": "text", "label": "Text ({value})", "value": "★ {value}", "group": "Data"},
+  "refresh": {"type": "number", "label": "Refresh every (seconds)", "value": 60, "min": 5, "group": "Data"},
+  "asImage": {"type": "checkbox", "label": "The value is a picture's address", "value": false, "group": "Data"},
+  "font": {"type": "fontpicker", "label": "Font", "value": "Inter, -apple-system, \"Segoe UI\", sans-serif", "group": "Look"},
+  "fontSize": {"type": "slider", "label": "Text size", "value": 48, "min": 10, "max": 200, "step": 1, "group": "Look"},
+  "align": {"type": "dropdown", "label": "Align", "value": "center", "options": {"left": "Left", "center": "Centre", "right": "Right"}, "group": "Look"},
+  "textColor": {"type": "colorpicker", "label": "Text", "value": "#FFFFFF", "group": "Look"},
+  "background": {"type": "colorpicker", "label": "Background", "value": "rgba(0,0,0,0)", "group": "Look"}
+}

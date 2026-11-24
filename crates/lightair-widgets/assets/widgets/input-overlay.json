@@ -1,0 +1,12 @@
+{
+  "showKeys": {"type": "checkbox", "label": "Keys pressed", "value": true, "group": "Show"},
+  "shortcutsOnly": {"type": "checkbox", "label": "Only shortcuts (with ⌘, Ctrl, Alt or ⌥): never what you type", "value": true, "group": "Show"},
+  "showMouse": {"type": "checkbox", "label": "Mouse buttons", "value": true, "group": "Show"},
+  "showPad": {"type": "checkbox", "label": "Game controller", "value": true, "group": "Show"},
+  "keep": {"type": "number", "label": "Keys stay (seconds)", "value": 2, "min": 0, "group": "Show"},
+  "font": {"type": "fontpicker", "label": "Font", "value": "Inter, -apple-system, \"Segoe UI\", sans-serif", "group": "Look"},
+  "size": {"type": "slider", "label": "Size", "value": 36, "min": 14, "max": 120, "step": 1, "group": "Look"},
+  "keyColor": {"type": "colorpicker", "label": "Key", "value": "rgba(20,20,24,0.9)", "group": "Look"},
+  "textColor": {"type": "colorpicker", "label": "Text", "value": "#FFFFFF", "group": "Look"},
+  "accent": {"type": "colorpicker", "label": "Pressed", "value": "#7C5CFF", "group": "Look"}
+}

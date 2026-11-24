@@ -1,0 +1,52 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Audio visualiser</title>
+<style>html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; } canvas { width: 100vw; height: 100vh; display: block; }</style>
+<script src="/lightair.js"></script>
+</head><body><canvas id="c"></canvas>
+<script>
+  var cv = document.getElementById('c'), g = cv.getContext('2d'), shown = [];
+  function resize() { cv.width = innerWidth * devicePixelRatio; cv.height = innerHeight * devicePixelRatio; }
+  addEventListener('resize', resize); resize();
+  // the spectrum (0..1 a band, low to high) resampled to n bars
+  function bars(n) {
+    var s = ((lightair.data || {}).spectrum || {}).bands || [], out = [];
+    for (var i = 0; i < n; i++) {
+      if (!s.length) { out.push(0); continue; }
+      var a = Math.floor(i * s.length / n), b = Math.max(a + 1, Math.floor((i + 1) * s.length / n)), m = 0;
+      for (var k = a; k < b; k++) m = Math.max(m, s[k] || 0);
+      out.push(m);
+    }
+    return out;
+  }
+  function frame() {
+    var f = lightair.fields || {}, n = Math.round(f.bands || 32), gain = Number(f.gain) || 1;
+    var want = bars(n).map(function (v) { return Math.min(1, v * gain); });
+    // fast up, slow down
+    for (var i = 0; i < n; i++) { var c = shown[i] || 0; shown[i] = want[i] > c ? want[i] : c * 0.88 + want[i] * 0.12; }
+    shown.length = n;
+    var W = cv.width, H = cv.height, gap = (Number(f.gap) || 0) * devicePixelRatio;
+    g.clearRect(0, 0, W, H);
+    var grad = g.createLinearGradient(0, H, W, 0); grad.addColorStop(0, f.color || '#7C5CFF'); grad.addColorStop(1, f.color2 || f.color || '#21D4FD');
+    g.fillStyle = grad; g.strokeStyle = grad; g.lineCap = f.round ? 'round' : 'butt';
+    var style = f.style || 'bars', w = (W - gap * (n - 1)) / n;
+    if (style === 'wave') {
+      g.lineWidth = Math.max(2, H * 0.02); g.beginPath();
+      for (var i = 0; i < n; i++) { var x = i * W / (n - 1), y = H / 2 - (shown[i] * H * 0.45) * (i % 2 ? 1 : -1); i ? g.lineTo(x, y) : g.moveTo(x, y); }
+      g.stroke();
+    } else if (style === 'circle') {
+      var cx = W / 2, cy = H / 2, r0 = Math.min(W, H) * 0.22, r1 = Math.min(W, H) * 0.48 - r0;
+      g.lineWidth = Math.max(2, (2 * Math.PI * r0 / n) * 0.6);
+      for (var i = 0; i < n; i++) { var a = i / n * Math.PI * 2 - Math.PI / 2, l = r0 + shown[i] * r1; g.beginPath(); g.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0); g.lineTo(cx + Math.cos(a) * l, cy + Math.sin(a) * l); g.stroke(); }
+    } else {
+      for (var i = 0; i < n; i++) {
+        var h = Math.max(2, shown[i] * H * (style === 'mirror' ? 0.5 : 1)), x = i * (w + gap);
+        var y = style === 'mirror' ? H / 2 - h : H - h, hh = style === 'mirror' ? h * 2 : h;
+        if (f.round && g.roundRect) { g.beginPath(); g.roundRect(x, y, w, hh, Math.min(w / 2, hh / 2)); g.fill(); } else g.fillRect(x, y, w, hh);
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+  lightair.on('load', function () {});
+  requestAnimationFrame(frame);
+</script>
+</body></html>

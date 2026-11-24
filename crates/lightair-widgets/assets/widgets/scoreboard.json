@@ -1,0 +1,22 @@
+{
+  "homeName": {"type": "text", "label": "Home", "value": "HOME", "group": "Teams"},
+  "awayName": {"type": "text", "label": "Away", "value": "AWAY", "group": "Teams"},
+  "homeColor": {"type": "colorpicker", "label": "Home colour", "value": "#2F6FEB", "group": "Teams"},
+  "awayColor": {"type": "colorpicker", "label": "Away colour", "value": "#E5484D", "group": "Teams"},
+  "homeUp": {"type": "button", "label": "Home +1", "value": "", "group": "Score"},
+  "homeDown": {"type": "button", "label": "Home −1", "value": "", "group": "Score"},
+  "awayUp": {"type": "button", "label": "Away +1", "value": "", "group": "Score"},
+  "awayDown": {"type": "button", "label": "Away −1", "value": "", "group": "Score"},
+  "resetScore": {"type": "button", "label": "Scores to 0", "value": "", "group": "Score"},
+  "periodLabel": {"type": "text", "label": "Period name", "value": "Round", "group": "Period and clock"},
+  "periodUp": {"type": "button", "label": "Next period", "value": "", "group": "Period and clock"},
+  "showClock": {"type": "checkbox", "label": "Show a clock", "value": true, "group": "Period and clock"},
+  "clockMinutes": {"type": "number", "label": "Clock length (minutes; 0 counts up)", "value": 10, "min": 0, "group": "Period and clock"},
+  "clockStart": {"type": "button", "label": "Start clock", "value": "", "group": "Period and clock"},
+  "clockPause": {"type": "button", "label": "Pause clock", "value": "", "group": "Period and clock"},
+  "clockReset": {"type": "button", "label": "Reset clock", "value": "", "group": "Period and clock"},
+  "font": {"type": "fontpicker", "label": "Font", "value": "Inter, -apple-system, \"Segoe UI\", sans-serif", "group": "Look"},
+  "fontSize": {"type": "slider", "label": "Text size", "value": 40, "min": 14, "max": 120, "step": 1, "group": "Look"},
+  "textColor": {"type": "colorpicker", "label": "Text", "value": "#FFFFFF", "group": "Look"},
+  "background": {"type": "colorpicker", "label": "Background", "value": "rgba(10,12,16,0.85)", "group": "Look"}
+}

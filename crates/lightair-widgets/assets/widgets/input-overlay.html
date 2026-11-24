@@ -1,0 +1,68 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Input overlay</title>
+<style>
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+  body { font-family: var(--font); color: var(--text); font-size: var(--size); display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: .4em; padding: .4em; box-sizing: border-box; }
+  .row { display: flex; gap: .25em; align-items: center; }
+  .cap { background: var(--key); border-radius: .22em; padding: .12em .45em; min-width: .9em; text-align: center; font-weight: 700; box-shadow: 0 .08em 0 rgba(0,0,0,.5), inset 0 -.06em 0 rgba(255,255,255,.08); transition: opacity .3s; }
+  .combo { display: flex; gap: .18em; }
+  #mouse { display: flex; width: 1.6em; height: 2.3em; border-radius: .8em; border: .08em solid var(--key); overflow: hidden; flex-wrap: wrap; background: rgba(0,0,0,.35); }
+  #mouse div { width: 50%; height: 45%; box-sizing: border-box; border-bottom: .05em solid var(--key); }
+  #mouse #mm { position: absolute; }
+  #mouse .on { background: var(--accent); }
+  #pad { position: relative; width: 6em; height: 3.4em; border-radius: 1.4em; background: var(--key); }
+  #pad .b { position: absolute; width: .6em; height: .6em; border-radius: 50%; background: rgba(255,255,255,.18); font-size: .32em; display: flex; align-items: center; justify-content: center; }
+  #pad .b.on { background: var(--accent); }
+  #pad .stick { position: absolute; width: 1.1em; height: 1.1em; border-radius: 50%; background: rgba(0,0,0,.45); }
+  #pad .stick i { position: absolute; left: 50%; top: 50%; width: .45em; height: .45em; margin: -.225em; border-radius: 50%; background: rgba(255,255,255,.7); }
+  #pad .trig { position: absolute; top: -.25em; width: 1.2em; height: .35em; border-radius: .2em; background: rgba(255,255,255,.18); overflow: hidden; }
+  #pad .trig i { display: block; height: 100%; background: var(--accent); width: 0; }
+</style>
+<script src="/lightair.js"></script>
+</head><body>
+<div class="row" id="devices"></div>
+<div id="keys" class="row"></div>
+<script>
+  var MODS = ['⌘', 'Ctrl', 'Alt', '⌥', 'Win', '⌃'];
+  function draw() {
+    var f = lightair.fields, d = (lightair.data || {}).input || {}, r = document.documentElement.style;
+    r.setProperty('--font', f.font || 'Inter, -apple-system, "Segoe UI", sans-serif');
+    r.setProperty('--size', (f.size || 36) + 'px');
+    r.setProperty('--key', f.keyColor || 'rgba(20,20,24,0.9)');
+    r.setProperty('--text', f.textColor || '#fff');
+    r.setProperty('--accent', f.accent || '#7C5CFF');
+    // keys: the combos pressed lately, newest last
+    var keys = document.getElementById('keys'); keys.textContent = '';
+    if (f.showKeys) {
+      var keep = (Number(f.keep) || 2) * 1000, now = Date.now();
+      (d.recent || []).filter(function (c) { return now - c.at < keep && (!f.shortcutsOnly || c.keys.some(function (k) { return MODS.indexOf(k) >= 0; })); })
+        .slice(-4).forEach(function (c) {
+          var combo = document.createElement('div'); combo.className = 'combo';
+          combo.style.opacity = Math.max(.25, 1 - (now - c.at) / keep);
+          c.keys.forEach(function (k) { var cap = document.createElement('span'); cap.className = 'cap'; cap.textContent = k; combo.appendChild(cap); });
+          keys.appendChild(combo);
+        });
+    }
+    var dev = document.getElementById('devices'); dev.textContent = '';
+    if (f.showMouse && d.mouse) {
+      var m = document.createElement('div'); m.id = 'mouse';
+      ['left', 'right'].forEach(function (b) { var x = document.createElement('div'); if (d.mouse[b]) x.className = 'on'; m.appendChild(x); });
+      dev.appendChild(m);
+    }
+    if (f.showPad && d.pads && d.pads.length) {
+      var p = d.pads[0], pad = document.createElement('div'); pad.id = 'pad';
+      function btn(name, x, y, label) { var b = document.createElement('div'); b.className = 'b' + (p.buttons && p.buttons[name] ? ' on' : ''); b.style.left = x + 'em'; b.style.top = y + 'em'; b.style.width = b.style.height = '1.9em'; b.textContent = label; pad.appendChild(b); }
+      function stick(x, y, ax, ay) { var s = document.createElement('div'); s.className = 'stick'; s.style.left = x + 'em'; s.style.top = y + 'em'; var i = document.createElement('i'); i.style.transform = 'translate(' + (ax || 0) * .35 + 'em,' + (ay || 0) * .35 + 'em)'; s.appendChild(i); pad.appendChild(s); }
+      function trig(x, v) { var t = document.createElement('div'); t.className = 'trig'; t.style.left = x + 'em'; var i = document.createElement('i'); i.style.width = Math.round((v || 0) * 100) + '%'; t.appendChild(i); pad.appendChild(t); }
+      trig(.6, p.lt); trig(4.2, p.rt);
+      stick(.5, .6, p.lx, p.ly); stick(3.3, 1.9, p.rx, p.ry);
+      btn('north', 4.65, .35, 'Y'); btn('west', 4.25, .75, 'X'); btn('east', 5.05, .75, 'B'); btn('south', 4.65, 1.15, 'A');
+      btn('up', 1.75, 1.6, '▲'); btn('left', 1.35, 2.0, '◀'); btn('right', 2.15, 2.0, '▶'); btn('down', 1.75, 2.4, '▼');
+      btn('lb', .6, .1, 'LB'); btn('rb', 4.6, .1, 'RB'); btn('select', 2.5, .9, '⧉'); btn('start', 3.2, .9, '≡');
+      dev.appendChild(pad);
+    }
+  }
+  lightair.on('load', draw).on('fields', draw).on('data', function (e) { if (e.key === 'input') draw(); });
+  setInterval(draw, 200);
+</script>
+</body></html>

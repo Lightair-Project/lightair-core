@@ -1,0 +1,12 @@
+{
+  "language": {"type": "text", "label": "Language spoken (e.g. en-US; empty: this Mac's)", "value": "", "group": "Captions"},
+  "translateTo": {"type": "text", "label": "Translate to (e.g. es, ja; empty: none)", "value": "", "group": "Captions"},
+  "lines": {"type": "number", "label": "Lines shown", "value": 2, "min": 1, "max": 6, "group": "Captions"},
+  "showTranslation": {"type": "checkbox", "label": "Show the translation under it (when one is on)", "value": true, "group": "Captions"},
+  "hideAfter": {"type": "number", "label": "Clear after silence (seconds; 0 never)", "value": 6, "min": 0, "group": "Captions"},
+  "font": {"type": "fontpicker", "label": "Font", "value": "Inter, -apple-system, \"Segoe UI\", sans-serif", "group": "Look"},
+  "fontSize": {"type": "slider", "label": "Text size", "value": 36, "min": 14, "max": 100, "step": 1, "group": "Look"},
+  "textColor": {"type": "colorpicker", "label": "Text", "value": "#FFFFFF", "group": "Look"},
+  "translationColor": {"type": "colorpicker", "label": "Translation", "value": "#FFD166", "group": "Look"},
+  "background": {"type": "colorpicker", "label": "Background", "value": "rgba(0,0,0,0.7)", "group": "Look"}
+}

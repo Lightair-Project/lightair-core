@@ -1,0 +1,14 @@
+{
+  "name": {"type": "text", "label": "Name", "value": "Your Name", "group": "Lower third"},
+  "title": {"type": "text", "label": "Title", "value": "Streamer · Host", "group": "Lower third"},
+  "show": {"type": "button", "label": "Show", "value": "", "group": "Lower third"},
+  "hide": {"type": "button", "label": "Hide", "value": "", "group": "Lower third"},
+  "autoHide": {"type": "number", "label": "Hide after (seconds; 0 stays)", "value": 8, "min": 0, "group": "Lower third"},
+  "showOnLoad": {"type": "checkbox", "label": "Show when it comes on air", "value": true, "group": "Lower third"},
+  "style": {"type": "dropdown", "label": "Style", "value": "bar", "options": {"bar": "Accent bar", "card": "Card", "minimal": "Minimal", "split": "Split"}, "group": "Look"},
+  "accent": {"type": "colorpicker", "label": "Accent", "value": "#7C5CFF", "group": "Look"},
+  "background": {"type": "colorpicker", "label": "Background", "value": "rgba(12,12,16,0.88)", "group": "Look"},
+  "textColor": {"type": "colorpicker", "label": "Text", "value": "#FFFFFF", "group": "Look"},
+  "font": {"type": "fontpicker", "label": "Font", "value": "Inter, -apple-system, \"Segoe UI\", sans-serif", "group": "Look"},
+  "fontSize": {"type": "slider", "label": "Name size", "value": 44, "min": 16, "max": 120, "step": 1, "group": "Look"}
+}

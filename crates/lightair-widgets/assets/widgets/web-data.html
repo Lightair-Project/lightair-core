@@ -1,0 +1,48 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Web data</title>
+<style>
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+  body { font-family: var(--font); color: var(--text); font-size: var(--size); font-weight: 800; display: flex; align-items: center; justify-content: var(--align); padding: 0 12px; box-sizing: border-box; white-space: nowrap; }
+  #box { background: var(--bg); padding: .1em .4em; border-radius: .2em; text-shadow: 0 2px 8px rgba(0,0,0,.5); }
+  img { max-height: 100vh; max-width: 100vw; display: block; }
+  #err { font-size: 14px; font-weight: 500; opacity: .7; }
+</style>
+<script src="/lightair.js"></script>
+</head><body><div id="box"></div>
+<script>
+  var timer = null, value = null, err = '';
+  // a field of a JSON answer: "a.b.0.c"; empty: the whole answer
+  function pick(data, path) {
+    if (!path) return data;
+    return String(path).split('.').reduce(function (o, k) { return o == null ? o : o[k]; }, data);
+  }
+  function show() {
+    var f = lightair.fields, r = document.documentElement.style, box = document.getElementById('box');
+    r.setProperty('--font', f.font || 'Inter, -apple-system, "Segoe UI", sans-serif');
+    r.setProperty('--size', (f.fontSize || 48) + 'px');
+    r.setProperty('--text', f.textColor || '#fff');
+    r.setProperty('--bg', f.background || 'transparent');
+    r.setProperty('--align', { left: 'flex-start', center: 'center', right: 'flex-end' }[f.align] || 'center');
+    box.textContent = '';
+    if (value == null) { if (err) { var e = document.createElement('span'); e.id = 'err'; e.textContent = err; box.appendChild(e); } return; }
+    var v = typeof value === 'object' ? JSON.stringify(value) : String(value);
+    if (f.asImage) { var img = document.createElement('img'); img.src = v; box.appendChild(img); return; }
+    box.textContent = String(f.template || '{value}').split('{value}').join(v);
+  }
+  function load() {
+    var f = lightair.fields;
+    clearTimeout(timer);
+    if (!f.url) { value = null; err = ''; show(); return; }
+    lightair.fetch(f.url, function (r) {
+      if (!r.ok) { err = 'Couldn’t read it' + (r.status ? ' (' + r.status + ')' : '') + (r.error ? ': ' + r.error : ''); value = null; }
+      else {
+        var data = r.body; try { data = JSON.parse(r.body); } catch (e) {}
+        var v = pick(data, f.path); err = v === undefined ? 'No ' + f.path + ' in the answer' : ''; value = v === undefined ? null : v;
+      }
+      show();
+      timer = setTimeout(load, Math.max(5, Number(f.refresh) || 60) * 1000);
+    });
+  }
+  lightair.on('load', load).on('fields', load);
+</script>
+</body></html>
