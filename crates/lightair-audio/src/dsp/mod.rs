@@ -6,6 +6,7 @@ mod dynamics;
 pub mod eq;
 mod gain;
 mod noise;
+mod pitch;
 mod plugin;
 mod space;
 mod voice;
@@ -14,6 +15,7 @@ pub use dynamics::{CompressorParams, DeEsserParams, DuckerParams, GateParams, Li
 pub use eq::{Band, BandKind, EqParams};
 pub use gain::GainParams;
 pub use noise::NoiseParams;
+pub use pitch::PitchParams;
 pub use plugin::{Plugin, PluginParams};
 pub use space::{ChannelParams, DelayParams, ReverbParams};
 pub use voice::VoiceParams;
@@ -33,6 +35,7 @@ pub enum Params {
     Delay(DelayParams),
     Channel(ChannelParams),
     Voice(VoiceParams),
+    Pitch(PitchParams),
     /// A hosted plugin (AU, VST3).
     Plugin(PluginParams),
 }
@@ -53,6 +56,7 @@ impl Params {
             Params::Delay(_) => "audio.delay",
             Params::Channel(_) => "audio.channel",
             Params::Voice(_) => "audio.voice",
+            Params::Pitch(_) => "audio.pitch",
             Params::Plugin(_) => "audio.plugin",
         }
     }
@@ -73,6 +77,7 @@ impl Params {
             &Params::Delay(p) => Box::new(space::Delay::new(p, sample_rate)),
             &Params::Channel(p) => Box::new(space::ChannelTools::new(p, sample_rate)),
             &Params::Voice(p) => Box::new(voice::Voice::new(p, sample_rate)),
+            &Params::Pitch(p) => Box::new(pitch::Pitch::new(p, sample_rate)),
         }
     }
 

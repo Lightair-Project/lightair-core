@@ -25,6 +25,8 @@ pub const OBJECT_MASK_KIND: &str = "lightair_source_mask";
 pub const FREEZE_KIND: &str = "lightair_freeze";
 /// Lightair's user shader filter.
 pub const SHADER_KIND: &str = "lightair_shader";
+/// Lightair's filter that moves with a track's level.
+pub const AUDIO_REACT_KIND: &str = "lightair_audio_react";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Category {
@@ -1268,6 +1270,36 @@ pub const CATALOG: &[EffectDef] = &[
         fixed: &[],
     },
     EffectDef {
+        kind: AUDIO_REACT_KIND,
+        name: "React to sound",
+        category: Category::Distort,
+        description: "Grows, glows, fades in or shakes with a track's sound",
+        icon: "audio-waveform",
+        needs: Nothing,
+        controls: &[
+            Control::Track { key: "track", label: "Listens to" },
+            Control::Choice {
+                key: "react",
+                label: "Does",
+                options: &[("Grow", Pick::Int(0)), ("Fade in", Pick::Int(1)), ("Glow", Pick::Int(2)), ("Shake", Pick::Int(3))],
+                default: Pick::Int(0),
+            },
+            amount(0.5),
+            Control::Slider(Slider {
+                key: "floor_db",
+                label: "Quietest heard",
+                min: -60.0,
+                max: -10.0,
+                step: 1.0,
+                default: -40.0,
+                unit: Unit::Db,
+                int: false,
+                log: false,
+            }),
+        ],
+        fixed: &[],
+    },
+    EffectDef {
         kind: "gpu_delay",
         name: "Delay",
         category: Category::Keying,
@@ -1451,6 +1483,30 @@ pub const AUDIO: &[EffectDef] = &[
         controls: &[
             a("strength", "Strength", 0.0, 1.0, 1.0, Unit::Percent),
             a("vad_threshold", "Voice gate", 0.0, 0.95, 0.0, Unit::Percent),
+        ],
+        fixed: &[],
+    },
+    EffectDef {
+        kind: "audio.pitch",
+        name: "Voice changer",
+        category: Category::Voice,
+        description: "Higher, deeper or a robot: pitch moved without changing speed",
+        icon: "wand-sparkles",
+        needs: Nothing,
+        controls: &[
+            Control::Slider(Slider {
+                key: "semitones",
+                label: "Pitch",
+                min: -12.0,
+                max: 12.0,
+                step: 1.0,
+                default: -4.0,
+                unit: Unit::Number,
+                int: false,
+                log: false,
+            }),
+            Control::Switch { key: "robot", label: "Robot", default: false },
+            f("mix", "Mix", 0.0, 1.0, 1.0, Unit::Percent),
         ],
         fixed: &[],
     },
