@@ -243,6 +243,15 @@ impl SceneRenderer {
                 }
                 out
             }
+            TransitionKind::Scene => {
+                // the transition scene over the switch, the scenes swapping halfway
+                let over = workspace.scene(to).and_then(|s| s.transition_scene).or(workspace.show.transition_scene);
+                let mut out = if p < 0.5 { a } else { b };
+                if let Some(over) = over.filter(|o| *o != from && *o != to) {
+                    out.extend(self.draws(workspace, over, canvas, pictures));
+                }
+                out
+            }
         };
         self.draw(&draws, time_s)
     }

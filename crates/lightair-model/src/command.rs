@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{
     AudioMix, Bus, Canvas, ClipSettings, Destination, Effect, Id, Layout, Master, MixerStrip, Object, Reconnect,
-    RecordingSettings, Route, Scene, Source, Stinger, Track, TransitionSettings, VirtualCameraSettings, Workspace,
+    RecordingSettings, Route, Scene, Show, Source, Stinger, Track, TransitionSettings, VirtualCameraSettings, Workspace,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -79,6 +79,33 @@ pub enum Command {
     SetSceneStinger {
         scene: Id,
         stinger: Option<Stinger>,
+    },
+    /// How switching to `scene` from `from` looks; `None`: as switching to it from anywhere.
+    SetSceneTransitionFrom {
+        scene: Id,
+        from: Id,
+        transition: Option<TransitionSettings>,
+    },
+    /// The scene `scene`'s own Scene transition plays; `None`: the workspace's.
+    SetSceneTransitionScene {
+        scene: Id,
+        transition_scene: Option<Id>,
+    },
+    /// A scene's notes (the Notes panel, the teleprompter).
+    SetSceneNotes {
+        scene: Id,
+        notes: String,
+    },
+    /// The folder a scene is listed in; empty: none.
+    SetSceneFolder {
+        scene: Id,
+        folder: String,
+    },
+    /// The show around the scenes (overlays, soundboard, rundown, the transition scene), with
+    /// what the change was for its undo label.
+    SetShow {
+        show: Show,
+        label: String,
     },
     MoveScene {
         scene: Id,
@@ -404,6 +431,11 @@ impl Command {
             Command::SetScreenZoomPointer { .. } => "Change screen zoom and pointer".into(),
             Command::SetSceneTransition { .. } => "Change the scene's transition".into(),
             Command::SetSceneStinger { .. } => "Change the scene's stinger".into(),
+            Command::SetSceneTransitionFrom { .. } => "Change the transition between scenes".into(),
+            Command::SetSceneTransitionScene { .. } => "Change the transition scene".into(),
+            Command::SetSceneNotes { .. } => "Edit scene notes".into(),
+            Command::SetSceneFolder { .. } => "Move scene to folder".into(),
+            Command::SetShow { label, .. } => label.clone(),
             Command::MoveScene { .. } => "Reorder scenes".into(),
             Command::SetProgram { .. } => "Switch scene".into(),
             Command::AddObject { .. } => "Add object".into(),
@@ -609,6 +641,26 @@ impl Command {
                 if workspace.program == Some(*scene) {
                     workspace.program =
                         workspace.scenes.get(idx.saturating_sub(1)).or(workspace.scenes.first()).map(|s| s.id);
+                }
+                // what pointed at it: other scenes' rules and transition scenes, the show
+                for s in workspace.scenes.iter_mut() {
+                    if s.transitions_from.contains_key(scene) || s.transition_scene == Some(*scene) {
+                        let s = Arc::make_mut(s);
+                        s.transitions_from.remove(scene);
+                        if s.transition_scene == Some(*scene) {
+                            s.transition_scene = None;
+                        }
+                    }
+                }
+                let show = &mut workspace.show;
+                show.overlays.retain(|o| o != scene);
+                if show.transition_scene == Some(*scene) {
+                    show.transition_scene = None;
+                }
+                for seg in &mut show.rundown {
+                    if seg.scene == Some(*scene) {
+                        seg.scene = None;
+                    }
                 }
             }
             Command::RenameScene { scene, name } => scene_mut(workspace, *scene)?.name = name.clone(),
@@ -931,6 +983,46 @@ impl Command {
                     transition.map(|t| TransitionSettings { duration_ms: t.duration_ms.clamp(50, 5000), ..t })
             }
             Command::SetSceneStinger { scene, stinger } => scene_mut(workspace, *scene)?.stinger = stinger.clone(),
+            Command::SetSceneTransitionFrom { scene, from, transition } => {
+                if workspace.scene(*from).is_none() {
+                    return Err(CommandError::NoScene(*from));
+                }
+                let s = scene_mut(workspace, *scene)?;
+                match transition {
+                    Some(t) => {
+                        s.transitions_from
+                            .insert(*from, TransitionSettings { duration_ms: t.duration_ms.clamp(50, 5000), ..*t });
+                    }
+                    None => {
+                        s.transitions_from.remove(from);
+                    }
+                }
+            }
+            Command::SetSceneTransitionScene { scene, transition_scene } => {
+                if let Some(t) = transition_scene
+                    && workspace.scene(*t).is_none()
+                {
+                    return Err(CommandError::NoScene(*t));
+                }
+                scene_mut(workspace, *scene)?.transition_scene = *transition_scene;
+            }
+            Command::SetSceneNotes { scene, notes } => scene_mut(workspace, *scene)?.notes = notes.clone(),
+            Command::SetSceneFolder { scene, folder } => scene_mut(workspace, *scene)?.folder = folder.trim().to_string(),
+            Command::SetShow { show, .. } => {
+                let known = |id: &Id| workspace.scene(*id).is_some();
+                let mut show = show.clone();
+                // only scenes that exist; an overlay never shows itself on itself
+                show.overlays.retain(|o| known(o));
+                show.overlays.dedup();
+                show.transition_scene = show.transition_scene.filter(|t| known(t));
+                for seg in &mut show.rundown {
+                    seg.scene = seg.scene.filter(|s| known(s));
+                }
+                for pad in &mut show.pads {
+                    pad.volume = pad.volume.clamp(0.0, 100.0);
+                }
+                workspace.show = show;
+            }
             Command::SetTransition { settings } => {
                 workspace.transition =
                     TransitionSettings { duration_ms: settings.duration_ms.clamp(50, 5000), ..*settings }

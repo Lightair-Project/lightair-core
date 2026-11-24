@@ -67,6 +67,88 @@ pub struct Workspace {
     /// The stinger video used by the Stinger transition.
     #[serde(default)]
     pub stinger: Option<Stinger>,
+    /// The show around the scenes: overlays on every scene, the soundboard, the rundown, the
+    /// scene a Scene transition plays.
+    #[serde(default, skip_serializing_if = "Show::is_empty")]
+    pub show: Show,
+}
+
+/// What runs across scenes (docs/13-extensibility-and-compatibility.md, "Built-in replacements").
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Show {
+    /// Scenes drawn over every scene in every canvas, bottom first (a downstream keyer): a
+    /// logo, a ticker, a webcam frame that stays whatever is on air.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub overlays: Vec<Id>,
+    /// The scene the Scene transition plays over a switch (when a scene has none of its own).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transition_scene: Option<Id>,
+    /// The soundboard's pads, in order.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub pads: Vec<Pad>,
+    /// The rundown: the show's segments in running order.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub rundown: Vec<Segment>,
+}
+
+impl Show {
+    pub fn is_empty(&self) -> bool {
+        self == &Show::default()
+    }
+}
+
+/// A soundboard pad: a sound played on stream, from the panel, a hotkey or an automation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Pad {
+    pub id: Id,
+    pub name: String,
+    /// The sound file.
+    pub file: String,
+    /// 0..=100.
+    #[serde(default = "full")]
+    pub volume: f32,
+    /// A global shortcut that plays it ("cmd+shift+1"); empty: none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub hotkey: String,
+    /// A colour for its tile (0xRRGGBB).
+    #[serde(default)]
+    pub color: u32,
+    /// Plays over and over until pressed again.
+    #[serde(default)]
+    pub looped: bool,
+}
+
+fn full() -> f32 {
+    100.0
+}
+
+impl Pad {
+    pub fn new(name: impl Into<String>, file: impl Into<String>) -> Self {
+        Self { id: Id::new(), name: name.into(), file: file.into(), volume: 100.0, hotkey: String::new(), color: 0x5B8DEF, looped: false }
+    }
+}
+
+/// A segment of the rundown: what's on, for how long, and the scene it starts on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Segment {
+    pub id: Id,
+    pub title: String,
+    /// Planned length in seconds (0: open-ended).
+    #[serde(default)]
+    pub seconds: u32,
+    /// The scene put on air when the segment starts; `None`: whatever is on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scene: Option<Id>,
+    /// Notes for whoever runs it (talking points, cues).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub notes: String,
+}
+
+impl Segment {
+    pub fn new(title: impl Into<String>) -> Self {
+        Self { id: Id::new(), title: title.into(), seconds: 300, scene: None, notes: String::new() }
+    }
 }
 
 /// A stinger: a video (usually with alpha) that plays over the switch; the scene changes
@@ -91,6 +173,7 @@ impl Workspace {
             outputs: OutputSettings::default(),
             transition: TransitionSettings::default(),
             stinger: None,
+            show: Show::default(),
         }
     }
 
@@ -109,6 +192,7 @@ impl Workspace {
             outputs: self.outputs.clone(),
             transition: self.transition,
             stinger: self.stinger.clone(),
+            show: self.show.clone(),
         }
     }
 
@@ -212,6 +296,19 @@ pub struct Scene {
     /// Its own stinger video (with its own transition a Stinger); `None`: the workspace's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stinger: Option<Stinger>,
+    /// How switching to this scene looks when coming from a particular scene (by that scene's
+    /// id): ahead of `transition` and the workspace's.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub transitions_from: BTreeMap<Id, TransitionSettings>,
+    /// The scene its own Scene transition plays; `None`: the workspace's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transition_scene: Option<Id>,
+    /// Notes for this scene, shown in the Notes panel (and scrolled as a teleprompter).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub notes: String,
+    /// The folder it's listed in, in the Scenes panel; empty: none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub folder: String,
 }
 
 /// How a scene's screen captures zoom and show the pointer, live (docs/plans/screen-studio.md,
@@ -291,7 +388,18 @@ impl Default for ScreenZoomPointer {
 
 impl Scene {
     pub fn new(name: impl Into<String>) -> Self {
-        Self { id: Id::new(), name: name.into(), objects: Vec::new(), screen: None, transition: None, stinger: None }
+        Self {
+            id: Id::new(),
+            name: name.into(),
+            objects: Vec::new(),
+            screen: None,
+            transition: None,
+            stinger: None,
+            transitions_from: BTreeMap::new(),
+            transition_scene: None,
+            notes: String::new(),
+            folder: String::new(),
+        }
     }
     pub fn object(&self, id: Id) -> Option<&Object> {
         self.objects.iter().find(|l| l.id == id)
@@ -1228,11 +1336,14 @@ pub enum TransitionKind {
     Dip,
     /// Plays the workspace's stinger video over the switch.
     Stinger,
+    /// Plays a scene over the switch (an animated graphic, a branded wipe); the scenes swap
+    /// underneath halfway.
+    Scene,
 }
 
 impl TransitionKind {
-    pub const ALL: [TransitionKind; 7] =
-        [Self::Cut, Self::Fade, Self::Move, Self::Slide, Self::Wipe, Self::Dip, Self::Stinger];
+    pub const ALL: [TransitionKind; 8] =
+        [Self::Cut, Self::Fade, Self::Move, Self::Slide, Self::Wipe, Self::Dip, Self::Stinger, Self::Scene];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -1243,6 +1354,7 @@ impl TransitionKind {
             Self::Wipe => "Wipe",
             Self::Dip => "Dip",
             Self::Stinger => "Stinger",
+            Self::Scene => "Scene",
         }
     }
 

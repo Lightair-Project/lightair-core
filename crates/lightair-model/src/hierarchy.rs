@@ -227,6 +227,10 @@ impl Scene {
             screen: self.screen,
             transition: self.transition,
             stinger: self.stinger.clone(),
+            transitions_from: self.transitions_from.clone(),
+            transition_scene: self.transition_scene,
+            notes: self.notes.clone(),
+            folder: self.folder.clone(),
         }
     }
 

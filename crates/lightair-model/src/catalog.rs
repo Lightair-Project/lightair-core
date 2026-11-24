@@ -17,6 +17,14 @@ use crate::model::{Effect, Id};
 pub const STUDIO_FILTER: &str = "lightair_camera_studio";
 /// The data-driven shader filter `fx.*` effects run on.
 pub const FX_FILTER: &str = "lightair_fx";
+/// libobs's image mask (obs-filters).
+pub const IMAGE_MASK_KIND: &str = "mask_filter_v2";
+/// Lightair's mask made from another source's picture (`source`: that source's id).
+pub const OBJECT_MASK_KIND: &str = "lightair_source_mask";
+/// Lightair's freeze frame.
+pub const FREEZE_KIND: &str = "lightair_freeze";
+/// Lightair's user shader filter.
+pub const SHADER_KIND: &str = "lightair_shader";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Category {
@@ -1182,6 +1190,80 @@ pub const CATALOG: &[EffectDef] = &[
         controls: &[
             f("luma_min", "Remove darks", 0.0, 1.0, 0.0, Unit::Percent),
             f("luma_max", "Keep up to", 0.0, 1.0, 1.0, Unit::Percent),
+        ],
+        fixed: &[],
+    },
+    EffectDef {
+        kind: IMAGE_MASK_KIND,
+        name: "Image mask",
+        category: Category::Keying,
+        description: "Cut the picture to an image's shape: its alpha or its brightness",
+        icon: "image",
+        needs: Nothing,
+        controls: &[
+            Control::File { key: "image_path", label: "Mask image", extensions: &["png", "jpg", "jpeg", "webp", "gif", "bmp"] },
+            Control::Choice {
+                key: "type",
+                label: "Use",
+                options: &[("Alpha", Pick::Str("mask_alpha_filter.effect")), ("Brightness", Pick::Str("mask_color_filter.effect"))],
+                default: Pick::Str("mask_alpha_filter.effect"),
+            },
+            Control::Switch { key: "stretch", label: "Stretch to fit", default: true },
+        ],
+        fixed: &[("color", Pick::Int(0xFFFF_FFFF))],
+    },
+    EffectDef {
+        kind: OBJECT_MASK_KIND,
+        name: "Object mask",
+        category: Category::Keying,
+        description: "Cut the picture to another object's picture: a logo, text, a video",
+        icon: "layers-2",
+        needs: Nothing,
+        controls: &[
+            Control::Choice {
+                key: "mode",
+                label: "Use",
+                options: &[("Alpha", Pick::Int(0)), ("Brightness", Pick::Int(1))],
+                default: Pick::Int(0),
+            },
+            Control::Switch { key: "invert", label: "Invert", default: false },
+        ],
+        fixed: &[("source", Pick::Str(""))],
+    },
+    EffectDef {
+        kind: FREEZE_KIND,
+        name: "Freeze",
+        category: Category::Distort,
+        description: "Hold the picture still, from a switch, a hotkey or an automation",
+        icon: "snowflake",
+        needs: Nothing,
+        controls: &[
+            Control::Switch { key: "frozen", label: "Frozen", default: true },
+            Control::Slider(Slider {
+                key: "hold_ms",
+                label: "Thaw after",
+                min: 0.0,
+                max: 30_000.0,
+                step: 250.0,
+                default: 0.0,
+                unit: Unit::Ms,
+                int: true,
+                log: false,
+            }),
+            f("fade", "Fade", 0.0, 1.0, 0.0, Unit::Percent),
+        ],
+        fixed: &[],
+    },
+    EffectDef {
+        kind: SHADER_KIND,
+        name: "Custom shader",
+        category: Category::Stylize,
+        description: "Your own shader file (OBS Shaderfilter shaders work as they are)",
+        icon: "code",
+        needs: Nothing,
+        controls: &[
+            Control::File { key: "path", label: "Shader file", extensions: &["shader", "effect", "hlsl", "txt"] },
+            amount(1.0),
         ],
         fixed: &[],
     },

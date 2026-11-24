@@ -39,6 +39,8 @@ pub enum Patch {
     TrackOrder(Vec<Id>),
     /// Buses, mixes or the master changed (the mixer is rebuilt from the workspace).
     AudioSetup,
+    /// The workspace's own settings changed: its transition, stinger or show (overlays, …).
+    Workspace,
 }
 
 /// Patches in an order that is safe to apply: canvases and sources before the scenes that use
@@ -104,6 +106,9 @@ pub fn diff(before: &Workspace, after: &Workspace) -> Vec<Patch> {
     }
     if before.audio != after.audio {
         out.push(Patch::AudioSetup);
+    }
+    if before.transition != after.transition || before.stinger != after.stinger || before.show != after.show {
+        out.push(Patch::Workspace);
     }
 
     for id in before.sources.keys() {

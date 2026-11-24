@@ -68,6 +68,8 @@ struct Manifest {
     transition: lightair_model::TransitionSettings,
     #[serde(default)]
     stinger: Option<lightair_model::Stinger>,
+    #[serde(default, skip_serializing_if = "lightair_model::Show::is_empty")]
+    show: lightair_model::Show,
     /// The rotated journals (`journal/<n>.log`) this snapshot includes: up to this number.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     journal: Option<u64>,
@@ -134,6 +136,7 @@ fn save_upto(dir: &Path, workspace: &Workspace, journal: Option<u64>) -> Result<
             scenes: workspace.scenes.iter().map(|s| s.id).collect(),
             transition: workspace.transition,
             stinger: workspace.stinger.clone(),
+            show: workspace.show.clone(),
             journal,
         },
     )
@@ -198,6 +201,7 @@ pub fn load_snapshot(dir: &Path) -> Result<Workspace, StoreError> {
         outputs,
         transition: manifest.transition,
         stinger: manifest.stinger,
+        show: manifest.show,
     };
     // canvas 1 stored libobs's macOS ids
     lightair_model::kinds::migrate(&mut workspace);
