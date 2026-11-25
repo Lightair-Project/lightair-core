@@ -8,10 +8,11 @@
 //! the Colour grade's LUT (P2). Textures hold sRGB-encoded values in Rgba8Unorm (Rgba16Float and
 //! Rgba32Float where the desktop uses them), as the desktop does, so the constants are the same.
 //!
-//! Not drawn here: the background (`crate::background`), stickers, motion and atmosphere (no
-//! catalogue effect sets them on phones), the makeup look's `.cube` LUT (no bundled LUTs and no
-//! makeup preset names one; a desktop path means nothing on a phone), the landmarks overlay and
-//! the green key (macOS's own camera effect).
+//! Not drawn here: the background (`crate::background`), the stickers' pictures (a face stickers
+//! preset's face distortion is: [`EFFECT_SHAPE`]), motion and atmosphere (no catalogue effect sets
+//! them on phones), the makeup look's `.cube` LUT (no bundled LUTs and no makeup preset names
+//! one; a desktop path means nothing on a phone), the landmarks overlay and the green key
+//! (macOS's own camera effect).
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -27,6 +28,13 @@ use crate::gpu::Gpu;
 // The colour grade (`grade.rs`), declared here until `looks/mod.rs` declares it.
 /// The effect kinds drawn here.
 pub const KINDS: [&str; 3] = ["studio.beauty", "studio.light", "studio.grade"];
+
+/// The face stickers effect kind.
+pub const STICKERS: &str = "studio.stickers";
+/// The settings key of a face stickers effect for its preset's face distortion: an object of
+/// reshape keys ([`Shape::KEYS`]) to amounts as the preset gives them (slider/100, and may go
+/// past the sliders' range). The host puts it there; the warp adds it to the reshape sliders.
+pub const EFFECT_SHAPE: &str = "effect_shape";
 
 const LIGHTS_JSON: &str = include_str!("../../assets/effect-stack/lights.json");
 const MAKEUP_JSON: &str = include_str!("../../assets/effect-stack/makeup/presets.json");
@@ -148,6 +156,9 @@ pub struct Settings {
     /// `contrast`: clarity.
     pub clarity: f32,
     pub shape: Shape,
+    /// A face stickers preset's distortion ([`EFFECT_SHAPE`]), added to `shape` when drawn
+    /// (also with Enhance off).
+    pub effect_shape: Shape,
     pub all_skin: bool,
     pub show_landmarks: bool,
     pub debug_view: i32,
@@ -249,12 +260,16 @@ fn apply_makeup_preset(s: &mut Map<String, Value>, name: &str) {
 impl Settings {
     /// The source's looks as the desktop's looks get them
     /// (`lightair_model::catalog::studio_settings`), or `None` when no `studio.beauty`,
-    /// `studio.light` or `studio.grade` is switched on.
+    /// `studio.light` or `studio.grade` is switched on, nor a face stickers effect with a face
+    /// distortion ([`EFFECT_SHAPE`]).
     pub fn from_source(source: &Source) -> Option<Settings> {
+        let distorts = |e: &lightair_model::Effect| {
+            e.kind == STICKERS && e.settings.get(EFFECT_SHAPE).and_then(Value::as_object).is_some_and(|o| !o.is_empty())
+        };
         source
             .effects
             .iter()
-            .any(|e| e.enabled && KINDS.contains(&e.kind.as_str()))
+            .any(|e| e.enabled && (KINDS.contains(&e.kind.as_str()) || distorts(e)))
             .then(|| Settings::from_map(&catalog::studio_settings(&source.effects)))
     }
 
@@ -336,6 +351,7 @@ impl Settings {
             eyelight: slider(s, "eyelight", 30, false),
             clarity: slider(s, "contrast", 0, false),
             shape,
+            effect_shape: Shape::default(),
             all_skin: boolean(s, "all_skin", true),
             show_landmarks: boolean(s, "show_landmarks", false),
             debug_view: int(s, "debug_view", 0) as i32,
@@ -357,6 +373,14 @@ impl Settings {
         }
         if !boolean(s, "makeup_on", true) {
             out.makeup_off();
+        }
+        // a face stickers preset's distortion, with the stickers on (whatever the Shape tab says)
+        if boolean(s, "effects_on", true)
+            && let Some(o) = s.get(EFFECT_SHAPE).and_then(Value::as_object)
+        {
+            for (k, v) in Shape::KEYS.iter().zip(out.effect_shape.fields_mut()) {
+                *v = o.get(*k).and_then(Value::as_f64).unwrap_or(0.0) as f32;
+            }
         }
         out
     }
@@ -382,6 +406,7 @@ impl Settings {
     pub fn lighten(&mut self) {
         self.skin_off();
         self.shape = Shape::default();
+        self.effect_shape = Shape::default();
         self.makeup_off();
     }
 
@@ -427,7 +452,7 @@ impl Settings {
         {
             return true;
         }
-        if self.shape.any() {
+        if self.shape.any() || self.effect_shape.any() {
             return true;
         }
         self.smooth > 0.0 || self.foundation > 0.0 || self.skin_tone != 0.0 || self.redness > 0.0
@@ -907,7 +932,11 @@ impl Looks {
         let m = &s.makeup;
 
         // --- landmarks -> layout ---
-        let shape = if s.enhance_on { s.shape } else { Shape::default() };
+        let mut shape = if s.enhance_on { s.shape } else { Shape::default() };
+        let mut effect_shape = s.effect_shape;
+        for (v, add) in shape.fields_mut().into_iter().zip(effect_shape.fields_mut()) {
+            *v += *add;
+        }
         let lay = layout::build(face, &shape, wf, hf, face_weight, m.blush_style);
         gpu.queue().write_texture(
             st.t.data.as_image_copy(),
