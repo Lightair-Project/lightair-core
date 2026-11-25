@@ -22,6 +22,8 @@ exceptions = [
   { name = "lightair-remote",      allow = ["GPL-3.0-or-later"] },
   { name = "lightair-platform",    allow = ["GPL-3.0-or-later"] },
   { name = "lightair-fonts",       allow = ["GPL-3.0-or-later"] },
+  { name = "lightair-feed",        allow = ["GPL-3.0-or-later"] },
+  { name = "lightair-pngtuber",    allow = ["GPL-3.0-or-later"] },
   { name = "xtask",                allow = ["GPL-3.0-or-later"] },
 ]
 
@@ -45,3 +47,9 @@ unknown-git = "deny"
 
 [advisories]
 unmaintained = "workspace"
+ignore = [
+  # ttf-parser is unmaintained (no known vulnerability): fontdb and cosmic-text read fonts with it,
+  # and lightair-fonts reads a font's names and axes with it. Revisit when they move to its
+  # successor.
+  { id = "RUSTSEC-2026-0192", reason = "unmaintained, no vulnerability; needed by fontdb and cosmic-text" },
+]

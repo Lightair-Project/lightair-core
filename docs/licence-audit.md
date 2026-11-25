@@ -12,7 +12,7 @@ work, except a few permissively licensed files that carry their notices (§3).
 
 | Check | Result |
 |---|---|
-| Commit authors, all 159 commits | One person: the owner, committing as MoonGoblin. 156 under the GitHub noreply address, 3 (`c3f1279`, `042f3ca`, `5a922d4`) under the owner's personal address, kept as they are by the owner's choice |
+| Commit authors | One person: the owner, committing as MoonGoblin under the GitHub noreply address (239 commits on 25 November 2026; the history was rewritten that day, and three early commits that had the owner's personal address now carry the noreply one too) |
 | Outside contributions (pull requests, patches, co-authors) | None |
 | Files carrying someone else's copyright or licence notice | Only `crates/lightair-widgets/assets/jquery-3.7.1.min.js` (MIT, §3) |
 
@@ -28,6 +28,9 @@ work, except a few permissively licensed files that carry their notices (§3).
 | Built-in widgets (19 pages and their fields) | `crates/lightair-widgets/assets/widgets/` | Original |
 | Speech to text | `crates/lightair-render/src/speech.rs` | Runs whisper.cpp (MIT) as a separate helper program; nothing linked or copied |
 | OBS test fixture | `crates/lightair-store/tests/fixtures/obs-collection.json` | Made for the tests |
+| SRTLA bonding | `crates/lightair-feed/src/srtla.rs` | Written from the SRTLA protocol (how a sender registers its links with a receiver and spreads packets over them), to work with existing receivers; no receiver code is in the repository or was copied |
+| RTMP, RTMPS, SRT and MPEG-TS out | `crates/lightair-feed/src/` | Written from the protocols' specifications; SRT itself comes from the `srt-tokio` crate (Apache-2.0) |
+| ffmpeg in the feed's tests | `crates/lightair-feed/tests/` | ffmpeg is run as a separate program (an RTMP server and a decoder to check what was sent), when it's installed; nothing linked or copied |
 
 ## 3. Third-party files in the repository
 

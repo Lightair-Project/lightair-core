@@ -1,0 +1,26 @@
+[package]
+name = "lightair-feed"
+description = "Encoded picture and sound out: RTMP and RTMPS, SRT, SRTLA bonding over several networks, MPEG-TS, reconnects and the send queue"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+tracing.workspace = true
+parking_lot = "0.12"
+# a destination's network: sockets bound to an interface before they connect
+socket2 = "0.5"
+libc = "0.2"
+bytes = "1"
+futures = "0.3"
+# SRT in Rust (Apache-2.0, AES in Rust too)
+srt-tokio = "0.4.4"
+tokio = { version = "1", default-features = false, features = ["rt", "net", "time", "sync", "macros"] }
+# RTMPS: TLS with ring, and the Mozilla roots, so every platform trusts the same servers
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "logging", "tls12"] }
+webpki-roots = "1"
+getrandom = "0.3"
+
+[dev-dependencies]
+srt-protocol = "0.4.4"
