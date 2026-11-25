@@ -81,10 +81,17 @@ pub fn unsupported(workspace: &Workspace, scene: Id) -> Vec<Unsupported> {
     out
 }
 
-/// Whether the renderer draws an effect: the shader effects, the colour filter, and a LUT
-/// from a `.cube` file (libobs's `clut_filter`; its `.png` strips aren't read).
+/// Whether the renderer draws an effect: the shader effects, the colour filter, a LUT from a
+/// `.cube` file (libobs's `clut_filter`; its `.png` strips aren't read), and a custom shader
+/// from a `.wgsl` file.
 fn drawn(e: &lightair_model::Effect) -> bool {
-    e.kind.starts_with("fx.") || e.kind == "color_filter_v2" || cube_of(e).is_some()
+    e.kind.starts_with("fx.") || e.kind == "color_filter_v2" || cube_of(e).is_some() || wgsl_of(e).is_some()
+}
+
+/// A custom shader's `.wgsl` file (`.shader` and `.effect` files are libobs's).
+pub fn wgsl_of(e: &lightair_model::Effect) -> Option<&str> {
+    let path = e.settings.get("path")?.as_str()?;
+    (e.kind == lightair_model::catalog::SHADER_KIND && path.to_ascii_lowercase().ends_with(".wgsl")).then_some(path)
 }
 
 /// A `clut_filter`'s `.cube` file.
@@ -441,6 +448,17 @@ fn effects_of(source: &Source, folder: Option<&std::path::Path>) -> (Filter, f32
             settings.insert("file".into(), Value::from(file.to_string_lossy().into_owned()));
             settings.insert("amount".into(), Value::from(num("clut_amount", 1.0).clamp(0.0, 1.0) as f64));
             effects.push(ClipEffect::new("fx.lut", settings));
+        } else if let Some(wgsl) = wgsl_of(e) {
+            // a custom shader (a relative path: in the workspace's folder)
+            let path = std::path::Path::new(wgsl);
+            let file = match folder {
+                Some(f) if path.is_relative() => f.join(path),
+                _ => path.to_path_buf(),
+            };
+            let mut settings = Map::new();
+            settings.insert("file".into(), Value::from(file.to_string_lossy().into_owned()));
+            settings.insert("amount".into(), Value::from(num("amount", 1.0).clamp(0.0, 1.0) as f64));
+            effects.push(ClipEffect::new("fx.custom", settings));
         }
     }
     (filter, opacity, effects)

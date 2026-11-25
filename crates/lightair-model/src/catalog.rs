@@ -1264,11 +1264,11 @@ pub const CATALOG: &[EffectDef] = &[
         kind: SHADER_KIND,
         name: "Custom shader",
         category: Category::Stylize,
-        description: "Your own shader file (OBS Shaderfilter shaders work as they are)",
+        description: "Your own WGSL shader (OBS Shaderfilter files still work for now)",
         icon: "code",
         needs: Nothing,
         controls: &[
-            Control::File { key: "path", label: "Shader file", extensions: &["shader", "effect", "hlsl", "txt"] },
+            Control::File { key: "path", label: "Shader file", extensions: &["wgsl", "shader", "effect", "hlsl", "txt"] },
             amount(1.0),
         ],
         fixed: &[],

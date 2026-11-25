@@ -214,6 +214,23 @@ pub fn parse_cube(text: &str) -> Result<Cube, String> {
     Ok(Cube { size, lo, hi, entries })
 }
 
+/// A custom shader ("fx.custom", settings `file`: a `.wgsl` file's path, `amount` 0…1): the file
+/// defines `fn main_image(uv: vec2<f32>) -> vec4<f32>` with the effects' prelude in scope
+/// (`img`, `src`, `time()`, `u.size`, `u.texel`, `luma`, …; pictures premultiplied, `uv` 0…1 from
+/// the top left), and `amount` mixes its result with the picture.
+const CUSTOM_ENTRY: &str = r#"
+@fragment
+fn fs_custom(v: VOut) -> @location(0) vec4<f32> {
+    return mix(img(v.uv), main_image(v.uv), clamp(u.p[0].x, 0.0, 1.0));
+}
+"#;
+
+/// A custom shader's pipeline, and the file's time it was made from (`None`: it didn't compile).
+struct Custom {
+    modified: Option<std::time::SystemTime>,
+    pipeline: Option<wgpu::RenderPipeline>,
+}
+
 /// A table on the GPU, and the file's time it was read at.
 struct Lut {
     modified: Option<std::time::SystemTime>,
@@ -235,12 +252,15 @@ pub struct Fx {
     /// "fx.lut": its pipeline and layout (made when first used), and the tables read, by file.
     lut: Option<(wgpu::RenderPipeline, wgpu::BindGroupLayout)>,
     luts: HashMap<std::path::PathBuf, Lut>,
+    /// "fx.custom": the shaders compiled, by file.
+    customs: HashMap<std::path::PathBuf, Custom>,
 }
 
 /// One effect to run: one of the catalog's (its passes and settings), or a table.
 enum Run {
     Catalog(String, usize, Vec<[f32; 4]>),
     Lut(std::path::PathBuf, f32),
+    Custom(std::path::PathBuf, f32),
 }
 
 impl Fx {
@@ -310,7 +330,66 @@ impl Fx {
             targets: HashMap::new(),
             lut: None,
             luts: HashMap::new(),
+            customs: HashMap::new(),
         }
+    }
+
+    /// The custom shader in `file` as a pipeline, made again when the file changes (`None`: it
+    /// can't be read or doesn't compile, logged once per change).
+    fn custom(&mut self, file: &std::path::Path) -> Option<wgpu::RenderPipeline> {
+        let modified = std::fs::metadata(file).and_then(|m| m.modified()).ok();
+        if let Some(c) = self.customs.get(file)
+            && c.modified == modified
+        {
+            return c.pipeline.clone();
+        }
+        let pipeline = match std::fs::read_to_string(file) {
+            Ok(code) => {
+                let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+                let module = self.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("lightair-custom-shader"),
+                    source: wgpu::ShaderSource::Wgsl(format!("{PRELUDE}\n{code}\n{CUSTOM_ENTRY}").into()),
+                });
+                let pipeline = self.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some("lightair-custom-shader"),
+                    layout: Some(&self.pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &module,
+                        entry_point: Some("vs"),
+                        compilation_options: Default::default(),
+                        buffers: &[],
+                    },
+                    primitive: wgpu::PrimitiveState::default(),
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    fragment: Some(wgpu::FragmentState {
+                        module: &module,
+                        entry_point: Some("fs_custom"),
+                        compilation_options: Default::default(),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format: wgpu::TextureFormat::Rgba8Unorm,
+                            blend: None,
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                    }),
+                    multiview_mask: None,
+                    cache: None,
+                });
+                match pollster::block_on(scope.pop()) {
+                    None => Some(pipeline),
+                    Some(e) => {
+                        tracing::warn!(file = %file.display(), error = %e, "a custom shader that doesn't compile");
+                        None
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(file = %file.display(), error = %e, "a custom shader that can't be read");
+                None
+            }
+        };
+        self.customs.insert(file.to_path_buf(), Custom { modified, pipeline: pipeline.clone() });
+        pipeline
     }
 
     fn lut_pipeline(&mut self) -> (wgpu::RenderPipeline, wgpu::BindGroupLayout) {
@@ -479,10 +558,14 @@ impl Fx {
             .filter(|e| e.on)
             .filter_map(|e| {
                 let name = e.kind.strip_prefix("fx.")?.to_string();
-                if name == "lut" {
+                if name == "lut" || name == "custom" {
                     let file = e.settings.get("file")?.as_str().filter(|f| !f.is_empty())?;
                     let amount = e.settings.get("amount").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
-                    return Some(Run::Lut(file.into(), amount));
+                    return Some(if name == "lut" {
+                        Run::Lut(file.into(), amount)
+                    } else {
+                        Run::Custom(file.into(), amount)
+                    });
                 }
                 let n = *passes().get(&name)?;
                 let values = uniforms(&name).iter().map(|u| value_of(u, &e.settings)).collect();
@@ -512,8 +595,12 @@ impl Fx {
         // each effect reads the last one's result as its source
         let mut current: Option<usize> = None;
         for run in runs {
-            let (name, n, values) = match run {
-                Run::Catalog(name, n, values) => (name, n, values),
+            let (name, n, values, custom) = match run {
+                Run::Catalog(name, n, values) => (name, n, values, None),
+                Run::Custom(file, amount) => {
+                    let Some(pipeline) = self.custom(&file) else { continue };
+                    ("custom".to_string(), 1, vec![[amount, 0.0, 0.0, 0.0]], Some(pipeline))
+                }
                 Run::Lut(file, amount) => {
                     let Some((table, cube)) = self.table(&file) else { continue };
                     let (pipeline, layout) = self.lut_pipeline();
@@ -615,8 +702,10 @@ impl Fx {
                         wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::Sampler(&self.point) },
                     ],
                 });
-                let entry = format!("fs_{name}_{pass}");
-                let pipeline = self.pipeline(&entry).clone();
+                let pipeline = match &custom {
+                    Some(p) => p.clone(),
+                    None => self.pipeline(&format!("fs_{name}_{pass}")).clone(),
+                };
                 let view = targets[out].create_view(&Default::default());
                 {
                     let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
