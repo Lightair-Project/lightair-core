@@ -25,6 +25,7 @@ exceptions = [
   { name = "lightair-feed",        allow = ["GPL-3.0-or-later"] },
   { name = "lightair-overlay",     allow = ["GPL-3.0-or-later"] },
   { name = "lightair-engine",      allow = ["GPL-3.0-or-later"] },
+  { name = "lightair-encode",      allow = ["GPL-3.0-or-later"] },
   { name = "lightair-pngtuber",    allow = ["GPL-3.0-or-later"] },
   { name = "lightair-packages",    allow = ["GPL-3.0-or-later"] },
   { name = "lightair-capture",     allow = ["GPL-3.0-or-later"] },

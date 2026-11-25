@@ -1,0 +1,20 @@
+[package]
+name = "lightair-encode"
+description = "Lightair's encoders and recording files: VideoToolbox video (H.264, HEVC, ProRes) from the encoder's own IOSurface pool, AAC and Opus through AudioToolbox, and crash-safe MP4, MOV and Matroska files written from encoded packets"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+tracing.workspace = true
+parking_lot.workspace = true
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFBase", "CFArray", "CFDictionary", "CFNumber", "CFString"] }
+objc2-core-video = { version = "0.3.2", default-features = false, features = ["std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVPixelBufferPool", "CVReturn"] }
+objc2-core-media = { version = "0.3.2", default-features = false, features = ["std", "CMBase", "CMTime", "CMSampleBuffer", "CMBlockBuffer", "CMFormatDescription", "objc2-core-video"] }
+objc2-video-toolbox = { version = "0.3.2", default-features = false, features = ["std", "VTBase", "VTCompressionSession", "VTCompressionProperties", "VTSession", "VTErrors", "objc2-core-media", "objc2-core-video"] }
+objc2-audio-toolbox = { version = "0.3.2", default-features = false, features = ["std", "AudioConverter", "AudioCodec", "objc2-core-audio-types"] }
+objc2-core-audio-types = { version = "0.3.2", default-features = false, features = ["std", "CoreAudioBaseTypes"] }
