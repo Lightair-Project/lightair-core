@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use crate::format::{Color, Packet, VideoCodec, VideoFormat};
+use crate::format::{Color, H264Profile, Packet, VideoCodec, VideoFormat};
 use crate::nal::NalLayout;
 
 /// The pictures the encoder takes, and so the format the renderer's last pass writes.
@@ -48,6 +48,9 @@ pub struct VideoSettings {
     pub input: InputFormat,
     pub color: Color,
     pub hardware: Hardware,
+    /// H.264's profile (HEVC's is the codec's `main10`). Apple's encoders follow it; the others
+    /// keep their own.
+    pub h264_profile: H264Profile,
 }
 
 impl VideoSettings {
@@ -67,6 +70,7 @@ impl VideoSettings {
             input: InputFormat::Bgra,
             color: Color::BT709,
             hardware: Hardware::Prefer,
+            h264_profile: H264Profile::High,
         }
     }
 

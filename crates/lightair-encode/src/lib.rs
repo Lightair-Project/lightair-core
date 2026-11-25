@@ -1,8 +1,9 @@
 //! Lightair's encoders and recording files.
 //!
 //! - [`apple`] (macOS and iOS): [`apple::VideoEncoder`], a VideoToolbox compression session
-//!   (H.264 High, HEVC Main and Main 10, ProRes 422) whose own IOSurface pixel buffer pool the
-//!   renderer draws into, and [`apple::AudioEncoder`], AAC-LC or Opus through AudioToolbox.
+//!   (H.264 High, Main or Baseline, HEVC Main and Main 10, ProRes 422) whose own IOSurface pixel
+//!   buffer pool the renderer draws into, and [`apple::AudioEncoder`], AAC-LC or Opus through
+//!   AudioToolbox.
 //! - `windows` (Windows): `windows::VideoEncoder`, the GPU's Media Foundation encoder (H.264,
 //!   HEVC) fed the compositor's shared Direct3D 11 textures, and `windows::AudioEncoder`, AAC
 //!   through Media Foundation or Opus in software.
@@ -31,7 +32,7 @@ pub mod software;
 pub mod windows;
 
 pub use encoder::{AudioEncode, VideoEncode};
-pub use format::{AudioCodec, AudioFormat, Color, Packet, ProRes, TrackFormat, VideoCodec, VideoFormat};
+pub use format::{AudioCodec, AudioFormat, Color, H264Profile, Packet, ProRes, TrackFormat, VideoCodec, VideoFormat};
 pub use mux::{Container, Finished, Recorder, RecorderOptions, TrackSpec};
 pub use nal::NalLayout;
 

@@ -23,9 +23,19 @@ impl ProRes {
     }
 }
 
+/// The H.264 profile an encoder makes: High by default; Main or Baseline for decoders that
+/// take only those (a platform's plan can ask for them).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum H264Profile {
+    Baseline,
+    Main,
+    #[default]
+    High,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum VideoCodec {
-    /// H.264 High profile.
+    /// H.264, High profile unless the settings say another ([`H264Profile`]).
     H264,
     /// HEVC Main (8-bit) or Main 10.
     Hevc {

@@ -39,13 +39,14 @@ use objc2_video_toolbox::{
     kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, kVTCompressionPropertyKey_ProfileLevel,
     kVTCompressionPropertyKey_RealTime, kVTCompressionPropertyKey_TransferFunction,
     kVTCompressionPropertyKey_UsingHardwareAcceleratedVideoEncoder, kVTCompressionPropertyKey_YCbCrMatrix,
-    kVTEncodeFrameOptionKey_ForceKeyFrame, kVTInvalidSessionErr, kVTProfileLevel_H264_High_AutoLevel,
-    kVTProfileLevel_HEVC_Main_AutoLevel, kVTProfileLevel_HEVC_Main10_AutoLevel,
+    kVTEncodeFrameOptionKey_ForceKeyFrame, kVTInvalidSessionErr, kVTProfileLevel_H264_Baseline_AutoLevel,
+    kVTProfileLevel_H264_High_AutoLevel, kVTProfileLevel_H264_Main_AutoLevel, kVTProfileLevel_HEVC_Main_AutoLevel,
+    kVTProfileLevel_HEVC_Main10_AutoLevel,
 };
 use parking_lot::Mutex;
 
 use crate::Error;
-use crate::format::{Color, Packet, ProRes, VideoCodec, VideoFormat};
+use crate::format::{Color, H264Profile, Packet, ProRes, VideoCodec, VideoFormat};
 use crate::nal::NalLayout;
 
 /// The pixel buffers the session's pool holds, and so the format the renderer's last pass
@@ -102,6 +103,9 @@ pub struct VideoSettings {
     pub input: InputFormat,
     pub color: Color,
     pub hardware: Hardware,
+    /// H.264's profile (HEVC's is the codec's `main10`). Apple's encoders follow it; the others
+    /// keep their own.
+    pub h264_profile: H264Profile,
 }
 
 impl VideoSettings {
@@ -121,6 +125,7 @@ impl VideoSettings {
             input: InputFormat::Bgra,
             color: Color::BT709,
             hardware: Hardware::Prefer,
+            h264_profile: H264Profile::High,
         }
     }
 
@@ -444,7 +449,11 @@ fn make_session(
         set(s, kVTCompressionPropertyKey_RealTime, if settings.realtime { yes } else { no });
         set(s, kVTCompressionPropertyKey_AllowFrameReordering, if settings.allow_reordering { yes } else { no });
         let profile = match settings.codec {
-            VideoCodec::H264 => Some(kVTProfileLevel_H264_High_AutoLevel),
+            VideoCodec::H264 => Some(match settings.h264_profile {
+                H264Profile::Baseline => kVTProfileLevel_H264_Baseline_AutoLevel,
+                H264Profile::Main => kVTProfileLevel_H264_Main_AutoLevel,
+                H264Profile::High => kVTProfileLevel_H264_High_AutoLevel,
+            }),
             VideoCodec::Hevc { main10: false } => Some(kVTProfileLevel_HEVC_Main_AutoLevel),
             VideoCodec::Hevc { main10: true } => Some(kVTProfileLevel_HEVC_Main10_AutoLevel),
             VideoCodec::ProRes(_) => None,
