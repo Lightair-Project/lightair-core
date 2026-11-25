@@ -1,13 +1,22 @@
 [package]
 name = "lightair-encode"
-description = "Lightair's encoders and recording files: VideoToolbox video (H.264, HEVC, ProRes) from the encoder's own IOSurface pool, AAC and Opus through AudioToolbox, and crash-safe MP4, MOV and Matroska files written from encoded packets"
+description = "Lightair's encoders and recording files: VideoToolbox video (H.264, HEVC, ProRes) from the encoder's own IOSurface pool, AAC and Opus through AudioToolbox, the GPUs' Media Foundation encoders (H.264, HEVC) from shared Direct3D 11 textures and Media Foundation AAC on Windows, software H.264 and Opus, and crash-safe MP4, MOV and Matroska files written from encoded packets"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# H.264 in software (`software::H264Encoder`) through OpenH264, compiled from its source with the
+# target's C++ compiler (and NASM for x86 assembly when one is installed). Off by default: it adds
+# a C++ build to every target, and a shipped build of it needs its own H.264 patent licence
+# (the royalty cover comes only with the maker's own prebuilt binaries).
+openh264 = ["dep:openh264", "dep:openh264-sys2"]
+
 [dependencies]
 thiserror.workspace = true
+openh264 = { version = "0.9.10", optional = true, default-features = false, features = ["source"] }
+openh264-sys2 = { version = "0.9.10", optional = true, default-features = false, features = ["source"] }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 tracing.workspace = true
@@ -18,3 +27,23 @@ objc2-core-media = { version = "0.3.2", default-features = false, features = ["s
 objc2-video-toolbox = { version = "0.3.2", default-features = false, features = ["std", "VTBase", "VTCompressionSession", "VTCompressionProperties", "VTSession", "VTErrors", "objc2-core-media", "objc2-core-video"] }
 objc2-audio-toolbox = { version = "0.3.2", default-features = false, features = ["std", "AudioConverter", "AudioCodec", "objc2-core-audio-types"] }
 objc2-core-audio-types = { version = "0.3.2", default-features = false, features = ["std", "CoreAudioBaseTypes"] }
+
+[target.'cfg(windows)'.dependencies]
+tracing.workspace = true
+parking_lot.workspace = true
+# Opus in software: the reference encoder as pure Rust (BSD-3-Clause), no C build
+unsafe-libopus = "0.2"
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Direct3D",
+  "Win32_Graphics_Direct3D11",
+  "Win32_Graphics_Dxgi",
+  "Win32_Graphics_Dxgi_Common",
+  "Win32_Media_MediaFoundation",
+  "Win32_Security",
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_Ole",
+  "Win32_System_Threading",
+  "Win32_System_Variant",
+] }
