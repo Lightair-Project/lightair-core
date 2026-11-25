@@ -11,8 +11,8 @@
 //!   holds Lightair's Kick secret, so no copy of Lightair carries it: Kick sends the browser to
 //!   shroudy's callback, which sends it on to `http://127.0.0.1:47801/callback` (the desktop) or
 //!   `app.lightair.live:/oauth/kick` (Lightair Live), as the state names; the code is exchanged
-//!   and refreshed at shroudy. With the person's own Kick app (its id and secret in Settings),
-//!   straight to Kick at the loopback address they registered.
+//!   and refreshed at shroudy. With `LIGHTAIR_KICK_CLIENT_ID` (and `_SECRET`) set when Lightair
+//!   runs, straight to Kick at the loopback address that app registered.
 //! - **X**: authorization code with PKCE (its Livestream API), to
 //!   `http://127.0.0.1:47802/callback`; a public ("Native App") client, or with its secret as
 //!   HTTP Basic for a confidential one.
@@ -33,15 +33,15 @@ use crate::net;
 use crate::shroudy::{self, Broker};
 
 /// The platforms with an official sign-in Lightair supports.
-pub const PROVIDERS: &[&str] = &["youtube", "twitch", "kick", "x", "spotify"];
+pub const PROVIDERS: &[&str] = &["youtube", "twitch", "kick", "x"];
 
 struct App {
     client_id: String,
     secret: Option<String>,
 }
 
-/// Apps set by the program itself (a phone app's own registrations): before the environment,
-/// the person's own and the build's.
+/// Apps set by the program itself (a phone app's own registrations): before the environment
+/// and the build's.
 static SET_APPS: parking_lot::Mutex<Vec<(String, String, Option<String>)>> = parking_lot::Mutex::new(Vec::new());
 
 /// Uses `client_id` (and `secret`, where the platform wants one) for `provider` from now on, in
@@ -69,39 +69,14 @@ fn app(provider: &str) -> Option<App> {
         // Lightair's own Kick app is at shroudy, which holds its secret ([`broker`])
         "kick" => (None, None),
         "x" => (option_env!("LIGHTAIR_X_CLIENT_ID"), option_env!("LIGHTAIR_X_CLIENT_SECRET")),
-        "spotify" => (option_env!("LIGHTAIR_SPOTIFY_CLIENT_ID"), None),
         _ => return None,
     };
     let var =
         |k: &str| std::env::var(format!("LIGHTAIR_{}_{k}", provider.to_uppercase())).ok().filter(|v| !v.is_empty());
-    // the environment, then the person's own app (Settings › Connections), then the build's
-    let own_id = own(provider, "id");
-    let from_own = own_id.is_some();
-    let client_id = var("CLIENT_ID").or(own_id).or(id.map(String::from)).filter(|v| !v.is_empty())?;
-    let secret =
-        var("CLIENT_SECRET").or_else(|| if from_own { own(provider, "secret") } else { secret.map(String::from) });
+    // the environment (for trying another app), then the build's
+    let client_id = var("CLIENT_ID").or(id.map(String::from)).filter(|v| !v.is_empty())?;
+    let secret = var("CLIENT_SECRET").or(secret.map(String::from));
     Some(App { client_id, secret: secret.filter(|v| !v.is_empty()) })
-}
-
-/// The person's own registered app for `provider` ("id" or "secret"), set in Settings.
-fn own(provider: &str, part: &str) -> Option<String> {
-    kept(&format!("oauth-app-{provider}-{part}"))
-}
-
-/// Uses the person's own app on `provider` (their client id, and secret where the platform
-/// wants one); empty forgets it.
-pub fn set_own_app(provider: &str, part: &str, value: &str) {
-    keep(&format!("oauth-app-{provider}-{part}"), value.trim());
-}
-
-/// Whether the person's own app is set for `provider`.
-pub fn has_own_app(provider: &str) -> bool {
-    own(provider, "id").is_some()
-}
-
-/// Whether `provider`'s token request wants a secret (Twitch's device flow doesn't).
-pub fn wants_secret(provider: &str) -> bool {
-    matches!(provider, "youtube" | "kick")
 }
 
 /// Whether this copy of Lightair has `provider`'s app (an id to sign in with, or shroudy).
@@ -109,8 +84,8 @@ pub fn available(provider: &str) -> bool {
     app(provider).is_some() || broker(provider).is_some()
 }
 
-/// Where `provider`'s sign-in goes through shroudy (shroudy.rs): Kick, unless the person's own
-/// Kick app is set (Settings, or `LIGHTAIR_KICK_CLIENT_ID` at run time).
+/// Where `provider`'s sign-in goes through shroudy (shroudy.rs): Kick, unless another Kick app
+/// is set (`LIGHTAIR_KICK_CLIENT_ID` at run time).
 fn broker(provider: &str) -> Option<Broker> {
     (provider == "kick" && app(provider).is_none()).then(Broker::kick)
 }
@@ -304,7 +279,7 @@ pub fn sign_in(provider: &str, prompt: Prompt) -> Result<String, String> {
     }
     match provider {
         "twitch" => twitch_device(&prompt),
-        "youtube" | "kick" | "x" | "spotify" => code_flow(provider, &prompt),
+        "youtube" | "kick" | "x" => code_flow(provider, &prompt),
         other => Err(format!("no official sign-in for {other}")),
     }
 }
@@ -343,7 +318,6 @@ pub fn authorize(provider: &str, redirect: &str) -> Result<(String, Pending), St
         "x" => {
             ("https://x.com/i/oauth2/authorize", "broadcast.read broadcast.write tweet.read users.read offline.access")
         }
-        "spotify" => ("https://accounts.spotify.com/authorize", "user-read-currently-playing user-read-playback-state"),
         "kick" => {
             ("https://id.kick.com/oauth/authorize", "user:read channel:read channel:write chat:write moderation:ban")
         }
@@ -430,7 +404,6 @@ fn code_flow(provider: &str, prompt: &Prompt) -> Result<String, String> {
     let fixed = match provider {
         "kick" => Some(47801),
         "x" => Some(47802),
-        "spotify" => Some(47803),
         _ => None,
     };
     let port: u16 = match fixed {
@@ -527,7 +500,6 @@ fn token_url(provider: &str) -> &'static str {
         "youtube" => "https://oauth2.googleapis.com/token",
         "twitch" => "https://id.twitch.tv/oauth2/token",
         "x" => "https://api.x.com/2/oauth2/token",
-        "spotify" => "https://accounts.spotify.com/api/token",
         _ => "https://id.kick.com/oauth/token",
     }
 }
@@ -572,13 +544,6 @@ fn whoami(provider: &str, token: &str) -> Result<(String, String), String> {
             Ok((
                 u["id"].as_str().ok_or("Twitch didn't say who signed in")?.to_string(),
                 u["login"].as_str().unwrap_or("").to_string(),
-            ))
-        }
-        "spotify" => {
-            let v = get("https://api.spotify.com/v1/me", None)?;
-            Ok((
-                v["id"].as_str().ok_or("Spotify didn't say who signed in")?.to_string(),
-                v["display_name"].as_str().or(v["id"].as_str()).unwrap_or("").to_string(),
             ))
         }
         "x" => {
