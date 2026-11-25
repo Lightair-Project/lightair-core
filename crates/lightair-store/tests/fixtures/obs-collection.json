@@ -27,6 +27,7 @@
        {"id": "shaderfilter", "versioned_id": "shaderfilter", "name": "Shader", "enabled": true, "settings": {"a": 1}}
      ]},
     {"id": "spectralizer", "versioned_id": "spectralizer", "name": "Viz", "uuid": "s-viz", "settings": {}},
+    {"id": "image_source", "versioned_id": "image_source", "name": "Logo", "uuid": "s-logo", "settings": {"file": "/tmp/logo.png"}},
     {"id": "scene", "versioned_id": "scene", "name": "Break", "uuid": "sc-break",
      "settings": {"items": [
        {"name": "Backdrop", "source_uuid": "s-bg", "align": 5, "bounds_type": 0, "pos": {"x": 0, "y": 0}, "scale": {"x": 1, "y": 1}, "visible": true, "locked": true, "rot": 0},
@@ -37,7 +38,8 @@
        {"name": "Backdrop", "source_uuid": "s-bg", "align": 0, "bounds_type": 0, "pos": {"x": 960, "y": 540}, "scale": {"x": 0.5, "y": 0.5}, "visible": true, "rot": 0,
         "crop_left": 10, "crop_top": 0, "crop_right": 0, "crop_bottom": 20},
        {"name": "Camera", "source_uuid": "s-cam", "align": 10, "bounds_type": 2, "bounds": {"x": 640, "y": 360}, "pos": {"x": 1900, "y": 1060}, "scale": {"x": 1, "y": 1}, "visible": false, "rot": 0},
-       {"name": "Viz", "source_uuid": "s-viz", "align": 5, "bounds_type": 0, "pos": {"x": 100, "y": 100}, "scale": {"x": 0.25, "y": 0.25}, "visible": true, "rot": 15}
+       {"name": "Viz", "source_uuid": "s-viz", "align": 5, "bounds_type": 0, "pos": {"x": 50, "y": 50}, "scale": {"x": 1, "y": 1}, "visible": true, "rot": 0},
+       {"name": "Logo", "source_uuid": "s-logo", "align": 5, "bounds_type": 0, "pos": {"x": 100, "y": 100}, "scale": {"x": 0.25, "y": 0.25}, "visible": true, "rot": 15}
      ]}}
   ]
 }

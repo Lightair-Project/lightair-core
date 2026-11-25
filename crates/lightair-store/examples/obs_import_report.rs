@@ -11,7 +11,7 @@ fn main() {
             for (title, items) in [
                 ("Converted", &report.converted),
                 ("Replaced by built-in features", &report.replaced),
-                ("Kept as plugins", &report.kept_plugin),
+                ("Left out (plugins)", &report.left_out),
                 ("Needs attention", &report.attention),
             ] {
                 println!("{title}:");

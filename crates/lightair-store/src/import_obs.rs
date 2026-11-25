@@ -20,8 +20,9 @@ pub struct ImportReport {
     pub converted: Vec<String>,
     /// OBS plugins replaced by a built-in Lightair feature.
     pub replaced: Vec<String>,
-    /// Plugin sources/filters kept as plugin objects (they work if the plugin is installed).
-    pub kept_plugin: Vec<String>,
+    /// Plugin sources and filters Lightair doesn't have: listed here and not imported (Lightair
+    /// doesn't load OBS plugins).
+    pub left_out: Vec<String>,
     /// Imported with an approximation, or not imported; the user should look.
     pub attention: Vec<String>,
     /// Objects whose box was computed from a guessed source size; `refit` corrects them once
@@ -52,10 +53,10 @@ impl EstimatedObject {
 impl ImportReport {
     pub fn summary(&self) -> String {
         format!(
-            "{} converted, {} replaced by built-in features, {} kept as plugins, {} need attention",
+            "{} converted, {} replaced by built-in features, {} left out (plugins), {} need attention",
             self.converted.len(),
             self.replaced.len(),
-            self.kept_plugin.len(),
+            self.left_out.len(),
             self.attention.len()
         )
     }
@@ -271,14 +272,14 @@ fn effects_of(source: &Value, report: &mut ImportReport) -> Vec<Effect> {
             }
             continue;
         }
+        if !(CORE_FILTERS.contains(&base.as_str()) || CORE_FILTERS.contains(&kind.as_str())) {
+            report.left_out.push(format!("filter {label} ({kind})"));
+            continue;
+        }
         let mut e = Effect::new(name_of(f), kind.clone(), f["settings"].clone());
         e.enabled = enabled;
         out.push(e);
-        if CORE_FILTERS.contains(&base.as_str()) || CORE_FILTERS.contains(&kind.as_str()) {
-            report.converted.push(format!("filter {label}"));
-        } else {
-            report.kept_plugin.push(format!("filter {label} ({kind})"));
-        }
+        report.converted.push(format!("filter {label}"));
     }
     out
 }
@@ -298,6 +299,8 @@ pub fn import_obs_collection(json: &str, workspace: &Workspace) -> Result<(Comma
     let mut source_by_uuid: HashMap<String, &Value> = HashMap::new();
     let mut tracked: HashSet<Id> = HashSet::new();
     let mut by_name: HashMap<String, String> = HashMap::new();
+    // plugin sources left out, so their scene items are skipped without a second note
+    let mut left_out: HashSet<String> = HashSet::new();
     for s in sources {
         let kind = kind_of(s);
         let uuid = s["uuid"].as_str().unwrap_or("").to_string();
@@ -313,13 +316,15 @@ pub fn import_obs_collection(json: &str, workspace: &Workspace) -> Result<(Comma
             continue;
         }
         let mut input = portable(Source::new(name_of(s), kind.clone(), s["settings"].clone()));
-        input.effects = effects_of(s, &mut report);
         let base = s["id"].as_str().unwrap_or(&kind);
-        if CORE_INPUTS.contains(&base) {
-            report.converted.push(format!("input {} ({kind})", input.name));
-        } else {
-            report.kept_plugin.push(format!("input {} ({kind})", input.name));
+        // an OBS core source, or a capture source that became a portable kind
+        if !(CORE_INPUTS.contains(&base) || input.kind != kind) {
+            report.left_out.push(format!("input {} ({kind})", input.name));
+            left_out.insert(uuid);
+            continue;
         }
+        input.effects = effects_of(s, &mut report);
+        report.converted.push(format!("input {} ({kind})", input.name));
         inputs.insert(uuid, (input.id, kind, s["settings"].clone()));
         commands.push(Command::AddSource { source: input });
     }
@@ -351,6 +356,9 @@ pub fn import_obs_collection(json: &str, workspace: &Workspace) -> Result<(Comma
                 .or_else(|| item["name"].as_str().and_then(|n| by_name.get(n).cloned()))
                 .unwrap_or_default();
             let Some((input_id, kind, settings)) = inputs.get(&uuid) else {
+                if left_out.contains(&uuid) {
+                    continue;
+                }
                 report.attention.push(format!(
                     "{scene_name} › {}: nested scenes and groups arrive in a later version; skipped",
                     name_of(item)
