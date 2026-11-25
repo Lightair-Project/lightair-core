@@ -225,7 +225,8 @@ impl Frame<'_> {
     }
 
     /// A camera with its background effect: masks asked of the host while it's drawn;
-    /// as it is until the first one comes.
+    /// as it is until the first one comes. `shot` is the camera's picture so far: drawn on when
+    /// it's a texture already (the looks drew it), else the feed's own picture is sampled.
     fn background(&mut self, feed: u32, shot: Shot, look: &crate::background::Look) -> Shot {
         let Some(f) = self.hot.feed(feed) else {
             return shot;
@@ -239,16 +240,14 @@ impl Frame<'_> {
         let Some((picture, _, _)) = v.at(self.host_ns) else {
             return shot;
         };
-        let (camera, _kept) = match &*picture {
+        let (camera, _kept) = match (&shot.picture, &*picture) {
+            (Picture::Texture(t), _) => (t.clone(), None::<Box<dyn std::any::Any>>),
             #[cfg(any(target_os = "macos", target_os = "ios"))]
-            Pushed::Buffer(_, k) => match crate::gpu::apple::sampled(self.gpu.device(), &k.0) {
+            (_, Pushed::Buffer(_, k)) => match crate::gpu::apple::sampled(self.gpu.device(), &k.0) {
                 Some(t) => (t, Some(Box::new(k.clone()) as Box<dyn std::any::Any>)),
                 None => return shot,
             },
-            _ => match &shot.picture {
-                Picture::Texture(t) => (t.clone(), None::<Box<dyn std::any::Any>>),
-                _ => return shot,
-            },
+            _ => return shot,
         };
         let image = if look.mode == 4 {
             look.image.clone().and_then(|file| self.image(&file)).and_then(|s| match s.picture {
@@ -406,6 +405,15 @@ impl Pictures for Frame<'_> {
             if settings.active() {
                 shot = self.looked(source, shot, &settings);
             }
+        }
+        // a camera's background after its looks, as the desktop's looks draw it: the light and
+        // the grade colour the person, and the background replacing theirs stays as it is
+        if source.kind != templates::MEDIA
+            && source.kind != templates::SCREEN
+            && let Some(look) = crate::background::look(source)
+            && let Some(feed) = self.program.feeds.get(&source.id).copied()
+        {
+            shot = self.background(feed, shot, &look);
         }
         let steps = crate::keying::steps(source);
         if steps.is_empty() {
@@ -596,13 +604,7 @@ impl Frame<'_> {
         match source.kind.as_str() {
             templates::CAMERA | "lightair_camera_capture" | templates::SCREEN | templates::MEDIA => {
                 let feed = *self.program.feeds.get(&source.id)?;
-                let shot = self.feed_picture(feed)?;
-                match crate::background::look(source) {
-                    Some(look) if source.kind != templates::MEDIA && source.kind != templates::SCREEN => {
-                        Some(self.background(feed, shot, &look))
-                    }
-                    _ => Some(shot),
-                }
+                self.feed_picture(feed)
             }
             templates::IMAGE => self.image(s["file"].as_str()?),
             templates::TEXT => {
