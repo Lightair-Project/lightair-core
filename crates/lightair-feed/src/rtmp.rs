@@ -710,7 +710,9 @@ impl RtmpSender {
             avcc.extend((nal.len() as u32).to_be_bytes());
             avcc.extend(nal);
         }
-        let (pts_ms, dts_ms) = (self.ms(pts_us), self.ms(dts_us));
+        // the decode time first: the first one seen is the stream's origin, and it is the earlier
+        let dts_ms = self.ms(dts_us);
+        let pts_ms = self.ms(pts_us);
         let queued = self.push(Out::Video {
             track: track as u8,
             data: avcc,

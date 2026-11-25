@@ -583,7 +583,14 @@ unsafe fn read_sample(shared: &Shared, sample: &CMSampleBuffer) -> Option<Encode
         }
     }
     let pts_ns = ns(unsafe { sample.presentation_time_stamp() })?;
-    let dts_ns = ns(unsafe { sample.decode_time_stamp() }).unwrap_or(pts_ns);
+    let mut dts_ns = ns(unsafe { sample.decode_time_stamp() }).unwrap_or(pts_ns);
+    // With B-frames the encoder's decode times are the input's presentation times in order, so
+    // a B-frame's can come up to two frames after its own presentation time. Two frame
+    // durations earlier keeps every decode time at or before its presentation time.
+    if shared.settings.allow_reordering {
+        let s = &shared.settings;
+        dts_ns -= 2 * 1_000_000_000 * i64::from(s.fps_den.max(1)) / i64::from(s.fps_num.max(1));
+    }
     let format = unsafe { sample.format_description() }.and_then(|d| {
         let address = CFRetained::as_ptr(&d).as_ptr() as usize;
         let mut known = shared.format.lock();
