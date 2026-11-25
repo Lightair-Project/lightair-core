@@ -10,16 +10,10 @@ publish = false
 
 [workspace.dependencies]
 lightair-audio = { path = "crates/lightair-audio" }
-lightair-automation = { path = "crates/lightair-automation" }
 lightair-model = { path = "crates/lightair-model" }
 lightair-fonts = { path = "crates/lightair-fonts" }
 lightair-live = { path = "crates/lightair-live" }
-lightair-platform = { path = "crates/lightair-platform" }
-lightair-pngtuber = { path = "crates/lightair-pngtuber" }
-lightair-remote = { path = "crates/lightair-remote" }
-lightair-render = { path = "crates/lightair-render" }
 lightair-store = { path = "crates/lightair-store" }
-lightair-widgets = { path = "crates/lightair-widgets" }
 
 anyhow = "1"
 thiserror = "2"
