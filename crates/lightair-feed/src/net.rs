@@ -1,10 +1,15 @@
 //! A sender's socket on one network (Wi-Fi or cellular per destination): bound to
 //! an interface before it connects. iOS and macOS: `IP_BOUND_IF` with the interface's index
-//! (`en0`, `pdp_ip0`); Android: `android_setsocknetwork` with the `Network`'s handle.
+//! (`en0`, `pdp_ip0`); Android: `android_setsocknetwork` with the `Network`'s handle. Windows
+//! has no binding of its own yet; a `Bind` there is given the socket's handle.
 
 use std::io;
 use std::net::{SocketAddr, TcpStream, UdpSocket};
+#[cfg(unix)]
 use std::os::fd::{AsRawFd, RawFd};
+/// A socket's own handle, as a `Bind` is given it (Windows: a socket handle).
+#[cfg(windows)]
+pub type RawFd = std::os::windows::io::RawSocket;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -77,13 +82,25 @@ impl Bind {
     }
 }
 
+/// `s`'s own handle.
+#[cfg(unix)]
+fn raw(s: &Socket) -> RawFd {
+    s.as_raw_fd()
+}
+
+/// `s`'s own handle.
+#[cfg(windows)]
+fn raw(s: &Socket) -> RawFd {
+    std::os::windows::io::AsRawSocket::as_raw_socket(s)
+}
+
 /// A TCP connection to `addr`, on `bind`'s network when given.
 pub fn tcp_connect(addr: &SocketAddr, timeout: Duration, bind: Option<&Bind>) -> io::Result<TcpStream> {
     let Some(bind) = bind else {
         return TcpStream::connect_timeout(addr, timeout);
     };
     let s = Socket::new(Domain::for_address(*addr), Type::STREAM, Some(Protocol::TCP))?;
-    bind.apply(s.as_raw_fd(), addr.is_ipv6())?;
+    bind.apply(raw(&s), addr.is_ipv6())?;
     s.connect_timeout(&(*addr).into(), timeout)?;
     Ok(s.into())
 }
@@ -94,7 +111,7 @@ pub fn udp_for(peer: &SocketAddr, bind: Option<&Bind>) -> io::Result<UdpSocket> 
         if peer.is_ipv6() { "[::]:0".parse().expect("an address") } else { "0.0.0.0:0".parse().expect("an address") };
     let s = Socket::new(Domain::for_address(*peer), Type::DGRAM, Some(Protocol::UDP))?;
     if let Some(b) = bind {
-        b.apply(s.as_raw_fd(), peer.is_ipv6())?;
+        b.apply(raw(&s), peer.is_ipv6())?;
     }
     s.bind(&local.into())?;
     s.set_nonblocking(true)?;
