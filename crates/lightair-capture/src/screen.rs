@@ -1,7 +1,10 @@
 //! Displays, windows and apps (`lightair_model::kinds::SCREEN`): what there is to capture, and
 //! captures of them.
 //!
-//! On macOS through ScreenCaptureKit. A running capture has the window server compose a copy of
+//! On macOS through ScreenCaptureKit; on Windows through Windows Graphics Capture, with Desktop
+//! Duplication for displays where it isn't there or is asked for (`Backend`). A window's id
+//! on Windows is its `HWND`, an app is its executable's full path, and a display's `uuid` is the
+//! monitor's device path. A running capture has the window server compose a copy of
 //! what it captures every frame, so a host keeps one running only while the capture is shown
 //! (on air, in a preview, in a thumbnail) and drops it shortly after nothing does.
 
@@ -9,8 +12,10 @@ use crate::{Error, PixelFormat, VideoSink};
 
 #[cfg(target_os = "macos")]
 use crate::macos::screen as imp;
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", windows)))]
 use crate::other::screen as imp;
+#[cfg(windows)]
+use crate::win::screen as imp;
 
 /// A display.
 #[derive(Debug, Clone, PartialEq)]
@@ -124,11 +129,37 @@ pub struct Config {
     /// Pixel buffers the capture may have in flight (3–8): more lets the consumer hold frames
     /// longer before the capture stalls.
     pub queue_depth: u32,
+    /// Windows: what captures a display (windows and apps always use Windows Graphics Capture).
+    #[cfg(windows)]
+    pub backend: Backend,
+}
+
+/// Windows: what captures a display.
+#[cfg(windows)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Backend {
+    /// Windows Graphics Capture where the system has it, Desktop Duplication otherwise.
+    #[default]
+    Auto,
+    /// Windows Graphics Capture only.
+    Graphics,
+    /// Desktop Duplication only: the display as scanned out, exclusive-fullscreen games that
+    /// allow capture included; HDR as [`PixelFormat::RgbaF16`] when that's the format asked for.
+    Duplication,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { size: None, fps: 60, format: PixelFormat::Bgra, cursor: false, exclude_own: true, queue_depth: 5 }
+        Config {
+            size: None,
+            fps: 60,
+            format: PixelFormat::Bgra,
+            cursor: false,
+            exclude_own: true,
+            queue_depth: 5,
+            #[cfg(windows)]
+            backend: Backend::Auto,
+        }
     }
 }
 

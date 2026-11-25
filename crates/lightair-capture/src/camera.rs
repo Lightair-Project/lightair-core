@@ -4,13 +4,20 @@
 //!
 //! On macOS through AVFoundation. Listing devices and formats opens nothing (no camera light,
 //! no access prompt); only a running [`CameraCapture`] does.
+//!
+//! On Windows through Media Foundation: a camera's id is its device's symbolic link, formats are
+//! its native media types (`NV12`, `YUY2`, `MJPG`… as four-character codes), and frames arrive
+//! as Direct3D 11 textures where the device and its decoder can hand them over, in memory
+//! otherwise. Listing a camera's formats opens the device briefly (without streaming).
 
 use crate::{Error, PixelFormat, VideoSink};
 
 #[cfg(target_os = "macos")]
 use crate::macos::camera as imp;
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", windows)))]
 use crate::other::camera as imp;
+#[cfg(windows)]
+use crate::win::camera as imp;
 
 /// What kind of device a camera is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

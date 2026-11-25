@@ -13,7 +13,14 @@
 //! making a process tap each ask the user for access the first time (macOS's own prompts); the
 //! `*_access` functions say whether access is already given without asking.
 //!
-//! macOS only for now; elsewhere the lists are empty and starting a capture fails with
+//! On Windows the same API runs on Windows Graphics Capture and Desktop Duplication (displays,
+//! windows, and games (`game`), never injecting anything into a game), Media Foundation (cameras and
+//! capture cards) and WASAPI loopback (the computer's or one app's sound). A Windows [`Frame`]
+//! carries a Direct3D 11 texture with an NT shared handle (`Image::Texture`), or the bytes in
+//! memory where a camera can't hand over a texture (`Image::Memory`); its times are on the
+//! performance counter (QueryPerformanceCounter in nanoseconds, `host_now_ns`).
+//!
+//! Elsewhere (Linux, Android, iOS) the lists are empty and starting a capture fails with
 //! [`Error::Unsupported`].
 
 pub mod camera;
@@ -22,8 +29,17 @@ pub mod sound;
 
 #[cfg(target_os = "macos")]
 mod macos;
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", windows)))]
 mod other;
+#[cfg(windows)]
+mod win;
+
+#[cfg(windows)]
+pub use win::game;
+#[cfg(windows)]
+pub use win::gpu::{Image, Memory, SharedFence, Texture, set_adapter};
+#[cfg(windows)]
+pub use win::host_now_ns;
 
 /// Why a capture couldn't be listed or started.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -52,6 +68,10 @@ pub enum PixelFormat {
     Nv12Video,
     /// The same, full range (`420f`).
     Nv12Full,
+    /// 16-bit float RGBA, linear scRGB (Windows: Desktop Duplication of an HDR display, or a
+    /// Windows Graphics Capture asked for it). The engine draws it as it is.
+    #[cfg(windows)]
+    RgbaF16,
 }
 
 impl PixelFormat {
@@ -61,6 +81,8 @@ impl PixelFormat {
             PixelFormat::Bgra => u32::from_be_bytes(*b"BGRA"),
             PixelFormat::Nv12Video => u32::from_be_bytes(*b"420v"),
             PixelFormat::Nv12Full => u32::from_be_bytes(*b"420f"),
+            #[cfg(windows)]
+            PixelFormat::RgbaF16 => u32::from_be_bytes(*b"RGhA"),
         }
     }
 
@@ -79,11 +101,15 @@ pub struct Rect {
     pub height: f64,
 }
 
-/// One captured picture: a pixel buffer in an IOSurface, held (one reference) until the frame is
-/// dropped or handed over with [`Frame::into_raw`].
+/// One captured picture: on macOS a pixel buffer in an IOSurface, held (one reference) until the
+/// frame is dropped or handed over with `Frame::into_raw`; on Windows a Direct3D 11 texture the
+/// engine opens through its shared handle (or, from some cameras, bytes in memory), held until
+/// the frame is dropped.
 pub struct Frame {
     #[cfg(target_os = "macos")]
     pub(crate) buffer: objc2_core_foundation::CFRetained<objc2_core_video::CVPixelBuffer>,
+    #[cfg(windows)]
+    pub(crate) image: Image,
     /// When it was captured, on the host clock (nanoseconds).
     pub host_ns: i64,
     /// Its size in pixels.
@@ -92,7 +118,8 @@ pub struct Frame {
     /// Screen captures: the part of the picture that holds what was captured, as
     /// ScreenCaptureKit reports it (`SCStreamFrameInfoContentRect`, in points); `None` where
     /// the capture doesn't say. A window smaller than the picture it's drawn into fills only
-    /// part of it: its pixels are `content`'s size ÷ `content_scale` × `scale`.
+    /// part of it: its pixels are `content`'s size ÷ `content_scale` × `scale`. On Windows it's
+    /// in the picture's own pixels, with `content_scale` and `scale` both 1.
     pub content: Option<Rect>,
     /// Screen captures: how much the content was scaled to fit the picture
     /// (`SCStreamFrameInfoContentScale`).
@@ -120,6 +147,19 @@ impl Frame {
     #[cfg(target_os = "macos")]
     pub fn into_raw(self) -> *mut std::ffi::c_void {
         objc2_core_foundation::CFRetained::into_raw(self.buffer).as_ptr().cast()
+    }
+
+    /// The picture: a shared Direct3D 11 texture, or bytes in memory.
+    #[cfg(windows)]
+    pub fn image(&self) -> &Image {
+        &self.image
+    }
+
+    /// Gives up the picture, for what keeps it beyond the frame (a texture stays the capture's
+    /// to reuse once the image is dropped).
+    #[cfg(windows)]
+    pub fn into_image(self) -> Image {
+        self.image
     }
 }
 
@@ -171,8 +211,9 @@ impl Sound<'_> {
     }
 }
 
-/// Where a running sound capture delivers. Called on Core Audio's real-time I/O thread: never
-/// block, allocate or lock there (`lightair_engine::feeds::AudioFeed::push` is made for it).
+/// Where a running sound capture delivers. Called on Core Audio's real-time I/O thread (on
+/// Windows, the capture's own thread, raised to the "Pro Audio" scheduling class): never block,
+/// allocate or lock there (`lightair_engine::feeds::AudioFeed::push` is made for it).
 pub trait SoundSink: Send + 'static {
     fn sound(&mut self, sound: &Sound<'_>);
     /// The capture stopped by itself and delivers nothing more (not called when its handle is

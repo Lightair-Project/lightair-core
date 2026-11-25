@@ -6,6 +6,10 @@
 //! read through a private aggregate device whose I/O callback hands the samples over with their
 //! host times. macOS asks the user the first time ("System Audio Recording").
 //!
+//! On Windows through WASAPI loopback: the computer's sound from the default output (Lightair's
+//! own left out through process loopback, Windows 10 2004 and later), one app's through process
+//! loopback (Windows 10 2004 and later). An app is its executable's full path.
+//!
 //! Microphones and audio interfaces aren't here: the desktop's audio engine captures those
 //! itself.
 
@@ -13,8 +17,10 @@ use crate::{Error, SoundSink};
 
 #[cfg(target_os = "macos")]
 use crate::macos::sound as imp;
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", windows)))]
 use crate::other::sound as imp;
+#[cfg(windows)]
+use crate::win::sound as imp;
 
 /// Whose sound to capture.
 #[derive(Debug, Clone, PartialEq, Eq)]
