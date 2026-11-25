@@ -31,6 +31,7 @@ work, except a few permissively licensed files that carry their notices (§3).
 | SRTLA bonding | `crates/lightair-feed/src/srtla.rs` | Written from the SRTLA protocol (how a sender registers its links with a receiver and spreads packets over them), to work with existing receivers; no receiver code is in the repository or was copied |
 | RTMP, RTMPS, SRT and MPEG-TS out | `crates/lightair-feed/src/` | Written from the protocols' specifications; SRT itself comes from the `srt-tokio` crate (Apache-2.0) |
 | ffmpeg in the feed's tests | `crates/lightair-feed/tests/` | ffmpeg is run as a separate program (an RTMP server and a decoder to check what was sent), when it's installed; nothing linked or copied |
+| Text and timer styles from the desktop's settings | `crates/lightair-overlay/src/text.rs` | Reads the settings the desktop saves for text sources (libobs's `text_ft2_source_v2` fields and colour format) so a show draws the same everywhere; reading a file format isn't copying code |
 
 ## 3. Third-party files in the repository
 

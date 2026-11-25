@@ -1,0 +1,20 @@
+[package]
+name = "lightair-overlay"
+description = "Overlays drawn without the scene renderer: the native widgets (chat, alerts, goals and the rest), the alert queue and rules, and text and timer styles"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+lightair-render.workspace = true
+lightair-live.workspace = true
+lightair-widgets.workspace = true
+lightair-fonts.workspace = true
+tracing.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"

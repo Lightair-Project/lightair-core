@@ -14,6 +14,8 @@ lightair-model = { path = "crates/lightair-model" }
 lightair-fonts = { path = "crates/lightair-fonts" }
 lightair-live = { path = "crates/lightair-live" }
 lightair-store = { path = "crates/lightair-store" }
+lightair-render = { path = "crates/lightair-render" }
+lightair-widgets = { path = "crates/lightair-widgets" }
 
 anyhow = "1"
 thiserror = "2"

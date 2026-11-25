@@ -1492,6 +1492,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "lightair-overlay"
+version = "0.1.0"
+dependencies = [
+ "lightair-fonts",
+ "lightair-live",
+ "lightair-render",
+ "lightair-widgets",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "lightair-platform"
 version = "0.1.0"
 dependencies = [
