@@ -1,6 +1,8 @@
 //! RTMP and RTMPS out: the encoded picture and sound to a platform's
 //! ingest (Twitch, YouTube, Kick, Facebook, a custom server). H.264 and AAC in FLV tags over the
-//! RTMP chunk stream; TLS 1.2/1.3 for `rtmps://` with the system-independent Mozilla roots.
+//! RTMP chunk stream; HEVC in Enhanced RTMP's video tags (FourCC `hvc1`, announced in
+//! `connect`'s `fourCcList`); TLS 1.2/1.3 for `rtmps://` with the system-independent Mozilla
+//! roots.
 //!
 //! The sender runs on its own thread with a bounded queue, like [`crate::srt::SrtSender`]: what
 //! has waited longer than [`MAX_WAIT`] (a network slower than the bitrate) or doesn't fit is
@@ -58,23 +60,13 @@ fn parse_url(url: &str) -> Result<Url, String> {
     };
     let (authority, app) = rest.split_once('/').unwrap_or((rest, ""));
     let (host, port) = match authority.rsplit_once(':') {
-        Some((h, p)) => (
-            h.to_owned(),
-            p.parse()
-                .map_err(|_| "That port isn't a number.".to_string())?,
-        ),
+        Some((h, p)) => (h.to_owned(), p.parse().map_err(|_| "That port isn't a number.".to_string())?),
         None => (authority.to_owned(), if tls { 443 } else { 1935 }),
     };
     if host.is_empty() {
         return Err("The address names no server.".into());
     }
-    Ok(Url {
-        tls,
-        host,
-        port,
-        app: app.trim_end_matches('/').to_owned(),
-        tc_url: url.trim_end_matches('/').to_owned(),
-    })
+    Ok(Url { tls, host, port, app: app.trim_end_matches('/').to_owned(), tc_url: url.trim_end_matches('/').to_owned() })
 }
 
 // ── AMF0 ────────────────────────────────────────────────────────────────────────────────────
@@ -87,6 +79,8 @@ enum Amf {
     Object(Vec<(String, Amf)>),
     Null,
     Ecma(Vec<(String, Amf)>),
+    /// AMF0's strict array.
+    Array(Vec<Amf>),
 }
 
 fn amf_write(out: &mut Vec<u8>, v: &Amf) {
@@ -118,6 +112,13 @@ fn amf_write(out: &mut Vec<u8>, v: &Amf) {
             out.extend([0, 0, 9]);
         }
         Amf::Null => out.push(5),
+        Amf::Array(items) => {
+            out.push(0x0A);
+            out.extend((items.len() as u32).to_be_bytes());
+            for item in items {
+                amf_write(out, item);
+            }
+        }
     }
 }
 
@@ -226,10 +227,7 @@ struct Reader {
 
 impl Reader {
     fn new() -> Reader {
-        Reader {
-            chunk: 128,
-            ..Reader::default()
-        }
+        Reader { chunk: 128, ..Reader::default() }
     }
 
     fn push(&mut self, bytes: &[u8]) {
@@ -252,11 +250,7 @@ impl Reader {
                 return None;
             }
             let u24 = |s: &[u8]| u32::from_be_bytes([0, s[0], s[1], s[2]]);
-            let prev = self
-                .streams
-                .get(&csid)
-                .cloned()
-                .unwrap_or((0, 0, 0, 0, vec![]));
+            let prev = self.streams.get(&csid).cloned().unwrap_or((0, 0, 0, 0, vec![]));
             let (mut ts, mut len, mut kind, mut stream) = (prev.0, prev.1, prev.2, prev.3);
             let new_message = prev.4.is_empty();
             if fmt <= 2 {
@@ -295,16 +289,9 @@ impl Reader {
             if body.len() >= len {
                 self.streams.insert(csid, (ts, len, kind, stream, vec![]));
                 if kind == 1 && body.len() >= 4 {
-                    self.chunk =
-                        (u32::from_be_bytes(body[..4].try_into().ok()?) & 0x7FFF_FFFF) as usize;
+                    self.chunk = (u32::from_be_bytes(body[..4].try_into().ok()?) & 0x7FFF_FFFF) as usize;
                 }
-                return Some(Message {
-                    csid,
-                    kind,
-                    stream,
-                    timestamp: ts,
-                    body,
-                });
+                return Some(Message { csid, kind, stream, timestamp: ts, body });
             }
             self.streams.insert(csid, (ts, len, kind, stream, body));
         }
@@ -333,19 +320,38 @@ fn avc_config(sps: &[u8], pps: &[u8]) -> Vec<u8> {
 
 /// AudioSpecificConfig for AAC-LC.
 fn aac_config(sample_rate: u32, channels: u8) -> [u8; 2] {
-    const RATES: [u32; 13] = [
-        96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350,
-    ];
+    const RATES: [u32; 13] = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
     let fi = RATES.iter().position(|&r| r == sample_rate).unwrap_or(4) as u8;
-    [
-        (2 << 3) | (fi >> 1),
-        ((fi & 1) << 7) | ((channels & 0x0F) << 3),
-    ]
+    [(2 << 3) | (fi >> 1), ((fi & 1) << 7) | ((channels & 0x0F) << 3)]
 }
 
-fn video_tag(keyframe: bool, packet: u8, cts_ms: i32, payload: &[u8]) -> Vec<u8> {
-    let mut out = vec![if keyframe { 0x17 } else { 0x27 }, packet];
-    out.extend(&cts_ms.to_be_bytes()[1..]);
+/// The picture's codec in RTMP.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RtmpVideo {
+    /// H.264 in FLV's own video tags.
+    #[default]
+    Avc,
+    /// HEVC in Enhanced RTMP's video tags (FourCC `hvc1`).
+    Hevc,
+}
+
+/// A video tag's body: `packet` 0 is the decoder configuration record, 1 a coded picture
+/// (`cts_ms` its composition time offset).
+fn video_tag(codec: RtmpVideo, keyframe: bool, packet: u8, cts_ms: i32, payload: &[u8]) -> Vec<u8> {
+    let mut out = match codec {
+        RtmpVideo::Avc => vec![if keyframe { 0x17 } else { 0x27 }, packet],
+        // Enhanced RTMP: the extended header bit, the frame type, the packet type (0 sequence
+        // start, 1 coded frames, with a composition time), then the FourCC
+        RtmpVideo::Hevc => {
+            let frame: u8 = if keyframe { 1 } else { 2 };
+            let mut v = vec![0x80 | (frame << 4) | packet];
+            v.extend(b"hvc1");
+            v
+        }
+    };
+    if packet == 1 || codec == RtmpVideo::Avc {
+        out.extend(&cts_ms.to_be_bytes()[1..]);
+    }
     out.extend(payload);
     out
 }
@@ -353,18 +359,8 @@ fn video_tag(keyframe: bool, packet: u8, cts_ms: i32, payload: &[u8]) -> Vec<u8>
 // ── the sender ──────────────────────────────────────────────────────────────────────────────
 
 enum Out {
-    Video {
-        data: Vec<u8>,
-        pts_ms: u32,
-        dts_ms: u32,
-        keyframe: bool,
-        queued_at: Instant,
-    },
-    Audio {
-        data: Vec<u8>,
-        pts_ms: u32,
-        queued_at: Instant,
-    },
+    Video { data: Vec<u8>, pts_ms: u32, dts_ms: u32, keyframe: bool, queued_at: Instant },
+    Audio { data: Vec<u8>, pts_ms: u32, queued_at: Instant },
 }
 
 /// What became of a message handed to the queue.
@@ -390,7 +386,8 @@ struct Counters {
     retry_at: Mutex<Option<std::time::Instant>>,
     /// When the current connection came up (for the backoff).
     connected_at: Mutex<Option<std::time::Instant>>,
-    /// The AVC config and the audio config, sent first after every connect.
+    /// The picture's decoder configuration record (`avcC` or `hvcC`) and the audio config, sent
+    /// first after every connect.
     video_config: Mutex<Option<Vec<u8>>>,
     audio_config: Mutex<Option<[u8; 2]>>,
     /// The stream's bitrate (0: not said): the socket's send buffer is sized to it.
@@ -407,6 +404,7 @@ fn send_buffer(kbps: u32) -> usize {
 /// Publishes to one RTMP(S) ingest. Dropping it closes the connection.
 pub struct RtmpSender {
     tx: SyncSender<Out>,
+    codec: RtmpVideo,
     counters: Arc<Counters>,
     base: Mutex<Option<u64>>,
     /// A picture didn't fit in the queue: the ones after it are left out until a keyframe.
@@ -414,29 +412,43 @@ pub struct RtmpSender {
 }
 
 impl RtmpSender {
+    /// Publishes H.264 and AAC.
     pub fn start(target: RtmpTarget) -> Result<RtmpSender, String> {
+        RtmpSender::start_with(target, RtmpVideo::Avc)
+    }
+
+    /// Publishes pictures in `codec` and AAC. With HEVC, give the `hvcC` record
+    /// ([`RtmpSender::config_record`]) before the first keyframe.
+    pub fn start_with(target: RtmpTarget, codec: RtmpVideo) -> Result<RtmpSender, String> {
         let url = parse_url(&target.url)?;
         let (tx, rx) = sync_channel(QUEUE);
         let counters = Arc::new(Counters::default());
         let c = counters.clone();
         std::thread::Builder::new()
             .name("lightair-rtmp".into())
-            .spawn(move || run(url, target.key, target.bind, rx, c))
+            .spawn(move || run(url, target.key, target.bind, codec, rx, c))
             .map_err(|e| e.to_string())?;
-        Ok(RtmpSender {
-            tx,
-            counters,
-            base: Mutex::new(None),
-            skip: AtomicBool::new(false),
-        })
+        Ok(RtmpSender { tx, codec, counters, base: Mutex::new(None), skip: AtomicBool::new(false) })
     }
 
-    /// The H.264 SPS and PPS (each without a start code or length).
+    /// The H.264 SPS and PPS (each without a start code or length). Nothing for HEVC: give its
+    /// record instead ([`RtmpSender::config_record`]).
     pub fn parameter_sets(&self, nals: &[Vec<u8>]) {
+        if self.codec != RtmpVideo::Avc {
+            return;
+        }
         let sps = nals.iter().find(|n| n.first().map(|b| b & 0x1F) == Some(7));
         let pps = nals.iter().find(|n| n.first().map(|b| b & 0x1F) == Some(8));
         if let (Some(s), Some(p)) = (sps, pps) {
             *self.counters.video_config.lock() = Some(avc_config(s, p));
+        }
+    }
+
+    /// The picture's decoder configuration record as it is (`avcC` for H.264, `hvcC` for HEVC,
+    /// as an MP4 carries it), in place of [`RtmpSender::parameter_sets`].
+    pub fn config_record(&self, record: &[u8]) {
+        if !record.is_empty() {
+            *self.counters.video_config.lock() = Some(record.to_vec());
         }
     }
 
@@ -456,7 +468,7 @@ impl RtmpSender {
         (us.saturating_sub(base) / 1000) as u32
     }
 
-    /// One H.264 access unit (length-prefixed or Annex B), timestamps in microseconds.
+    /// One access unit (length-prefixed or Annex B), timestamps in microseconds.
     pub fn video(&self, data: &[u8], format: NalFormat, pts_us: u64, dts_us: u64, keyframe: bool) {
         // after a picture that didn't fit, none until a keyframe: they wouldn't decode
         if !keyframe && self.skip.load(Ordering::Relaxed) {
@@ -464,24 +476,22 @@ impl RtmpSender {
             self.counters.keyframe.store(true, Ordering::Relaxed);
             return;
         }
-        // AVCC: each NAL with a 4-byte length; parameter sets travel in the config, not inline
+        // each NAL with a 4-byte length; parameter sets and access unit delimiters travel in
+        // the config or not at all (H.264: SPS, PPS, AUD; HEVC: VPS, SPS, PPS, AUD)
         let mut avcc = Vec::with_capacity(data.len() + 16);
         for nal in split_nals(data, format) {
-            let kind = nal.first().map(|b| b & 0x1F);
-            if matches!(kind, Some(7..=9)) {
+            let skip = match self.codec {
+                RtmpVideo::Avc => matches!(nal.first().map(|b| b & 0x1F), Some(7..=9)),
+                RtmpVideo::Hevc => matches!(nal.first().map(|b| (b >> 1) & 0x3F), Some(32..=35)),
+            };
+            if skip {
                 continue;
             }
             avcc.extend((nal.len() as u32).to_be_bytes());
             avcc.extend(nal);
         }
         let (pts_ms, dts_ms) = (self.ms(pts_us), self.ms(dts_us));
-        let queued = self.push(Out::Video {
-            data: avcc,
-            pts_ms,
-            dts_ms,
-            keyframe,
-            queued_at: Instant::now(),
-        });
+        let queued = self.push(Out::Video { data: avcc, pts_ms, dts_ms, keyframe, queued_at: Instant::now() });
         match queued {
             Pushed::Full => self.skip.store(true, Ordering::Relaxed),
             Pushed::Queued if keyframe => self.skip.store(false, Ordering::Relaxed),
@@ -493,11 +503,7 @@ impl RtmpSender {
     /// One raw AAC access unit (no ADTS header).
     pub fn audio(&self, data: &[u8], pts_us: u64) {
         let pts_ms = self.ms(pts_us);
-        self.push(Out::Audio {
-            data: data.to_vec(),
-            pts_ms,
-            queued_at: Instant::now(),
-        });
+        self.push(Out::Audio { data: data.to_vec(), pts_ms, queued_at: Instant::now() });
     }
 
     fn push(&self, m: Out) -> Pushed {
@@ -532,10 +538,7 @@ impl RtmpSender {
             sent_bytes: c.sent_bytes.load(Ordering::Relaxed),
             dropped: c.dropped.load(Ordering::Relaxed),
             error: c.error.lock().clone(),
-            retry_in: c
-                .retry_at
-                .lock()
-                .map(|t| t.saturating_duration_since(std::time::Instant::now())),
+            retry_in: c.retry_at.lock().map(|t| t.saturating_duration_since(std::time::Instant::now())),
         }
     }
 
@@ -610,18 +613,13 @@ fn open(url: &Url, bind: Option<&crate::net::Bind>) -> Result<Conn, String> {
     if !url.tls {
         return Ok(Conn::Plain(tcp));
     }
-    let roots = rustls::RootCertStore {
-        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-    };
-    let config = rustls::ClientConfig::builder_with_provider(Arc::new(
-        rustls::crypto::ring::default_provider(),
-    ))
-    .with_safe_default_protocol_versions()
-    .map_err(|e| e.to_string())?
-    .with_root_certificates(roots)
-    .with_no_client_auth();
-    let name =
-        rustls::pki_types::ServerName::try_from(url.host.clone()).map_err(|e| e.to_string())?;
+    let roots = rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
+    let config = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+        .with_safe_default_protocol_versions()
+        .map_err(|e| e.to_string())?
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    let name = rustls::pki_types::ServerName::try_from(url.host.clone()).map_err(|e| e.to_string())?;
     let conn = rustls::ClientConnection::new(Arc::new(config), name).map_err(|e| e.to_string())?;
     Ok(Conn::Tls(Box::new(rustls::StreamOwned::new(conn, tcp))))
 }
@@ -647,6 +645,7 @@ fn session(
     url: &Url,
     key: &str,
     bind: Option<&crate::net::Bind>,
+    codec: RtmpVideo,
     rx: &Receiver<Out>,
     c: &Counters,
 ) -> Result<(), String> {
@@ -657,27 +656,22 @@ fn session(
     let send = |conn: &mut Conn, m: Message| -> Result<(), String> {
         let bytes = chunks(&m, CHUNK);
         conn.write_all(&bytes).map_err(io)?;
-        c.sent_bytes
-            .fetch_add(bytes.len() as u64, Ordering::Relaxed);
+        c.sent_bytes.fetch_add(bytes.len() as u64, Ordering::Relaxed);
         Ok(())
     };
-    let control = |kind: u8, body: Vec<u8>| Message {
-        csid: 2,
-        kind,
-        stream: 0,
-        timestamp: 0,
-        body,
-    };
+    let control = |kind: u8, body: Vec<u8>| Message { csid: 2, kind, stream: 0, timestamp: 0, body };
     send(&mut conn, control(1, (CHUNK as u32).to_be_bytes().to_vec()))?;
-    let connect = Amf::Object(vec![
+    let mut fields = vec![
         ("app".into(), Amf::Str(url.app.clone())),
         ("type".into(), Amf::Str("nonprivate".into())),
-        (
-            "flashVer".into(),
-            Amf::Str("FMLE/3.0 (compatible; Lightair Live)".into()),
-        ),
+        ("flashVer".into(), Amf::Str("FMLE/3.0 (compatible; Lightair Live)".into())),
         ("tcUrl".into(), Amf::Str(url.tc_url.clone())),
-    ]);
+    ];
+    // Enhanced RTMP: the codecs this side sends beyond FLV's own
+    if codec == RtmpVideo::Hevc {
+        fields.push(("fourCcList".into(), Amf::Array(vec![Amf::Str("hvc1".into())])));
+    }
+    let connect = Amf::Object(fields);
     let cmd = |name: &str, txn: f64, args: &[Amf], stream: u32| Message {
         csid: if stream == 0 { 3 } else { 4 },
         kind: 20,
@@ -686,14 +680,8 @@ fn session(
         body: command(name, txn, args),
     };
     send(&mut conn, cmd("connect", 1.0, &[connect], 0))?;
-    send(
-        &mut conn,
-        cmd("releaseStream", 2.0, &[Amf::Null, Amf::Str(key.into())], 0),
-    )?;
-    send(
-        &mut conn,
-        cmd("FCPublish", 3.0, &[Amf::Null, Amf::Str(key.into())], 0),
-    )?;
+    send(&mut conn, cmd("releaseStream", 2.0, &[Amf::Null, Amf::Str(key.into())], 0))?;
+    send(&mut conn, cmd("FCPublish", 3.0, &[Amf::Null, Amf::Str(key.into())], 0))?;
     send(&mut conn, cmd("createStream", 4.0, &[Amf::Null], 0))?;
     conn.flush().map_err(io)?;
 
@@ -742,23 +730,15 @@ fn session(
                         return Err("The server refused the connection.".into());
                     } else if name == "onStatus" {
                         let code = v.iter().find_map(|a| match a {
-                            Amf::Object(f) => {
-                                f.iter()
-                                    .find(|(k, _)| k == "code")
-                                    .and_then(|(_, v)| match v {
-                                        Amf::Str(s) => Some(s.clone()),
-                                        _ => None,
-                                    })
-                            }
+                            Amf::Object(f) => f.iter().find(|(k, _)| k == "code").and_then(|(_, v)| match v {
+                                Amf::Str(s) => Some(s.clone()),
+                                _ => None,
+                            }),
                             _ => None,
                         });
                         match code.as_deref() {
                             Some("NetStream.Publish.Start") => published = true,
-                            Some(c)
-                                if c.contains("BadName")
-                                    || c.contains("Failed")
-                                    || c.contains("Rejected") =>
-                            {
+                            Some(c) if c.contains("BadName") || c.contains("Failed") || c.contains("Rejected") => {
                                 return Err(format!("The server refused the stream: {c}"));
                             }
                             _ => {}
@@ -792,48 +772,30 @@ fn session(
     c.connected_at.lock().replace(std::time::Instant::now());
     // a keyframe first: nothing before it decodes
     let mut waiting_for_key = true;
-    conn.tcp()
-        .set_read_timeout(Some(Duration::from_millis(1)))
-        .ok();
+    conn.tcp().set_read_timeout(Some(Duration::from_millis(1))).ok();
     let mut buffer_for = 0;
     loop {
         let kbps = c.kbps.load(Ordering::Relaxed);
         if kbps != buffer_for {
             buffer_for = kbps;
             if kbps > 0 {
-                socket2::SockRef::from(conn.tcp())
-                    .set_send_buffer_size(send_buffer(kbps))
-                    .ok();
+                socket2::SockRef::from(conn.tcp()).set_send_buffer_size(send_buffer(kbps)).ok();
             }
         }
         if c.stop.load(Ordering::Relaxed) {
-            let _ = send(
-                &mut conn,
-                cmd(
-                    "deleteStream",
-                    6.0,
-                    &[Amf::Null, Amf::Number(stream as f64)],
-                    0,
-                ),
-            );
+            let _ = send(&mut conn, cmd("deleteStream", 6.0, &[Amf::Null, Amf::Number(stream as f64)], 0));
             let _ = conn.flush();
             return Ok(());
         }
         let got = rx.recv_timeout(Duration::from_millis(100));
         if let Ok(Out::Video { data, .. } | Out::Audio { data, .. }) = &got {
             let n = data.len() as u64;
-            let _ = c
-                .queued
-                .try_update(Ordering::Relaxed, Ordering::Relaxed, |q| {
-                    Some(q.saturating_sub(n))
-                });
+            let _ = c.queued.try_update(Ordering::Relaxed, Ordering::Relaxed, |q| Some(q.saturating_sub(n)));
         }
         // waited too long (the network is slower than the stream): dropped, so the delay stays
         // short; the pictures after a dropped one wait for a keyframe
         let stale = match &got {
-            Ok(Out::Video { queued_at, .. } | Out::Audio { queued_at, .. }) => {
-                queued_at.elapsed() > MAX_WAIT
-            }
+            Ok(Out::Video { queued_at, .. } | Out::Audio { queued_at, .. }) => queued_at.elapsed() > MAX_WAIT,
             Err(_) => false,
         };
         if stale {
@@ -845,13 +807,7 @@ fn session(
             continue;
         }
         match got {
-            Ok(Out::Video {
-                data,
-                pts_ms,
-                dts_ms,
-                keyframe,
-                ..
-            }) => {
+            Ok(Out::Video { data, pts_ms, dts_ms, keyframe, .. }) => {
                 if waiting_for_key && !keyframe {
                     continue;
                 }
@@ -866,7 +822,7 @@ fn session(
                                     kind: 9,
                                     stream,
                                     timestamp: dts_ms,
-                                    body: video_tag(true, 0, 0, &cfg),
+                                    body: video_tag(codec, true, 0, 0, &cfg),
                                 },
                             )?;
                             sent_video_config = Some(cfg);
@@ -888,7 +844,7 @@ fn session(
                         kind: 9,
                         stream,
                         timestamp: dts_ms,
-                        body: video_tag(keyframe, 1, cts, &data),
+                        body: video_tag(codec, keyframe, 1, cts, &data),
                     },
                 )?;
             }
@@ -898,16 +854,7 @@ fn session(
                     Some(cfg) if sent_audio_config != Some(cfg) => {
                         let mut body = vec![0xAF, 0];
                         body.extend(cfg);
-                        send(
-                            &mut conn,
-                            Message {
-                                csid: 4,
-                                kind: 8,
-                                stream,
-                                timestamp: pts_ms,
-                                body,
-                            },
-                        )?;
+                        send(&mut conn, Message { csid: 4, kind: 8, stream, timestamp: pts_ms, body })?;
                         sent_audio_config = Some(cfg);
                     }
                     Some(_) => {}
@@ -915,16 +862,7 @@ fn session(
                 }
                 let mut body = vec![0xAF, 1];
                 body.extend(data);
-                send(
-                    &mut conn,
-                    Message {
-                        csid: 4,
-                        kind: 8,
-                        stream,
-                        timestamp: pts_ms,
-                        body,
-                    },
-                )?;
+                send(&mut conn, Message { csid: 4, kind: 8, stream, timestamp: pts_ms, body })?;
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => return Ok(()),
@@ -943,20 +881,16 @@ fn session(
                     }
                 }
             }
-            Err(e)
-                if matches!(
-                    e.kind(),
-                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-                ) => {}
+            Err(e) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) => {}
             Err(e) => return Err(e.to_string()),
         }
     }
 }
 
-fn run(url: Url, key: String, bind: Option<crate::net::Bind>, rx: Receiver<Out>, c: Arc<Counters>) {
+fn run(url: Url, key: String, bind: Option<crate::net::Bind>, codec: RtmpVideo, rx: Receiver<Out>, c: Arc<Counters>) {
     let mut backoff = crate::backoff::Backoff::default();
     while !c.stop.load(Ordering::Relaxed) {
-        let result = session(&url, &key, bind.as_ref(), &rx, &c);
+        let result = session(&url, &key, bind.as_ref(), codec, &rx, &c);
         c.connected.store(false, Ordering::Relaxed);
         if let Some(t) = c.connected_at.lock().take() {
             backoff.connected(t);
@@ -987,10 +921,7 @@ mod tests {
     #[test]
     fn urls_read() {
         let u = parse_url("rtmps://live-api-s.facebook.com:443/rtmp/").unwrap();
-        assert_eq!(
-            (u.tls, u.host.as_str(), u.port, u.app.as_str()),
-            (true, "live-api-s.facebook.com", 443, "rtmp")
-        );
+        assert_eq!((u.tls, u.host.as_str(), u.port, u.app.as_str()), (true, "live-api-s.facebook.com", 443, "rtmp"));
         let u = parse_url("rtmp://live.twitch.tv/app").unwrap();
         assert_eq!((u.tls, u.port, u.app.as_str()), (false, 1935, "app"));
         assert!(parse_url("http://x").is_err());
@@ -1024,13 +955,7 @@ mod tests {
 
     #[test]
     fn chunks_come_back_whole() {
-        let m = Message {
-            csid: 6,
-            kind: 9,
-            stream: 1,
-            timestamp: 1234,
-            body: (0..10_000).map(|i| i as u8).collect(),
-        };
+        let m = Message { csid: 6, kind: 9, stream: 1, timestamp: 1234, body: (0..10_000).map(|i| i as u8).collect() };
         let mut r = Reader::new();
         r.chunk = 4096;
         r.push(&chunks(&m, 4096));
@@ -1054,14 +979,7 @@ mod tests {
         let socket = Socket::new(Domain::IPV4, Type::STREAM, None).unwrap();
         // a small receive buffer, so the throttle and not the kernel decides what's taken
         socket.set_recv_buffer_size(16 * 1024).unwrap();
-        socket
-            .bind(
-                &"127.0.0.1:0"
-                    .parse::<std::net::SocketAddr>()
-                    .unwrap()
-                    .into(),
-            )
-            .unwrap();
+        socket.bind(&"127.0.0.1:0".parse::<std::net::SocketAddr>().unwrap().into()).unwrap();
         socket.listen(1).unwrap();
         let listener: std::net::TcpListener = socket.into();
         let port = listener.local_addr().unwrap().port();
@@ -1085,9 +1003,8 @@ mod tests {
             let mut throttled: Option<Instant> = None;
             let mut taken = 0u64;
             loop {
-                let allowed = throttled.map_or(u64::MAX, |t| {
-                    (t.elapsed().as_secs_f64() * kbps as f64 * 1000.0 / 8.0) as u64
-                });
+                let allowed =
+                    throttled.map_or(u64::MAX, |t| (t.elapsed().as_secs_f64() * kbps as f64 * 1000.0 / 8.0) as u64);
                 let room = allowed.saturating_sub(taken).min(buf.len() as u64) as usize;
                 if room < 1024 {
                     std::thread::sleep(Duration::from_millis(5));
@@ -1111,9 +1028,7 @@ mod tests {
                                 _ => String::new(),
                             };
                             let answer = match name.as_str() {
-                                "createStream" => {
-                                    command("_result", 4.0, &[Amf::Null, Amf::Number(1.0)])
-                                }
+                                "createStream" => command("_result", 4.0, &[Amf::Null, Amf::Number(1.0)]),
                                 "publish" => {
                                     throttled = Some(Instant::now());
                                     command(
@@ -1130,13 +1045,7 @@ mod tests {
                                 }
                                 _ => continue,
                             };
-                            let reply = Message {
-                                csid: 3,
-                                kind: 20,
-                                stream: 0,
-                                timestamp: 0,
-                                body: answer,
-                            };
+                            let reply = Message { csid: 3, kind: 20, stream: 0, timestamp: 0, body: answer };
                             s.write_all(&chunks(&reply, 128)).unwrap();
                         }
                         9 if m.body.len() >= 14 && m.body[1] == 1 => {
@@ -1159,21 +1068,12 @@ mod tests {
     #[test]
     fn a_slow_network_gets_decodable_pictures_and_keyframes_not_a_stall() {
         let (url, got) = slow_server(600);
-        let s = RtmpSender::start(RtmpTarget {
-            url,
-            key: "k".into(),
-            bind: None,
-        })
-        .unwrap();
+        let s = RtmpSender::start(RtmpTarget { url, key: "k".into(), bind: None }).unwrap();
         s.parameter_sets(&[vec![0x67, 0x42, 0xe0, 0x1f], vec![0x68, 0xce, 0x3c, 0x80]]);
         s.audio_config(48_000, 2);
         let start = Instant::now();
         while !s.stats().connected {
-            assert!(
-                start.elapsed() < Duration::from_secs(10),
-                "{:?}",
-                s.stats().error
-            );
+            assert!(start.elapsed() < Duration::from_secs(10), "{:?}", s.stats().error);
             std::thread::sleep(Duration::from_millis(10));
         }
         // 20 s at 30 fps: 1.2 Mbps of pictures (a keyframe every 2 s, or when asked, as an
@@ -1224,35 +1124,19 @@ mod tests {
         }
         // once the network's buffers are full (a few seconds in), keyframes keep coming
         let settled = start + Duration::from_secs(8);
-        let keys: Vec<Instant> = got
-            .iter()
-            .filter(|g| g.2 && g.0 > settled)
-            .map(|g| g.0)
-            .collect();
+        let keys: Vec<Instant> = got.iter().filter(|g| g.2 && g.0 > settled).map(|g| g.0).collect();
         let mut last = settled;
         for k in keys.iter().chain(std::iter::once(&end)) {
             let gap = k.duration_since(last);
-            assert!(
-                gap < Duration::from_millis(3500),
-                "{gap:?} without a keyframe: {}",
-                trace()
-            );
+            assert!(gap < Duration::from_millis(3500), "{gap:?} without a keyframe: {}", trace());
             last = *k;
         }
         // and the delay is bounded (the sender's 2 s and the system's socket buffer): the
         // newest pictures keep arriving
         let (at, n, _) = *got.last().unwrap();
         let delay = at.duration_since(sent_at[n as usize]);
-        assert!(
-            delay < Duration::from_secs(7),
-            "{delay:?} behind: {}",
-            trace()
-        );
-        assert!(
-            n >= 420,
-            "the last picture to arrive was {n} of 600: {}",
-            trace()
-        );
+        assert!(delay < Duration::from_secs(7), "{delay:?} behind: {}", trace());
+        assert!(n >= 420, "the last picture to arrive was {n} of 600: {}", trace());
         assert!(s.stats().dropped > 0, "some had to go");
     }
 
@@ -1260,12 +1144,7 @@ mod tests {
     /// a server reading at 600 kbps) over 4 s of 2.4 Mbps, with its bitrate said or not.
     fn held_by_the_system(bitrate: Option<u32>) -> u64 {
         let (url, _, read) = slow_server_taking(600);
-        let s = RtmpSender::start(RtmpTarget {
-            url,
-            key: "k".into(),
-            bind: None,
-        })
-        .unwrap();
+        let s = RtmpSender::start(RtmpTarget { url, key: "k".into(), bind: None }).unwrap();
         if let Some(kbps) = bitrate {
             s.set_bitrate(kbps);
         }
@@ -1300,9 +1179,6 @@ mod tests {
         let sized = std::thread::spawn(|| held_by_the_system(Some(300)));
         let default = held_by_the_system(None);
         let sized = sized.join().unwrap();
-        assert!(
-            sized + 50_000 < default,
-            "sized to the bitrate {sized} bytes, the system's {default}"
-        );
+        assert!(sized + 50_000 < default, "sized to the bitrate {sized} bytes, the system's {default}");
     }
 }

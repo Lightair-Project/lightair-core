@@ -49,13 +49,7 @@ fn srt_seq(b: &[u8]) -> Option<u32> {
 /// then last). Ranges are capped to keep a bad packet cheap.
 fn nak_losses(b: &[u8]) -> Vec<u32> {
     let mut out = Vec::new();
-    let mut words = b
-        .get(16..)
-        .unwrap_or(&[])
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .map(|w| u32::from_be_bytes(*w));
+    let mut words = b.get(16..).unwrap_or(&[]).as_chunks::<4>().0.iter().map(|w| u32::from_be_bytes(*w));
     while let Some(w) = words.next() {
         if w & 0x8000_0000 != 0 {
             let first = w & 0x7FFF_FFFF;
@@ -85,11 +79,7 @@ pub struct Link {
 }
 
 impl Link {
-    fn new(
-        name: String,
-        receiver: SocketAddr,
-        bind: Option<&crate::net::Bind>,
-    ) -> std::io::Result<Link> {
+    fn new(name: String, receiver: SocketAddr, bind: Option<&crate::net::Bind>) -> std::io::Result<Link> {
         let socket = crate::net::udp_for(&receiver, bind)?;
         socket.connect(receiver)?;
         socket.set_nonblocking(true)?;
@@ -151,10 +141,7 @@ impl Relay {
     /// Starts relaying to the SRTLA receiver at `receiver` over `links` (a name and how to bind
     /// each, e.g. "Wi-Fi" and "Mobile data"; `None` binds nothing). The SRT sender then calls
     /// [`Relay::local`].
-    pub fn start(
-        receiver: SocketAddr,
-        links: Vec<(String, Option<crate::net::Bind>)>,
-    ) -> std::io::Result<Relay> {
+    pub fn start(receiver: SocketAddr, links: Vec<(String, Option<crate::net::Bind>)>) -> std::io::Result<Relay> {
         let local_socket = UdpSocket::bind("127.0.0.1:0")?;
         local_socket.set_read_timeout(Some(Duration::from_millis(2)))?;
         let local = local_socket.local_addr()?;
@@ -167,24 +154,11 @@ impl Relay {
         }
         let mut ours = [0u8; ID_LEN];
         getrandom::fill(&mut ours).map_err(|e| std::io::Error::other(e.to_string()))?;
-        let shared = Arc::new(Mutex::new(Shared {
-            links: made,
-            id: None,
-            ours,
-            peer: None,
-            error: None,
-        }));
+        let shared = Arc::new(Mutex::new(Shared { links: made, id: None, ours, peer: None, error: None }));
         let stop = Arc::new(AtomicBool::new(false));
         let (s, quit) = (shared.clone(), stop.clone());
-        std::thread::Builder::new()
-            .name("lightair-srtla".into())
-            .spawn(move || run(local_socket, s, quit))?;
-        Ok(Relay {
-            local,
-            receiver,
-            shared,
-            stop,
-        })
+        std::thread::Builder::new().name("lightair-srtla".into()).spawn(move || run(local_socket, s, quit))?;
+        Ok(Relay { local, receiver, shared, stop })
     }
 
     /// Where the SRT sender sends (127.0.0.1).
@@ -329,17 +303,10 @@ fn run(local: UdpSocket, shared: Arc<Mutex<Shared>>, stop: Arc<AtomicBool>) {
                 l.registered = false;
                 l.register_at = None;
             }
-            while l
-                .in_flight
-                .front()
-                .is_some_and(|(_, t)| now.duration_since(*t) > IN_FLIGHT_FOR)
-            {
+            while l.in_flight.front().is_some_and(|(_, t)| now.duration_since(*t) > IN_FLIGHT_FOR) {
                 l.in_flight.pop_front();
             }
-            if !l.registered
-                && l.register_at
-                    .is_none_or(|t| now.duration_since(t) >= REGISTER_EVERY)
-            {
+            if !l.registered && l.register_at.is_none_or(|t| now.duration_since(t) >= REGISTER_EVERY) {
                 l.register_at = Some(now);
                 let _ = match id {
                     Some(id) => l.socket.send(&reg(REG2, &id)),
@@ -348,8 +315,7 @@ fn run(local: UdpSocket, shared: Arc<Mutex<Shared>>, stop: Arc<AtomicBool>) {
             }
             let since = now.duration_since(l.rate_at.0);
             if since >= Duration::from_secs(1) {
-                l.kbps =
-                    ((l.sent_bytes - l.rate_at.1) * 8 / since.as_millis().max(1) as u64) as u32;
+                l.kbps = ((l.sent_bytes - l.rate_at.1) * 8 / since.as_millis().max(1) as u64) as u32;
                 l.rate_at = (now, l.sent_bytes);
             }
             if now.duration_since(l.keepalive_at) >= KEEPALIVE_EVERY {
@@ -466,18 +432,10 @@ mod tests {
     #[test]
     fn two_links_register_share_the_packets_and_bring_replies_back() {
         let (addr, got) = receiver();
-        let relay = Relay::start(
-            addr,
-            vec![("Wi-Fi".into(), None), ("Mobile data".into(), None)],
-        )
-        .unwrap();
+        let relay = Relay::start(addr, vec![("Wi-Fi".into(), None), ("Mobile data".into(), None)]).unwrap();
         let start = Instant::now();
         while !relay.links().iter().all(|l| l.registered) {
-            assert!(
-                start.elapsed() < Duration::from_secs(5),
-                "{:?}",
-                relay.links()
-            );
+            assert!(start.elapsed() < Duration::from_secs(5), "{:?}", relay.links());
             std::thread::sleep(Duration::from_millis(10));
         }
         // the "SRT sender": data packets to the relay
@@ -495,15 +453,10 @@ mod tests {
         assert_eq!(kind(&buf[..n]), Some(0x8002));
         let start = Instant::now();
         while got.lock().len() < 200 {
-            assert!(
-                start.elapsed() < Duration::from_secs(5),
-                "{}",
-                got.lock().len()
-            );
+            assert!(start.elapsed() < Duration::from_secs(5), "{}", got.lock().len());
             std::thread::sleep(Duration::from_millis(10));
         }
-        let links: std::collections::HashSet<SocketAddr> =
-            got.lock().iter().map(|(a, _)| *a).collect();
+        let links: std::collections::HashSet<SocketAddr> = got.lock().iter().map(|(a, _)| *a).collect();
         assert_eq!(links.len(), 2, "both links carried data");
         assert!(relay.links().iter().all(|l| l.sent_bytes > 0));
     }

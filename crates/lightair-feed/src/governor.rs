@@ -93,13 +93,7 @@ pub struct Governor {
 
 impl Governor {
     pub fn new(fps: u32, height: u32, now: Instant) -> Governor {
-        Governor {
-            step: 0,
-            stepped: now,
-            cool_since: None,
-            fps,
-            height,
-        }
+        Governor { step: 0, stepped: now, cool_since: None, fps, height }
     }
 
     /// The desktop changed the configuration.
@@ -109,13 +103,7 @@ impl Governor {
     }
 
     /// Called about once a second with the phone's state; returns what to do.
-    pub fn update(
-        &mut self,
-        thermal: Thermal,
-        battery: f32,
-        charging: bool,
-        now: Instant,
-    ) -> Limits {
+    pub fn update(&mut self, thermal: Thermal, battery: f32, charging: bool, now: Instant) -> Limits {
         let low_battery = battery < 0.10 && !charging;
         // the step this state reaches at once, and where it may climb to while it lasts
         let (at_once, ceiling) = match thermal {
@@ -124,11 +112,7 @@ impl Governor {
             Thermal::Serious => (3, 3),
             Thermal::Critical => (4, 5),
         };
-        let (at_once, ceiling) = if low_battery {
-            (at_once.max(2), ceiling.max(2))
-        } else {
-            (at_once, ceiling)
-        };
+        let (at_once, ceiling) = if low_battery { (at_once.max(2), ceiling.max(2)) } else { (at_once, ceiling) };
         if at_once > self.step {
             self.step = at_once;
             self.stepped = now;
@@ -199,10 +183,7 @@ mod tests {
         assert_eq!(g.update(Thermal::Nominal, 0.8, false, at(0)).step, 0);
         // fair: step 1 at once, step 2 if it lasts a minute
         let l = g.update(Thermal::Fair, 0.8, false, at(1));
-        assert_eq!(
-            (l.step, l.screen_off, l.max_fps),
-            (1, ScreenOff::Suggest, None)
-        );
+        assert_eq!((l.step, l.screen_off, l.max_fps), (1, ScreenOff::Suggest, None));
         assert_eq!(g.update(Thermal::Fair, 0.8, false, at(30)).step, 1);
         let l = g.update(Thermal::Fair, 0.8, false, at(61));
         assert_eq!((l.step, l.max_fps), (2, Some(30)));
@@ -255,10 +236,7 @@ mod tests {
 
     #[test]
     fn rungs_and_rates() {
-        assert_eq!(
-            (rung_below(2160), rung_below(1080), rung_below(720)),
-            (1080, 720, 540)
-        );
+        assert_eq!((rung_below(2160), rung_below(1080), rung_below(720)), (1080, 720, 540));
         assert_eq!((fps_below(60), fps_below(30), fps_below(25)), (30, 24, 24));
     }
 }

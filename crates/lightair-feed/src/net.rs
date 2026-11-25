@@ -42,17 +42,10 @@ impl Bind {
         let c = std::ffi::CString::new(name).map_err(|_| io::ErrorKind::InvalidInput)?;
         let index = unsafe { libc::if_nametoindex(c.as_ptr()) };
         if index == 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("no network interface {name}"),
-            ));
+            return Err(io::Error::new(io::ErrorKind::NotFound, format!("no network interface {name}")));
         }
         Ok(Bind::new(move |fd, v6| {
-            let (level, opt) = if v6 {
-                (libc::IPPROTO_IPV6, IPV6_BOUND_IF)
-            } else {
-                (libc::IPPROTO_IP, IP_BOUND_IF)
-            };
+            let (level, opt) = if v6 { (libc::IPPROTO_IPV6, IPV6_BOUND_IF) } else { (libc::IPPROTO_IP, IP_BOUND_IF) };
             let i = index as libc::c_uint;
             let r = unsafe {
                 libc::setsockopt(
@@ -63,11 +56,7 @@ impl Bind {
                     std::mem::size_of::<libc::c_uint>() as libc::socklen_t,
                 )
             };
-            if r == 0 {
-                Ok(())
-            } else {
-                Err(io::Error::last_os_error())
-            }
+            if r == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
         }))
     }
 
@@ -79,11 +68,7 @@ impl Bind {
             fn android_setsocknetwork(network: u64, fd: libc::c_int) -> libc::c_int;
         }
         Bind::new(move |fd, _| {
-            if unsafe { android_setsocknetwork(handle, fd) } == 0 {
-                Ok(())
-            } else {
-                Err(io::Error::last_os_error())
-            }
+            if unsafe { android_setsocknetwork(handle, fd) } == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
         })
     }
 
@@ -93,19 +78,11 @@ impl Bind {
 }
 
 /// A TCP connection to `addr`, on `bind`'s network when given.
-pub fn tcp_connect(
-    addr: &SocketAddr,
-    timeout: Duration,
-    bind: Option<&Bind>,
-) -> io::Result<TcpStream> {
+pub fn tcp_connect(addr: &SocketAddr, timeout: Duration, bind: Option<&Bind>) -> io::Result<TcpStream> {
     let Some(bind) = bind else {
         return TcpStream::connect_timeout(addr, timeout);
     };
-    let s = Socket::new(
-        Domain::for_address(*addr),
-        Type::STREAM,
-        Some(Protocol::TCP),
-    )?;
+    let s = Socket::new(Domain::for_address(*addr), Type::STREAM, Some(Protocol::TCP))?;
     bind.apply(s.as_raw_fd(), addr.is_ipv6())?;
     s.connect_timeout(&(*addr).into(), timeout)?;
     Ok(s.into())
@@ -113,11 +90,8 @@ pub fn tcp_connect(
 
 /// A UDP socket for talking to `peer`, on `bind`'s network when given (non-blocking, for tokio).
 pub fn udp_for(peer: &SocketAddr, bind: Option<&Bind>) -> io::Result<UdpSocket> {
-    let local: SocketAddr = if peer.is_ipv6() {
-        "[::]:0".parse().expect("an address")
-    } else {
-        "0.0.0.0:0".parse().expect("an address")
-    };
+    let local: SocketAddr =
+        if peer.is_ipv6() { "[::]:0".parse().expect("an address") } else { "0.0.0.0:0".parse().expect("an address") };
     let s = Socket::new(Domain::for_address(*peer), Type::DGRAM, Some(Protocol::UDP))?;
     if let Some(b) = bind {
         b.apply(s.as_raw_fd(), peer.is_ipv6())?;

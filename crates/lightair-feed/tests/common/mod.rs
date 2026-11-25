@@ -8,10 +8,7 @@ use std::process::Command;
 use lightair_feed::ts::{NalFormat, VideoCodec, split_nals};
 
 pub fn ffmpeg() -> bool {
-    Command::new("ffmpeg")
-        .arg("-version")
-        .output()
-        .is_ok_and(|o| o.status.success())
+    Command::new("ffmpeg").arg("-version").output().is_ok_and(|o| o.status.success())
 }
 
 pub fn scratch(name: &str) -> PathBuf {
@@ -21,16 +18,8 @@ pub fn scratch(name: &str) -> PathBuf {
 }
 
 pub fn run(args: &[&str]) -> String {
-    let out = Command::new("ffmpeg")
-        .args(["-hide_banner", "-v", "error", "-y"])
-        .args(args)
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "ffmpeg {args:?}: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
+    let out = Command::new("ffmpeg").args(["-hide_banner", "-v", "error", "-y"]).args(args).output().unwrap();
+    assert!(out.status.success(), "ffmpeg {args:?}: {}", String::from_utf8_lossy(&out.stderr));
     String::from_utf8_lossy(&out.stderr).into_owned()
 }
 
@@ -70,9 +59,7 @@ pub fn aac_units(adts: &[u8]) -> Vec<Vec<u8>> {
     let mut out = vec![];
     let mut i = 0;
     while i + 7 <= adts.len() {
-        let len = (((adts[i + 3] & 3) as usize) << 11)
-            | ((adts[i + 4] as usize) << 3)
-            | ((adts[i + 5] >> 5) as usize);
+        let len = (((adts[i + 3] & 3) as usize) << 11) | ((adts[i + 4] as usize) << 3) | ((adts[i + 5] >> 5) as usize);
         let header = if adts[i + 1] & 1 == 0 { 9 } else { 7 };
         out.push(adts[i + header..i + len].to_vec());
         i += len;
@@ -84,16 +71,8 @@ pub fn aac_units(adts: &[u8]) -> Vec<Vec<u8>> {
 /// keyframe) and 48 kHz stereo tone (raw AAC access units).
 pub fn material(codec: VideoCodec, name: &str) -> (Vec<Unit>, Vec<Vec<u8>>) {
     let (encoder, ext, aud) = match codec {
-        VideoCodec::H264 => (
-            "libx264",
-            "h264",
-            ["-x264-params", "aud=1:keyint=30:bframes=0"],
-        ),
-        VideoCodec::Hevc => (
-            "libx265",
-            "hevc",
-            ["-x265-params", "aud=1:keyint=30:bframes=0:log-level=error"],
-        ),
+        VideoCodec::H264 => ("libx264", "h264", ["-x264-params", "aud=1:keyint=30:bframes=0"]),
+        VideoCodec::Hevc => ("libx265", "hevc", ["-x265-params", "aud=1:keyint=30:bframes=0:log-level=error"]),
     };
     let video = scratch(&format!("{name}.{ext}"));
     let audio = scratch(&format!("{name}.aac"));
@@ -127,10 +106,7 @@ pub fn material(codec: VideoCodec, name: &str) -> (Vec<Unit>, Vec<Vec<u8>>) {
         "adts",
         audio.to_str().unwrap(),
     ]);
-    (
-        access_units(&std::fs::read(&video).unwrap(), codec),
-        aac_units(&std::fs::read(&audio).unwrap()),
-    )
+    (access_units(&std::fs::read(&video).unwrap(), codec), aac_units(&std::fs::read(&audio).unwrap()))
 }
 
 /// Frames and their codec, as ffprobe counts them.

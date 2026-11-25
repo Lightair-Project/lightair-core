@@ -55,9 +55,7 @@ impl SrtTarget {
 /// An SRT address's parts: host:port, stream id, passphrase, latency.
 pub fn parse_url(url: &str) -> Result<SrtTarget, String> {
     use std::net::ToSocketAddrs;
-    let rest = url
-        .strip_prefix("srt://")
-        .ok_or("The address has to start with srt://.")?;
+    let rest = url.strip_prefix("srt://").ok_or("The address has to start with srt://.")?;
     let (authority, query) = rest.split_once('?').unwrap_or((rest, ""));
     let authority = authority.trim_end_matches('/');
     let address = authority
@@ -158,21 +156,16 @@ impl SrtSender {
         let (tx, rx) = mpsc::channel(QUEUE);
         let counters = Arc::new(Counters::default());
         let c = counters.clone();
-        std::thread::Builder::new()
-            .name("lightair-srt".into())
-            .spawn(move || {
-                let rt = match tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                {
-                    Ok(rt) => rt,
-                    Err(e) => {
-                        *c.error.lock() = Some(e.to_string());
-                        return;
-                    }
-                };
-                rt.block_on(run(target, rx, c));
-            })?;
+        std::thread::Builder::new().name("lightair-srt".into()).spawn(move || {
+            let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    *c.error.lock() = Some(e.to_string());
+                    return;
+                }
+            };
+            rt.block_on(run(target, rx, c));
+        })?;
         Ok(SrtSender {
             tx,
             counters,
@@ -269,11 +262,7 @@ impl SrtSender {
         let queued = Instant::now();
         for (i, datagram) in unit.into_iter().enumerate() {
             let last = frame_end && i + 1 == n;
-            if self
-                .tx
-                .try_send((datagram, last.then_some(queued)))
-                .is_err()
-            {
+            if self.tx.try_send((datagram, last.then_some(queued))).is_err() {
                 // the connection's thread is gone
                 self.waiting_key = true;
                 self.counters.dropped.fetch_add(1, Ordering::Relaxed);
@@ -293,10 +282,7 @@ impl SrtSender {
             sent_bytes: c.sent_bytes.load(Ordering::Relaxed),
             dropped: c.dropped.load(Ordering::Relaxed),
             error: c.error.lock().clone(),
-            retry_in: c
-                .retry_at
-                .lock()
-                .map(|t| t.saturating_duration_since(Instant::now())),
+            retry_in: c.retry_at.lock().map(|t| t.saturating_duration_since(Instant::now())),
         }
     }
 
@@ -312,11 +298,7 @@ impl Drop for SrtSender {
     }
 }
 
-async fn run(
-    target: SrtTarget,
-    mut rx: mpsc::Receiver<(Bytes, Option<Instant>)>,
-    c: Arc<Counters>,
-) {
+async fn run(target: SrtTarget, mut rx: mpsc::Receiver<(Bytes, Option<Instant>)>, c: Arc<Counters>) {
     let stream_id = target.stream_id();
     let mut backoff = crate::backoff::Backoff::default();
     let wait = |backoff: &mut crate::backoff::Backoff| {
@@ -327,9 +309,7 @@ async fn run(
     while !c.stop.load(Ordering::Relaxed) {
         let mut builder = SrtSocket::builder().latency(target.latency);
         if let Some(b) = &target.bind {
-            match crate::net::udp_for(&target.address, Some(b))
-                .and_then(tokio::net::UdpSocket::from_std)
-            {
+            match crate::net::udp_for(&target.address, Some(b)).and_then(tokio::net::UdpSocket::from_std) {
                 Ok(s) => builder = builder.socket(s),
                 Err(e) => {
                     *c.error.lock() = Some(format!("that network isn't there: {e}"));
@@ -343,10 +323,7 @@ async fn run(
         }
         let connecting = tokio::time::timeout(
             Duration::from_secs(3),
-            builder.call(
-                target.address,
-                (!stream_id.is_empty()).then_some(stream_id.as_str()),
-            ),
+            builder.call(target.address, (!stream_id.is_empty()).then_some(stream_id.as_str())),
         )
         .await;
         let mut socket = match connecting {
@@ -466,11 +443,7 @@ mod tests {
         while let Ok((d, at)) = rx.try_recv() {
             assert!(d.chunks(PACKET).all(|p| p[1] == 6));
             n += 1;
-            assert_eq!(
-                at.is_some(),
-                n == 250,
-                "the picture's last datagram is timed"
-            );
+            assert_eq!(at.is_some(), n == 250, "the picture's last datagram is timed");
         }
         assert_eq!(n, 250);
         // a sound is whole too: a short last datagram, sent at once

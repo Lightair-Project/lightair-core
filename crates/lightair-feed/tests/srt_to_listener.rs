@@ -26,11 +26,7 @@ struct Received {
 const PASSPHRASE: &str = "phone-camera-1-session";
 
 fn free_port() -> u16 {
-    UdpSocket::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
+    UdpSocket::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
 }
 
 /// The desktop's listener for one source, on its own thread; returns once it's bound, so a
@@ -38,22 +34,13 @@ fn free_port() -> u16 {
 fn listen(port: u16, got: Arc<Received>) {
     let (bound, ready) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         rt.block_on(async move {
             let (_server, mut incoming) = SrtListener::builder().bind(port).await.unwrap();
             let _ = bound.send(());
             while let Some(request) = incoming.incoming().next().await {
-                let id = request
-                    .stream_id()
-                    .map(|s| s.to_string())
-                    .unwrap_or_default();
-                let key = KeySettings {
-                    key_size: KeySize::AES128,
-                    passphrase: Passphrase::from(PASSPHRASE),
-                };
+                let id = request.stream_id().map(|s| s.to_string()).unwrap_or_default();
+                let key = KeySettings { key_size: KeySize::AES128, passphrase: Passphrase::from(PASSPHRASE) };
                 let got = got.clone();
                 tokio::spawn(async move {
                     let Ok(mut socket) = request.accept(Some(key)).await else {
@@ -84,10 +71,7 @@ fn target(port: u16, passphrase: &str) -> SrtTarget {
 fn wait(what: &str, ok: impl Fn() -> bool) {
     let start = Instant::now();
     while !ok() {
-        assert!(
-            start.elapsed() < Duration::from_secs(8),
-            "timed out waiting for {what}"
-        );
+        assert!(start.elapsed() < Duration::from_secs(8), "timed out waiting for {what}");
         std::thread::sleep(Duration::from_millis(20));
     }
 }
@@ -103,24 +87,12 @@ fn a_camera_feed_reaches_the_desktop_over_srt() {
     let got = Arc::new(Received::default());
     listen(port, got.clone());
 
-    let feed = Feed::srt(
-        target(port, PASSPHRASE),
-        VideoCodec::H264,
-        Some(AudioConfig {
-            sample_rate: 48000,
-            channels: 2,
-        }),
-    )
-    .unwrap();
+    let feed =
+        Feed::srt(target(port, PASSPHRASE), VideoCodec::H264, Some(AudioConfig { sample_rate: 48000, channels: 2 }))
+            .unwrap();
     wait("the connection", || feed.stats().connected);
-    assert!(
-        feed.take_keyframe_request(),
-        "a new connection asks for a keyframe"
-    );
-    assert_eq!(
-        got.ids.lock().unwrap().as_slice(),
-        ["#!::r=cam-1,m=publish"]
-    );
+    assert!(feed.take_keyframe_request(), "a new connection asks for a keyframe");
+    assert_eq!(got.ids.lock().unwrap().as_slice(), ["#!::r=cam-1,m=publish"]);
 
     // at a camera's pace: each frame when it's due
     let start = Instant::now();
@@ -128,11 +100,7 @@ fn a_camera_feed_reaches_the_desktop_over_srt() {
     while v < units.len() || a < sounds.len() {
         let vt = v as u64 * 1_000_000 / 30;
         let at = a as u64 * 1024 * 1_000_000 / 48000;
-        let (t, video) = if v < units.len() && (a >= sounds.len() || vt <= at) {
-            (vt, true)
-        } else {
-            (at, false)
-        };
+        let (t, video) = if v < units.len() && (a >= sounds.len() || vt <= at) { (vt, true) } else { (at, false) };
         if let Some(wait) = Duration::from_micros(t).checked_sub(start.elapsed()) {
             std::thread::sleep(wait);
         }
@@ -153,10 +121,7 @@ fn a_camera_feed_reaches_the_desktop_over_srt() {
     let out = scratch("received.ts");
     std::fs::write(&out, got.bytes.lock().unwrap().as_slice()).unwrap();
     let probe = probe(&out);
-    assert!(
-        probe.lines().any(|l| l == format!("h264,{}", units.len())),
-        "{probe}"
-    );
+    assert!(probe.lines().any(|l| l == format!("h264,{}", units.len())), "{probe}");
     assert!(probe.lines().any(|l| l.starts_with("aac,")), "{probe}");
 }
 
@@ -167,12 +132,7 @@ fn a_wrong_passphrase_doesnt_get_in() {
     listen(port, got.clone());
     let feed = Feed::srt(target(port, "not-the-passphrase"), VideoCodec::H264, None).unwrap();
     std::thread::sleep(Duration::from_secs(2));
-    feed.video(
-        &[0, 0, 0, 2, 0x65, 0x88],
-        NalFormat::LengthPrefixed,
-        0,
-        true,
-    );
+    feed.video(&[0, 0, 0, 2, 0x65, 0x88], NalFormat::LengthPrefixed, 0, true);
     std::thread::sleep(Duration::from_millis(300));
     assert!(got.bytes.lock().unwrap().is_empty());
 }
@@ -191,22 +151,13 @@ fn each_connection_starts_at_a_keyframe() {
     let start = Instant::now();
     while !sender.stats().connected {
         // a first try's handshake takes milliseconds; the bound only catches a broken sender
-        assert!(
-            start.elapsed() < Duration::from_secs(20),
-            "the connection never came"
-        );
+        assert!(start.elapsed() < Duration::from_secs(20), "the connection never came");
         std::thread::sleep(Duration::from_millis(10));
     }
-    assert!(
-        !sender.begin_picture(false),
-        "a delta picture first: left out"
-    );
+    assert!(!sender.begin_picture(false), "a delta picture first: left out");
     assert!(sender.waiting_for_keyframe());
     assert!(sender.take_keyframe_request());
     assert!(sender.begin_picture(true));
-    assert!(
-        sender.begin_picture(false),
-        "after the keyframe, everything"
-    );
+    assert!(sender.begin_picture(false), "after the keyframe, everything");
     assert!(!sender.waiting_for_keyframe());
 }

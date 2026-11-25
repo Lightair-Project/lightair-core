@@ -28,16 +28,8 @@ fn publish(late_config: bool) {
         return;
     }
     let (video, audio) = material(VideoCodec::H264, "rtmp");
-    let port = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
-    let out = scratch(if late_config {
-        "rtmp-received-late.flv"
-    } else {
-        "rtmp-received.flv"
-    });
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let out = scratch(if late_config { "rtmp-received-late.flv" } else { "rtmp-received.flv" });
     let _ = std::fs::remove_file(&out);
     let mut server = Command::new("ffmpeg")
         .args([
@@ -65,21 +57,14 @@ fn publish(late_config: bool) {
     })
     .unwrap();
     let first = &video[0].0;
-    let nals: Vec<Vec<u8>> = split_nals(first, NalFormat::LengthPrefixed)
-        .into_iter()
-        .map(<[u8]>::to_vec)
-        .collect();
+    let nals: Vec<Vec<u8>> = split_nals(first, NalFormat::LengthPrefixed).into_iter().map(<[u8]>::to_vec).collect();
     if !late_config {
         sender.parameter_sets(&nals);
         sender.audio_config(48000, 2);
     }
     let start = Instant::now();
     while !sender.stats().connected {
-        assert!(
-            start.elapsed() < Duration::from_secs(8),
-            "not connected: {:?}",
-            sender.stats().error
-        );
+        assert!(start.elapsed() < Duration::from_secs(8), "not connected: {:?}", sender.stats().error);
         std::thread::sleep(Duration::from_millis(20));
     }
     if late_config {
@@ -118,10 +103,7 @@ fn publish(late_config: bool) {
         std::thread::sleep(Duration::from_millis(50));
     }
     let probed = probe(&out);
-    assert!(
-        probed.contains("h264") && probed.contains("aac"),
-        "{probed}"
-    );
+    assert!(probed.contains("h264") && probed.contains("aac"), "{probed}");
     let frames: u32 = probed
         .lines()
         .find(|l| l.starts_with("h264"))

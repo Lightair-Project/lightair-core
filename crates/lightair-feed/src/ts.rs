@@ -53,13 +53,7 @@ fn us_to_90k(us: u64) -> u64 {
 
 impl Muxer {
     pub fn new(video: VideoCodec, audio: Option<AudioConfig>) -> Muxer {
-        Muxer {
-            video,
-            audio,
-            parameter_sets: vec![],
-            cc: [0; 4],
-            tables_at: None,
-        }
+        Muxer { video, audio, parameter_sets: vec![], cc: [0; 4], tables_at: None }
     }
 
     /// SPS and PPS (and VPS for HEVC), each without a start code or length.
@@ -99,11 +93,7 @@ impl Muxer {
         }
         let mut out = vec![];
         // the tables before every keyframe, and at least every 100 ms
-        if keyframe
-            || self
-                .tables_at
-                .is_none_or(|t| dts.saturating_sub(t) >= 9_000)
-        {
+        if keyframe || self.tables_at.is_none_or(|t| dts.saturating_sub(t) >= 9_000) {
             self.tables_at = Some(dts);
             out.extend(self.pat());
             out.extend(self.pmt());
@@ -172,13 +162,7 @@ impl Muxer {
         s[2] = len as u8;
         let crc = crc32(&s);
         s.extend_from_slice(&crc.to_be_bytes());
-        let mut p = vec![
-            0x47,
-            0x40 | (pid >> 8) as u8,
-            pid as u8,
-            0x10 | self.next_cc(pid),
-            0x00,
-        ];
+        let mut p = vec![0x47, 0x40 | (pid >> 8) as u8, pid as u8, 0x10 | self.next_cc(pid), 0x00];
         p.extend_from_slice(&s);
         p.resize(PACKET, 0xFF);
         p
@@ -266,17 +250,7 @@ impl Muxer {
 /// (a big keyframe) keeps the length 0, unbounded, which MPEG-TS allows for video only.
 fn pes(stream_id: u8, es: &[u8], pts: u64, dts: Option<u64>) -> Vec<u8> {
     let header_len = if dts.is_some() { 10 } else { 5 };
-    let mut p = vec![
-        0,
-        0,
-        1,
-        stream_id,
-        0,
-        0,
-        0x80,
-        if dts.is_some() { 0xC0 } else { 0x80 },
-        header_len,
-    ];
+    let mut p = vec![0, 0, 1, stream_id, 0, 0, 0x80, if dts.is_some() { 0xC0 } else { 0x80 }, header_len];
     let ts = |marker: u8, t: u64| {
         let t = t & 0x1_FFFF_FFFF;
         [
@@ -301,13 +275,8 @@ fn pes(stream_id: u8, es: &[u8], pts: u64, dts: Option<u64>) -> Vec<u8> {
 }
 
 fn adts_header(cfg: AudioConfig, payload: usize) -> Vec<u8> {
-    const RATES: [u32; 13] = [
-        96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350,
-    ];
-    let index = RATES
-        .iter()
-        .position(|&r| r == cfg.sample_rate)
-        .unwrap_or(4) as u8; // 44.1 kHz otherwise
+    const RATES: [u32; 13] = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
+    let index = RATES.iter().position(|&r| r == cfg.sample_rate).unwrap_or(4) as u8; // 44.1 kHz otherwise
     let len = payload + 7;
     let ch = cfg.channels & 0x07;
     vec![
@@ -371,11 +340,7 @@ fn crc32(data: &[u8]) -> u32 {
     for &b in data {
         crc ^= (b as u32) << 24;
         for _ in 0..8 {
-            crc = if crc & 0x8000_0000 != 0 {
-                (crc << 1) ^ 0x04C1_1DB7
-            } else {
-                crc << 1
-            };
+            crc = if crc & 0x8000_0000 != 0 { (crc << 1) ^ 0x04C1_1DB7 } else { crc << 1 };
         }
     }
     crc
@@ -393,64 +358,30 @@ mod tests {
 
     #[test]
     fn splits_both_nal_formats() {
-        let annex = [
-            0, 0, 0, 1, 0x67, 1, 2, 0, 0, 1, 0x68, 3, 0, 0, 0, 1, 0x65, 4, 5,
-        ];
-        assert_eq!(
-            split_nals(&annex, NalFormat::AnnexB),
-            vec![&[0x67, 1, 2][..], &[0x68, 3], &[0x65, 4, 5]]
-        );
+        let annex = [0, 0, 0, 1, 0x67, 1, 2, 0, 0, 1, 0x68, 3, 0, 0, 0, 1, 0x65, 4, 5];
+        assert_eq!(split_nals(&annex, NalFormat::AnnexB), vec![&[0x67, 1, 2][..], &[0x68, 3], &[0x65, 4, 5]]);
         let avcc = [0, 0, 0, 2, 0x65, 9, 0, 0, 0, 1, 0x06];
-        assert_eq!(
-            split_nals(&avcc, NalFormat::LengthPrefixed),
-            vec![&[0x65, 9][..], &[0x06]]
-        );
+        assert_eq!(split_nals(&avcc, NalFormat::LengthPrefixed), vec![&[0x65, 9][..], &[0x06]]);
     }
 
     #[test]
     fn packets_are_whole_and_counted() {
-        let mut m = Muxer::new(
-            VideoCodec::H264,
-            Some(AudioConfig {
-                sample_rate: 48000,
-                channels: 2,
-            }),
-        );
+        let mut m = Muxer::new(VideoCodec::H264, Some(AudioConfig { sample_rate: 48000, channels: 2 }));
         m.parameter_sets(vec![vec![0x67, 1, 2, 3], vec![0x68, 4]]);
         // a small keyframe, then a 1000-byte frame that spans several packets
         let nal = |len: usize| -> Vec<u8> {
-            (len as u32)
-                .to_be_bytes()
-                .into_iter()
-                .chain([0x65])
-                .chain(std::iter::repeat_n(7, len - 1))
-                .collect()
+            (len as u32).to_be_bytes().into_iter().chain([0x65]).chain(std::iter::repeat_n(7, len - 1)).collect()
         };
         for (i, data) in [nal(5), nal(1000)].iter().enumerate() {
-            let out = m.video(
-                data,
-                NalFormat::LengthPrefixed,
-                1_000_000 + i as u64 * 33_333,
-                None,
-                i == 0,
-            );
+            let out = m.video(data, NalFormat::LengthPrefixed, 1_000_000 + i as u64 * 33_333, None, i == 0);
             assert_eq!(out.len() % PACKET, 0);
             assert!(out.chunks(PACKET).all(|p| p[0] == 0x47));
         }
         let a = m.audio(&[1, 2, 3, 4], 1_000_000);
         assert_eq!(a.len(), PACKET);
         // a keyframe starts with the tables, and carries the parameter sets
-        let out = m.video(
-            &[0, 0, 0, 1, 0x65],
-            NalFormat::LengthPrefixed,
-            2_000_000,
-            None,
-            true,
-        );
-        let pids: Vec<u16> = out
-            .chunks(PACKET)
-            .map(|p| (((p[1] & 0x1F) as u16) << 8) | p[2] as u16)
-            .collect();
+        let out = m.video(&[0, 0, 0, 1, 0x65], NalFormat::LengthPrefixed, 2_000_000, None, true);
+        let pids: Vec<u16> = out.chunks(PACKET).map(|p| (((p[1] & 0x1F) as u16) << 8) | p[2] as u16).collect();
         assert_eq!(&pids[..3], &[PAT_PID, PMT_PID, VIDEO_PID]);
         let video = &out[2 * PACKET..];
         assert!(video.windows(5).any(|w| w == [0, 0, 1, 0x67, 1]));

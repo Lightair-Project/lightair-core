@@ -18,19 +18,12 @@ use parking_lot::Mutex;
 use srt_tokio::SrtListener;
 
 fn free_port() -> u16 {
-    UdpSocket::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
+    UdpSocket::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
 }
 
 fn listen(port: u16, got: Arc<Mutex<Vec<u8>>>) {
     std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         rt.block_on(async move {
             let (_server, mut incoming) = SrtListener::builder().bind(port).await.unwrap();
             while let Some(request) = incoming.incoming().next().await {
@@ -124,10 +117,7 @@ fn receiver(srt: SocketAddr) -> Receiver {
             while let Ok(n) = up.recv(&mut buf) {
                 let p = &buf[..n];
                 let is_ack = p[0] & 0x80 != 0 && u16::from_be_bytes([p[0], p[1]]) == 0x8002;
-                let dark_link = off
-                    .load(Ordering::Acquire)
-                    .then(|| links.first().copied())
-                    .flatten();
+                let dark_link = off.load(Ordering::Acquire).then(|| links.first().copied()).flatten();
                 for l in &links {
                     if Some(*l) == dark_link {
                         continue;
@@ -139,11 +129,7 @@ fn receiver(srt: SocketAddr) -> Receiver {
             }
         }
     });
-    Receiver {
-        addr,
-        per_link,
-        dark,
-    }
+    Receiver { addr, per_link, dark }
 }
 
 #[test]
@@ -152,11 +138,7 @@ fn a_bonded_stream_arrives_whole_over_two_links_and_survives_losing_one() {
     let got: Arc<Mutex<Vec<u8>>> = Default::default();
     listen(port, got.clone());
     let rx = receiver(SocketAddr::from(([127, 0, 0, 1], port)));
-    let relay = Relay::start(
-        rx.addr,
-        vec![("Wi-Fi".into(), None), ("Mobile data".into(), None)],
-    )
-    .unwrap();
+    let relay = Relay::start(rx.addr, vec![("Wi-Fi".into(), None), ("Mobile data".into(), None)]).unwrap();
     let mut sender = lightair_feed::SrtSender::start(SrtTarget {
         address: relay.local(),
         source: "studio".into(),
@@ -168,12 +150,7 @@ fn a_bonded_stream_arrives_whole_over_two_links_and_survives_losing_one() {
     .unwrap();
     let start = Instant::now();
     while !sender.stats().connected {
-        assert!(
-            start.elapsed() < Duration::from_secs(8),
-            "{:?} {:?}",
-            sender.stats(),
-            relay.links()
-        );
+        assert!(start.elapsed() < Duration::from_secs(8), "{:?} {:?}", sender.stats(), relay.links());
         std::thread::sleep(Duration::from_millis(20));
     }
 

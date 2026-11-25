@@ -9,20 +9,10 @@ use common::{ffmpeg, material, probe, run, scratch};
 use lightair_feed::ts::{AudioConfig, Muxer, NalFormat, VideoCodec};
 
 fn mux_and_decode(codec: VideoCodec) {
-    let ext = if codec == VideoCodec::H264 {
-        "h264"
-    } else {
-        "hevc"
-    };
+    let ext = if codec == VideoCodec::H264 { "h264" } else { "hevc" };
     let (units, sounds) = material(codec, "in");
     assert!(units.len() >= 59 && units[0].1, "{} units", units.len());
-    let mut mux = Muxer::new(
-        codec,
-        Some(AudioConfig {
-            sample_rate: 48000,
-            channels: 2,
-        }),
-    );
+    let mut mux = Muxer::new(codec, Some(AudioConfig { sample_rate: 48000, channels: 2 }));
     let mut ts = vec![];
     // interleaved by time, as the encoders would deliver them
     let (mut v, mut a) = (0, 0);
@@ -45,12 +35,7 @@ fn mux_and_decode(codec: VideoCodec) {
     assert!(errors.trim().is_empty(), "decoder errors: {errors}");
     let probe = probe(&out);
     let lines: Vec<&str> = probe.lines().collect();
-    assert!(
-        lines
-            .iter()
-            .any(|l| l.starts_with(&format!("{ext},{}", units.len()))),
-        "{probe}"
-    );
+    assert!(lines.iter().any(|l| l.starts_with(&format!("{ext},{}", units.len()))), "{probe}");
     assert!(lines.iter().any(|l| l.starts_with("aac,")), "{probe}");
 }
 

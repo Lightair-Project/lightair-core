@@ -94,18 +94,14 @@ impl Adapt {
             self.target = max_kbps;
         }
         let floor = (max_kbps / 4).max(500).min(max_kbps);
-        let may_step = self
-            .last_step
-            .is_none_or(|t| now.duration_since(t) >= std::time::Duration::from_secs(1));
+        let may_step = self.last_step.is_none_or(|t| now.duration_since(t) >= std::time::Duration::from_secs(1));
         if (dropped > self.dropped || waiting_ms > CONGESTED_MS) && may_step {
             self.target = (self.target * 4 / 5).max(floor);
             self.calm_since = None;
             self.last_step = Some(now);
         } else if waiting_ms < CALM_MS {
             let since = *self.calm_since.get_or_insert(now);
-            if now.duration_since(since) >= std::time::Duration::from_secs(10)
-                && self.target < max_kbps
-            {
+            if now.duration_since(since) >= std::time::Duration::from_secs(10) && self.target < max_kbps {
                 self.target = (self.target + max_kbps / 10).min(max_kbps);
                 self.calm_since = Some(now);
                 self.last_step = Some(now);
@@ -143,11 +139,7 @@ impl Feed {
     }
 
     /// Starts sending to the desktop's SRT listener (connecting, and reconnecting, by itself).
-    pub fn srt(
-        target: SrtTarget,
-        video: VideoCodec,
-        audio: Option<AudioConfig>,
-    ) -> std::io::Result<Feed> {
+    pub fn srt(target: SrtTarget, video: VideoCodec, audio: Option<AudioConfig>) -> std::io::Result<Feed> {
         Ok(Feed {
             inner: Mutex::new(Inner {
                 mux: Muxer::new(video, audio),
@@ -219,12 +211,7 @@ impl Feed {
         } else {
             kbps
         };
-        FeedStats {
-            connected: s.connected,
-            bitrate_kbps: kbps,
-            dropped: s.dropped,
-            error: s.error,
-        }
+        FeedStats { connected: s.connected, bitrate_kbps: kbps, dropped: s.dropped, error: s.error }
     }
 }
 

@@ -20,11 +20,7 @@ impl Backoff {
 
     /// The wait before the next attempt (a connection, if there was one, has just ended).
     pub fn next(&mut self, now: Instant) -> Duration {
-        if self
-            .connected_at
-            .take()
-            .is_some_and(|t| now.duration_since(t) >= STEADY)
-        {
+        if self.connected_at.take().is_some_and(|t| now.duration_since(t) >= STEADY) {
             self.step = 0;
         }
         let wait = WAITS_MS[self.step.min(WAITS_MS.len() - 1)];
