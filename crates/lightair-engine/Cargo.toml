@@ -1,0 +1,61 @@
+[package]
+name = "lightair-engine"
+description = "Lightair's live engine: projects, the program clock, frame rings, the scene renderer on the GPU, the audio mix, encoders, outputs, recording and clips"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+lightair-model.workspace = true
+lightair-store.workspace = true
+lightair-render.workspace = true
+lightair-audio.workspace = true
+lightair-fonts.workspace = true
+lightair-feed.workspace = true
+lightair-overlay.workspace = true
+lightair-remote.workspace = true
+lightair-live.workspace = true
+lightair-widgets.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+wgpu = "30"
+# WHIP: WebRTC in Rust on its own runtime, H.264 and Opus
+webrtc = "0.21.1"
+rtc = { version = "0.21.1", default-features = false }
+async-trait = "0.1"
+bytes = "1"
+# clips: the last minute's packets into an MP4, not encoded again
+mp4 = "0.14"
+# Android's zero-copy camera import: its shaders built as SPIR-V
+rspirv = "0.13"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "time", "macros"] }
+# only its error type (WHIP's requests go through lightair-live's network helpers, which set the TLS)
+ureq = { version = "3", default-features = false }
+pollster = "0.4"
+rtrb = "0.3"
+parking_lot = "0.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+# the program as JPEG for a remote controller, base64 in its JSON
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+objc2 = "0.6.3"
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFBase", "CFDictionary", "CFNumber", "CFString"] }
+objc2-core-video = { version = "0.3.2", default-features = false, features = ["std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVPixelBufferIOSurface", "CVPixelBufferPool", "CVReturn", "objc2-io-surface"] }
+objc2-metal = { version = "0.3.2", default-features = false, features = ["std", "MTLDevice", "MTLTexture", "MTLPixelFormat", "MTLResource", "MTLTypes", "objc2-io-surface"] }
+objc2-io-surface = { version = "0.3", default-features = false, features = ["std", "IOSurfaceRef", "IOSurfaceTypes", "objc2-core-foundation"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+ndk-sys = "0.6"
+# the zero-copy camera import: raw Vulkan beside wgpu's (the same ash as wgpu-hal)
+ash = "0.38"
+raw-window-handle = "0.6"
+
+[dev-dependencies]
+tempfile = "3"
+naga = { version = "30", features = ["spv-in"] }
+

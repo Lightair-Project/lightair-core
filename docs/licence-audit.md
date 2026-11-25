@@ -32,6 +32,10 @@ work, except a few permissively licensed files that carry their notices (§3).
 | RTMP, RTMPS, SRT and MPEG-TS out | `crates/lightair-feed/src/` | Written from the protocols' specifications; SRT itself comes from the `srt-tokio` crate (Apache-2.0) |
 | ffmpeg in the feed's tests | `crates/lightair-feed/tests/` | ffmpeg is run as a separate program (an RTMP server and a decoder to check what was sent), when it's installed; nothing linked or copied |
 | Text and timer styles from the desktop's settings | `crates/lightair-overlay/src/text.rs` | Reads the settings the desktop saves for text sources (libobs's `text_ft2_source_v2` fields and colour format) so a show draws the same everywhere; reading a file format isn't copying code |
+| The camera looks (beauty, makeup, relight, grade, face shape, the tracker's smoothing) | `crates/lightair-engine/src/looks/`, `assets/effect-stack/*.json` | The owner's own Lightair Effect Stack, written for the desktop (where it's a libobs module under GPL-2.0-or-later) and rewritten in Rust and WGSL for the live engine; licensed here by its sole author. Two libobs details are only matched for the same picture (a solid-colour pass, a sampler setting), not copied |
+| Sharpen and the keyers | `crates/lightair-engine/src/keying.rs`, `src/gpu/keying.wgsl` | Compared side by side with libobs's filters on 25 November 2026: sharpen (a 4-neighbour unsharp mask), the colour key and the luma key are independent implementations of textbook maths; the chroma key's opacity and spill were rewritten from first principles that day (smoothstep opacity; spill taken out along the key colour's chroma direction with the BT.601 luma kept). Setting names, ranges and defaults follow the desktop's for compatibility |
+| Streaming platforms' servers | `crates/lightair-engine/src/platforms.rs`, `src/ingest.rs` | Facts the platforms publish (ingest addresses, limits) |
+| WHIP, clips and recordings | `crates/lightair-engine/src/whip.rs`, `clips.rs`, `record.rs` | Written here on the `webrtc` (MIT/Apache-2.0) and `mp4` (MIT) crates; the date conversion is a public-domain algorithm |
 
 ## 3. Third-party files in the repository
 
@@ -40,6 +44,7 @@ work, except a few permissively licensed files that carry their notices (§3).
 | `crates/lightair-widgets/assets/jquery-3.7.1.min.js` | MIT | Keep its header; list it in the apps' licences screen. Source and hash in `assets/SOURCE.md` |
 | `crates/lightair-fonts/tests/data/Inter-Variable.ttf` | SIL OFL 1.1 (`Inter-OFL.txt` beside it) | Test data only; keep the licence with it |
 | `crates/lightair-fonts/catalog/fonts-catalog.json` | Facts about Google Fonts' families (names, designers, files, hashes) from `google/fonts` | Factual data; the fonts themselves are downloaded, each with its own licence (docs/fonts.md §2) |
+| `crates/lightair-engine/assets/effect-stack/makeup/face-{paint,liner,normal}.png`, the mesh tables in `src/looks/mesh.rs` and regions in `src/looks/face.rs` | Apache-2.0 (generated from Google MediaPipe's canonical face model) | Keep the attribution in `crates/lightair-engine/NOTICE.md` and the licence's text in `assets/effect-stack/LICENSE-APACHE-2.0`; list it in the apps' licences screen |
 
 ## 4. Dependencies
 
@@ -67,8 +72,9 @@ whole tree (lightair-live docs/11 §1).
 
 ## 5. Notes
 
-- The desktop app's Lightair Effect Stack module (from Dewy, GPL-2.0-or-later, same author) isn't
-  in lightair-core; only the effect shaders above are, and they were written here.
+- The desktop app's Lightair Effect Stack module (GPL-2.0-or-later, same author) stays in the
+  desktop repo; its looks are in lightair-core as the live engine's own Rust and WGSL (§2), which
+  the author licenses here.
 - Code written with AI assistance is the owner's to license, but how much of it carries copyright
   depends on the human authorship in it. This doesn't create a licensing risk for the apps; it
   only means some code may be less protectable than hand-written code.

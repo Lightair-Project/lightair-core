@@ -10,6 +10,9 @@ publish = false
 
 [workspace.dependencies]
 lightair-audio = { path = "crates/lightair-audio" }
+lightair-feed = { path = "crates/lightair-feed" }
+lightair-overlay = { path = "crates/lightair-overlay" }
+lightair-remote = { path = "crates/lightair-remote" }
 lightair-model = { path = "crates/lightair-model" }
 lightair-fonts = { path = "crates/lightair-fonts" }
 lightair-live = { path = "crates/lightair-live" }
