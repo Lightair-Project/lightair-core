@@ -4,6 +4,11 @@
 //! `connect`'s `fourCcList`); TLS 1.2/1.3 for `rtmps://` with the system-independent Mozilla
 //! roots.
 //!
+//! **Several picture tracks in one stream** ([`RtmpSender::start_multitrack`]: renditions of one
+//! program, as Twitch's Enhanced Broadcasting plans them): track 0 goes in Enhanced RTMP's
+//! single-track video tags, the others in multitrack tags (one track each, with its track id);
+//! `connect` announces the codecs and multitrack, and `onMetaData` describes every track.
+//!
 //! The sender runs on its own thread with a bounded queue, like [`crate::srt::SrtSender`]: what
 //! has waited longer than [`MAX_WAIT`] (a network slower than the bitrate) or doesn't fit is
 //! dropped, and the pictures after a dropped one are left out until a keyframe (asked for), so
@@ -335,31 +340,114 @@ pub enum RtmpVideo {
     Hevc,
 }
 
+/// The FourCC Enhanced RTMP names a codec by.
+fn fourcc(codec: RtmpVideo) -> &'static [u8; 4] {
+    match codec {
+        RtmpVideo::Avc => b"avc1",
+        RtmpVideo::Hevc => b"hvc1",
+    }
+}
+
+/// Enhanced RTMP's video packet type for a multitrack packet, and its one-track kind.
+const PACKET_MULTITRACK: u8 = 6;
+const ONE_TRACK: u8 = 0;
+
 /// A video tag's body: `packet` 0 is the decoder configuration record, 1 a coded picture
-/// (`cts_ms` its composition time offset).
-fn video_tag(codec: RtmpVideo, keyframe: bool, packet: u8, cts_ms: i32, payload: &[u8]) -> Vec<u8> {
-    let mut out = match codec {
-        RtmpVideo::Avc => vec![if keyframe { 0x17 } else { 0x27 }, packet],
+/// (`cts_ms` its composition time offset). `track`: `None` in a stream of one picture track
+/// (H.264 in FLV's own tags); `Some(0)` the first of several (an Enhanced RTMP single-track
+/// tag), `Some(n)` another one (a multitrack tag carrying one track, with its id).
+fn video_tag(codec: RtmpVideo, keyframe: bool, packet: u8, cts_ms: i32, payload: &[u8], track: Option<u8>) -> Vec<u8> {
+    let frame: u8 = if keyframe { 1 } else { 2 };
+    let mut out = match (codec, track) {
+        (RtmpVideo::Avc, None) => vec![(frame << 4) | 7, packet],
         // Enhanced RTMP: the extended header bit, the frame type, the packet type (0 sequence
         // start, 1 coded frames, with a composition time), then the FourCC
-        RtmpVideo::Hevc => {
-            let frame: u8 = if keyframe { 1 } else { 2 };
+        (_, None | Some(0)) => {
             let mut v = vec![0x80 | (frame << 4) | packet];
-            v.extend(b"hvc1");
+            v.extend(fourcc(codec));
+            v
+        }
+        // a multitrack packet: its real packet type after the track kind, the FourCC, the track id
+        (_, Some(id)) => {
+            let mut v = vec![0x80 | (frame << 4) | PACKET_MULTITRACK, (ONE_TRACK << 4) | packet];
+            v.extend(fourcc(codec));
+            v.push(id);
             v
         }
     };
-    if packet == 1 || codec == RtmpVideo::Avc {
+    if packet == 1 || (codec == RtmpVideo::Avc && track.is_none()) {
         out.extend(&cts_ms.to_be_bytes()[1..]);
     }
     out.extend(payload);
     out
 }
 
+/// One picture track of a stream of several, as `onMetaData` describes it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RtmpTrack {
+    pub codec: RtmpVideo,
+    pub width: u32,
+    pub height: u32,
+    /// Frames per second.
+    pub fps: f64,
+    pub kbps: u32,
+}
+
+/// What a stream of several picture tracks sends: the tracks in order (track 0 first, the
+/// main one) and the sound.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RtmpTracks {
+    pub video: Vec<RtmpTrack>,
+    pub audio_kbps: u32,
+    pub sample_rate: u32,
+    pub channels: u8,
+}
+
+/// A FourCC as `onMetaData`'s codec id number.
+fn fourcc_number(codec: RtmpVideo) -> f64 {
+    u32::from_be_bytes(*fourcc(codec)) as f64
+}
+
+/// `@setDataFrame onMetaData` for a stream of several picture tracks: track 0 at the top level,
+/// the others in `videoTrackIdInfoMap` by their ids.
+fn metadata(t: &RtmpTracks) -> Vec<u8> {
+    let info = |v: &RtmpTrack| {
+        vec![
+            ("width".to_string(), Amf::Number(v.width as f64)),
+            ("height".to_string(), Amf::Number(v.height as f64)),
+            ("framerate".to_string(), Amf::Number(v.fps)),
+            ("videodatarate".to_string(), Amf::Number(v.kbps as f64)),
+            ("videocodecid".to_string(), Amf::Number(fourcc_number(v.codec))),
+        ]
+    };
+    let mut fields = vec![("duration".to_string(), Amf::Number(0.0))];
+    if let Some(first) = t.video.first() {
+        fields.extend(info(first));
+    }
+    fields.extend([
+        ("audiodatarate".to_string(), Amf::Number(t.audio_kbps as f64)),
+        ("audiosamplerate".to_string(), Amf::Number(t.sample_rate as f64)),
+        ("audiosamplesize".to_string(), Amf::Number(16.0)),
+        ("audiochannels".to_string(), Amf::Number(t.channels as f64)),
+        ("stereo".to_string(), Amf::Bool(t.channels == 2)),
+        ("audiocodecid".to_string(), Amf::Number(10.0)),
+        ("encoder".to_string(), Amf::Str("Lightair".into())),
+    ]);
+    if t.video.len() > 1 {
+        let map = t.video.iter().enumerate().skip(1).map(|(i, v)| (i.to_string(), Amf::Object(info(v)))).collect();
+        fields.push(("videoTrackIdInfoMap".to_string(), Amf::Object(map)));
+    }
+    let mut out = vec![];
+    amf_write(&mut out, &Amf::Str("@setDataFrame".into()));
+    amf_write(&mut out, &Amf::Str("onMetaData".into()));
+    amf_write(&mut out, &Amf::Ecma(fields));
+    out
+}
+
 // ── the sender ──────────────────────────────────────────────────────────────────────────────
 
 enum Out {
-    Video { data: Vec<u8>, pts_ms: u32, dts_ms: u32, keyframe: bool, queued_at: Instant },
+    Video { track: u8, data: Vec<u8>, pts_ms: u32, dts_ms: u32, keyframe: bool, queued_at: Instant },
     Audio { data: Vec<u8>, pts_ms: u32, queued_at: Instant },
 }
 
@@ -386,9 +474,9 @@ struct Counters {
     retry_at: Mutex<Option<std::time::Instant>>,
     /// When the current connection came up (for the backoff).
     connected_at: Mutex<Option<std::time::Instant>>,
-    /// The picture's decoder configuration record (`avcC` or `hvcC`) and the audio config, sent
-    /// first after every connect.
-    video_config: Mutex<Option<Vec<u8>>>,
+    /// Each picture track's decoder configuration record (`avcC` or `hvcC`) and the audio
+    /// config, sent first after every connect.
+    video_config: Mutex<Vec<Option<Vec<u8>>>>,
     audio_config: Mutex<Option<[u8; 2]>>,
     /// The stream's bitrate (0: not said): the socket's send buffer is sized to it.
     kbps: AtomicU32,
@@ -401,14 +489,34 @@ fn send_buffer(kbps: u32) -> usize {
     (kbps as usize * 1000 / 8).clamp(16 << 10, 4 << 20)
 }
 
+/// What a connection sends: each picture track's codec, and with several, what `onMetaData`
+/// says about them.
+#[derive(Debug, Clone)]
+struct Layout {
+    codecs: Vec<RtmpVideo>,
+    multitrack: Option<RtmpTracks>,
+}
+
+impl Layout {
+    /// A video tag's track (see [`video_tag`]): `None` with one picture track.
+    fn tag_track(&self, track: u8) -> Option<u8> {
+        self.multitrack.as_ref().map(|_| track)
+    }
+
+    fn codec(&self, track: u8) -> RtmpVideo {
+        self.codecs.get(track as usize).copied().unwrap_or_default()
+    }
+}
+
 /// Publishes to one RTMP(S) ingest. Dropping it closes the connection.
 pub struct RtmpSender {
     tx: SyncSender<Out>,
-    codec: RtmpVideo,
+    codecs: Vec<RtmpVideo>,
     counters: Arc<Counters>,
     base: Mutex<Option<u64>>,
-    /// A picture didn't fit in the queue: the ones after it are left out until a keyframe.
-    skip: AtomicBool,
+    /// Per picture track: a picture didn't fit in the queue, so the ones after it are left out
+    /// until a keyframe.
+    skip: Vec<AtomicBool>,
 }
 
 impl RtmpSender {
@@ -420,35 +528,67 @@ impl RtmpSender {
     /// Publishes pictures in `codec` and AAC. With HEVC, give the `hvcC` record
     /// ([`RtmpSender::config_record`]) before the first keyframe.
     pub fn start_with(target: RtmpTarget, codec: RtmpVideo) -> Result<RtmpSender, String> {
+        RtmpSender::start_layout(target, Layout { codecs: vec![codec], multitrack: None })
+    }
+
+    /// Publishes several picture tracks and AAC in one stream (Enhanced RTMP's multitrack):
+    /// `tracks.video[i]` is track `i`. Give each track's decoder configuration record
+    /// ([`RtmpSender::track_config_record`]) before its first keyframe, and its pictures with
+    /// [`RtmpSender::track_video`]. The pictures of all tracks are sent in the order given, so
+    /// give them in decode time order.
+    pub fn start_multitrack(target: RtmpTarget, tracks: RtmpTracks) -> Result<RtmpSender, String> {
+        if tracks.video.is_empty() || tracks.video.len() > 256 {
+            return Err("A stream needs between 1 and 256 picture tracks.".into());
+        }
+        let codecs = tracks.video.iter().map(|t| t.codec).collect();
+        RtmpSender::start_layout(target, Layout { codecs, multitrack: Some(tracks) })
+    }
+
+    fn start_layout(target: RtmpTarget, layout: Layout) -> Result<RtmpSender, String> {
         let url = parse_url(&target.url)?;
-        let (tx, rx) = sync_channel(QUEUE);
-        let counters = Arc::new(Counters::default());
+        let tracks = layout.codecs.len().max(1);
+        let (tx, rx) = sync_channel(QUEUE * tracks);
+        let counters = Arc::new(Counters { video_config: Mutex::new(vec![None; tracks]), ..Counters::default() });
         let c = counters.clone();
+        let codecs = layout.codecs.clone();
         std::thread::Builder::new()
             .name("lightair-rtmp".into())
-            .spawn(move || run(url, target.key, target.bind, codec, rx, c))
+            .spawn(move || run(url, target.key, target.bind, layout, rx, c))
             .map_err(|e| e.to_string())?;
-        Ok(RtmpSender { tx, codec, counters, base: Mutex::new(None), skip: AtomicBool::new(false) })
+        let skip = (0..tracks).map(|_| AtomicBool::new(false)).collect();
+        Ok(RtmpSender { tx, codecs, counters, base: Mutex::new(None), skip })
     }
 
     /// The H.264 SPS and PPS (each without a start code or length). Nothing for HEVC: give its
     /// record instead ([`RtmpSender::config_record`]).
     pub fn parameter_sets(&self, nals: &[Vec<u8>]) {
-        if self.codec != RtmpVideo::Avc {
+        self.track_parameter_sets(0, nals);
+    }
+
+    /// [`RtmpSender::parameter_sets`] for picture track `track`.
+    pub fn track_parameter_sets(&self, track: usize, nals: &[Vec<u8>]) {
+        if self.codecs.get(track) != Some(&RtmpVideo::Avc) {
             return;
         }
         let sps = nals.iter().find(|n| n.first().map(|b| b & 0x1F) == Some(7));
         let pps = nals.iter().find(|n| n.first().map(|b| b & 0x1F) == Some(8));
         if let (Some(s), Some(p)) = (sps, pps) {
-            *self.counters.video_config.lock() = Some(avc_config(s, p));
+            self.counters.video_config.lock()[track] = Some(avc_config(s, p));
         }
     }
 
     /// The picture's decoder configuration record as it is (`avcC` for H.264, `hvcC` for HEVC,
     /// as an MP4 carries it), in place of [`RtmpSender::parameter_sets`].
     pub fn config_record(&self, record: &[u8]) {
-        if !record.is_empty() {
-            *self.counters.video_config.lock() = Some(record.to_vec());
+        self.track_config_record(0, record);
+    }
+
+    /// [`RtmpSender::config_record`] for picture track `track`.
+    pub fn track_config_record(&self, track: usize, record: &[u8]) {
+        if !record.is_empty()
+            && let Some(slot) = self.counters.video_config.lock().get_mut(track)
+        {
+            *slot = Some(record.to_vec());
         }
     }
 
@@ -470,8 +610,14 @@ impl RtmpSender {
 
     /// One access unit (length-prefixed or Annex B), timestamps in microseconds.
     pub fn video(&self, data: &[u8], format: NalFormat, pts_us: u64, dts_us: u64, keyframe: bool) {
+        self.track_video(0, data, format, pts_us, dts_us, keyframe);
+    }
+
+    /// [`RtmpSender::video`] for picture track `track`.
+    pub fn track_video(&self, track: usize, data: &[u8], format: NalFormat, pts_us: u64, dts_us: u64, keyframe: bool) {
+        let (Some(&codec), Some(skip)) = (self.codecs.get(track), self.skip.get(track)) else { return };
         // after a picture that didn't fit, none until a keyframe: they wouldn't decode
-        if !keyframe && self.skip.load(Ordering::Relaxed) {
+        if !keyframe && skip.load(Ordering::Relaxed) {
             self.counters.dropped.fetch_add(1, Ordering::Relaxed);
             self.counters.keyframe.store(true, Ordering::Relaxed);
             return;
@@ -480,21 +626,28 @@ impl RtmpSender {
         // the config or not at all (H.264: SPS, PPS, AUD; HEVC: VPS, SPS, PPS, AUD)
         let mut avcc = Vec::with_capacity(data.len() + 16);
         for nal in split_nals(data, format) {
-            let skip = match self.codec {
+            let leave = match codec {
                 RtmpVideo::Avc => matches!(nal.first().map(|b| b & 0x1F), Some(7..=9)),
                 RtmpVideo::Hevc => matches!(nal.first().map(|b| (b >> 1) & 0x3F), Some(32..=35)),
             };
-            if skip {
+            if leave {
                 continue;
             }
             avcc.extend((nal.len() as u32).to_be_bytes());
             avcc.extend(nal);
         }
         let (pts_ms, dts_ms) = (self.ms(pts_us), self.ms(dts_us));
-        let queued = self.push(Out::Video { data: avcc, pts_ms, dts_ms, keyframe, queued_at: Instant::now() });
+        let queued = self.push(Out::Video {
+            track: track as u8,
+            data: avcc,
+            pts_ms,
+            dts_ms,
+            keyframe,
+            queued_at: Instant::now(),
+        });
         match queued {
-            Pushed::Full => self.skip.store(true, Ordering::Relaxed),
-            Pushed::Queued if keyframe => self.skip.store(false, Ordering::Relaxed),
+            Pushed::Full => skip.store(true, Ordering::Relaxed),
+            Pushed::Queued if keyframe => skip.store(false, Ordering::Relaxed),
             // away: each connection starts at a keyframe anyway
             _ => {}
         }
@@ -645,7 +798,7 @@ fn session(
     url: &Url,
     key: &str,
     bind: Option<&crate::net::Bind>,
-    codec: RtmpVideo,
+    layout: &Layout,
     rx: &Receiver<Out>,
     c: &Counters,
 ) -> Result<(), String> {
@@ -667,9 +820,25 @@ fn session(
         ("flashVer".into(), Amf::Str("FMLE/3.0 (compatible; Lightair Live)".into())),
         ("tcUrl".into(), Amf::Str(url.tc_url.clone())),
     ];
-    // Enhanced RTMP: the codecs this side sends beyond FLV's own
-    if codec == RtmpVideo::Hevc {
-        fields.push(("fourCcList".into(), Amf::Array(vec![Amf::Str("hvc1".into())])));
+    // Enhanced RTMP: the codecs this side sends beyond FLV's own (with several tracks, every
+    // one: they all go in Enhanced RTMP's tags), what it does with each (encodes), and that it
+    // sends several tracks
+    let mut enhanced: Vec<&str> = Vec::new();
+    for codec in &layout.codecs {
+        let name = std::str::from_utf8(fourcc(*codec)).unwrap_or_default();
+        if (*codec != RtmpVideo::Avc || layout.multitrack.is_some()) && !enhanced.contains(&name) {
+            enhanced.push(name);
+        }
+    }
+    if !enhanced.is_empty() {
+        fields.push(("fourCcList".into(), Amf::Array(enhanced.iter().map(|n| Amf::Str(n.to_string())).collect())));
+    }
+    if layout.multitrack.is_some() {
+        const CAN_ENCODE: f64 = 2.0;
+        const CAPS_MULTITRACK: f64 = 2.0;
+        let map = enhanced.iter().map(|n| (n.to_string(), Amf::Number(CAN_ENCODE))).collect();
+        fields.push(("videoFourCcInfoMap".into(), Amf::Object(map)));
+        fields.push(("capsEx".into(), Amf::Number(CAPS_MULTITRACK)));
     }
     let connect = Amf::Object(fields);
     let cmd = |name: &str, txn: f64, args: &[Amf], stream: u32| Message {
@@ -762,16 +931,21 @@ fn session(
     // the configs go before the first keyframe and the first sound (they may come after the
     // connection: an encoder gives its parameter sets with its first keyframe), and again
     // whenever they change; a picture before the video config isn't sent (it can't decode)
-    let mut sent_video_config: Option<Vec<u8>> = None;
+    let tracks = layout.codecs.len().max(1);
+    let mut sent_video_config: Vec<Option<Vec<u8>>> = vec![None; tracks];
     let mut sent_audio_config: Option<[u8; 2]> = None;
+    // several tracks: what they are, before anything else
+    if let Some(t) = &layout.multitrack {
+        send(&mut conn, Message { csid: 5, kind: 18, stream, timestamp: 0, body: metadata(t) })?;
+    }
     conn.flush().map_err(io)?;
     c.connected.store(true, Ordering::Relaxed);
     c.keyframe.store(true, Ordering::Relaxed);
     *c.error.lock() = None;
     *c.retry_at.lock() = None;
     c.connected_at.lock().replace(std::time::Instant::now());
-    // a keyframe first: nothing before it decodes
-    let mut waiting_for_key = true;
+    // a keyframe first on every track: nothing before it decodes
+    let mut waiting_for_key = vec![true; tracks];
     conn.tcp().set_read_timeout(Some(Duration::from_millis(1))).ok();
     let mut buffer_for = 0;
     loop {
@@ -782,9 +956,15 @@ fn session(
                 socket2::SockRef::from(conn.tcp()).set_send_buffer_size(send_buffer(kbps)).ok();
             }
         }
-        if c.stop.load(Ordering::Relaxed) {
-            let _ = send(&mut conn, cmd("deleteStream", 6.0, &[Amf::Null, Amf::Number(stream as f64)], 0));
+        // the sender is stopped or dropped: the end of the stream on purpose (not a dropped
+        // connection), then the stream goes
+        let goodbye = |conn: &mut Conn| {
+            let _ = send(conn, cmd("FCUnpublish", 6.0, &[Amf::Null, Amf::Str(key.into())], 0));
+            let _ = send(conn, cmd("deleteStream", 7.0, &[Amf::Null, Amf::Number(stream as f64)], 0));
             let _ = conn.flush();
+        };
+        if c.stop.load(Ordering::Relaxed) {
+            goodbye(&mut conn);
             return Ok(());
         }
         let got = rx.recv_timeout(Duration::from_millis(100));
@@ -800,21 +980,25 @@ fn session(
         };
         if stale {
             c.dropped.fetch_add(1, Ordering::Relaxed);
-            if matches!(got, Ok(Out::Video { .. })) {
-                waiting_for_key = true;
+            if let Ok(Out::Video { track, .. }) = got
+                && let Some(w) = waiting_for_key.get_mut(track as usize)
+            {
+                *w = true;
                 c.keyframe.store(true, Ordering::Relaxed);
             }
             continue;
         }
         match got {
-            Ok(Out::Video { data, pts_ms, dts_ms, keyframe, .. }) => {
-                if waiting_for_key && !keyframe {
+            Ok(Out::Video { track, data, pts_ms, dts_ms, keyframe, .. }) => {
+                let t = track as usize;
+                if t >= tracks || (waiting_for_key[t] && !keyframe) {
                     continue;
                 }
+                let (codec, tag_track) = (layout.codec(track), layout.tag_track(track));
                 if keyframe {
-                    let cfg = c.video_config.lock().clone();
+                    let cfg = c.video_config.lock().get(t).cloned().flatten();
                     match cfg {
-                        Some(cfg) if sent_video_config.as_ref() != Some(&cfg) => {
+                        Some(cfg) if sent_video_config[t].as_ref() != Some(&cfg) => {
                             send(
                                 &mut conn,
                                 Message {
@@ -822,20 +1006,20 @@ fn session(
                                     kind: 9,
                                     stream,
                                     timestamp: dts_ms,
-                                    body: video_tag(codec, true, 0, 0, &cfg),
+                                    body: video_tag(codec, true, 0, 0, &cfg, tag_track),
                                 },
                             )?;
-                            sent_video_config = Some(cfg);
+                            sent_video_config[t] = Some(cfg);
                         }
                         Some(_) => {}
                         None => {
                             // no parameter sets yet: wait for the next keyframe
-                            waiting_for_key = true;
+                            waiting_for_key[t] = true;
                             continue;
                         }
                     }
                 }
-                waiting_for_key = false;
+                waiting_for_key[t] = false;
                 let cts = pts_ms as i32 - dts_ms as i32;
                 send(
                     &mut conn,
@@ -844,7 +1028,7 @@ fn session(
                         kind: 9,
                         stream,
                         timestamp: dts_ms,
-                        body: video_tag(codec, keyframe, 1, cts, &data),
+                        body: video_tag(codec, keyframe, 1, cts, &data, tag_track),
                     },
                 )?;
             }
@@ -865,7 +1049,10 @@ fn session(
                 send(&mut conn, Message { csid: 4, kind: 8, stream, timestamp: pts_ms, body })?;
             }
             Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => return Ok(()),
+            Err(RecvTimeoutError::Disconnected) => {
+                goodbye(&mut conn);
+                return Ok(());
+            }
         }
         conn.flush().map_err(io)?;
         // pings and acknowledgements from the server, without waiting
@@ -887,10 +1074,10 @@ fn session(
     }
 }
 
-fn run(url: Url, key: String, bind: Option<crate::net::Bind>, codec: RtmpVideo, rx: Receiver<Out>, c: Arc<Counters>) {
+fn run(url: Url, key: String, bind: Option<crate::net::Bind>, layout: Layout, rx: Receiver<Out>, c: Arc<Counters>) {
     let mut backoff = crate::backoff::Backoff::default();
     while !c.stop.load(Ordering::Relaxed) {
-        let result = session(&url, &key, bind.as_ref(), codec, &rx, &c);
+        let result = session(&url, &key, bind.as_ref(), &layout, &rx, &c);
         c.connected.store(false, Ordering::Relaxed);
         if let Some(t) = c.connected_at.lock().take() {
             backoff.connected(t);

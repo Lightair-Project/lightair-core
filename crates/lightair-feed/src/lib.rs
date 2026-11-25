@@ -4,6 +4,7 @@
 //! calling, with the source in the stream id and the passphrase from the control channel.
 
 pub mod backoff;
+pub mod bpm;
 pub mod feed;
 pub mod governor;
 pub mod net;
@@ -13,7 +14,7 @@ pub mod srtla;
 pub mod ts;
 
 pub use feed::{Feed, FeedStats, TsSink};
-pub use rtmp::{RtmpSender, RtmpTarget, RtmpVideo};
+pub use rtmp::{RtmpSender, RtmpTarget, RtmpTrack, RtmpTracks, RtmpVideo};
 pub use srt::{SrtSender, SrtTarget};
 pub use srtla::{LinkStats, Relay as SrtlaRelay};
 pub use ts::{AudioConfig, NalFormat, VideoCodec};
