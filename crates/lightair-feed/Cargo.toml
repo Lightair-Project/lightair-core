@@ -11,7 +11,6 @@ tracing.workspace = true
 parking_lot = "0.12"
 # a destination's network: sockets bound to an interface before they connect
 socket2 = "0.5"
-libc = "0.2"
 bytes = "1"
 futures = "0.3"
 # SRT in Rust (Apache-2.0, AES in Rust too)
@@ -21,6 +20,10 @@ tokio = { version = "1", default-features = false, features = ["rt", "net", "tim
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "logging", "tls12"] }
 webpki-roots = "1"
 getrandom = "0.3"
+
+# binding a socket to an interface (macOS, iOS, Android)
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 srt-protocol = "0.4.4"
