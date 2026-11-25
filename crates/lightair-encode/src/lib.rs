@@ -60,5 +60,7 @@ pub enum Error {
     Io(#[from] std::io::Error),
 }
 
-/// Whether this platform has [`apple::VideoEncoder`] and [`apple::AudioEncoder`].
-pub const HAS_PLATFORM_ENCODERS: bool = cfg!(any(target_os = "macos", target_os = "ios"));
+/// Whether this platform has encoders of its own: [`apple::VideoEncoder`] and
+/// [`apple::AudioEncoder`] on macOS and iOS, `windows::VideoEncoder` and
+/// `windows::AudioEncoder` on Windows.
+pub const HAS_PLATFORM_ENCODERS: bool = cfg!(any(target_os = "macos", target_os = "ios", windows));

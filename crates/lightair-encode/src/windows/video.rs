@@ -25,7 +25,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use parking_lot::{Condvar, Mutex};
-use windows::Win32::Graphics::Direct3D11::{ID3D11Device, ID3D11Texture2D};
+use windows::Win32::Graphics::Direct3D11::{ID3D11Device, ID3D11DeviceContext4, ID3D11Texture2D};
 use windows::Win32::Graphics::Dxgi::{DXGI_ERROR_DEVICE_REMOVED, DXGI_ERROR_DEVICE_RESET};
 use windows::Win32::Media::MediaFoundation::{
     CODECAPI_AVEncCommonBufferSize, CODECAPI_AVEncCommonMaxBitRate, CODECAPI_AVEncCommonMeanBitRate,
@@ -47,18 +47,19 @@ use windows::Win32::Media::MediaFoundation::{
     MFVideoFormat_ARGB32, MFVideoFormat_H264, MFVideoFormat_HEVC, MFVideoFormat_NV12, MFVideoFormat_P010,
     MFVideoInterlace_Progressive, MFVideoPrimaries_BT709, MFVideoPrimaries_BT2020, MFVideoTransFunc_709,
     MFVideoTransFunc_2084, MFVideoTransFunc_HLG, MFVideoTransferMatrix_BT709, MFVideoTransferMatrix_BT2020_10,
-    eAVEncCommonRateControlMode_CBR, eAVEncCommonRateControlMode_PeakConstrainedVBR, eAVEncH264VProfile_High,
-    eAVEncH265VProfile_Main_420_8, eAVEncH265VProfile_Main_420_10,
+    eAVEncCommonRateControlMode_CBR, eAVEncCommonRateControlMode_PeakConstrainedVBR, eAVEncH264VProfile_Base,
+    eAVEncH264VProfile_High, eAVEncH264VProfile_Main, eAVEncH265VProfile_Main_420_8, eAVEncH265VProfile_Main_420_10,
 };
 use windows::core::{GUID, HRESULT, Interface};
 
+use super::blit::Blit;
 use super::d3d::{self, Converter, Fence, Pool};
 use super::mf::{self, EncoderInfo, Runtime, Vendor, pack, platform, set_bool, set_u32};
 use crate::Error;
 use crate::encoder::{
     EncodedVideo, Hardware, InputFormat, VideoEncode, VideoOutput, VideoSettings, VideoSink, frame_ns, keyframe_frames,
 };
-use crate::format::{VideoCodec, VideoFormat};
+use crate::format::{H264Profile, VideoCodec, VideoFormat};
 use crate::nal::{self, NalLayout};
 
 /// How the encoder spends its bits.
@@ -213,6 +214,17 @@ unsafe impl Sync for Pipeline {}
 unsafe impl Send for Shared {}
 unsafe impl Sync for Shared {}
 
+/// [`VideoEncoder::encode_copy`]'s state.
+#[derive(Default)]
+struct Copier {
+    blit: Option<Blit>,
+    context: Option<ID3D11DeviceContext4>,
+    /// The slot holding the last picture copied in.
+    last: Option<u32>,
+    /// The last value signalled on the fence.
+    value: u64,
+}
+
 /// Frames that may wait for the transform before the oldest is dropped.
 const MAX_QUEUE: usize = 8;
 
@@ -226,6 +238,7 @@ pub struct VideoEncoder {
     options: Options,
     bitrate_kbps: AtomicU32,
     keyframe_wanted: AtomicBool,
+    copier: Mutex<Copier>,
     _runtime: Runtime,
 }
 
@@ -290,6 +303,7 @@ impl VideoEncoder {
             options,
             bitrate_kbps: AtomicU32::new(kbps),
             keyframe_wanted: AtomicBool::new(true),
+            copier: Mutex::new(Copier::default()),
             _runtime: runtime,
         })
     }
@@ -374,6 +388,80 @@ impl VideoEncoder {
             None => None,
         };
         self.submit(texture, input_view, None, pts_ns, keyframe)
+    }
+
+    /// Encodes a copy of `source`, a finished BGRA picture on [`VideoEncoder::device`] of any
+    /// size (stretched to the encoder's), shown at `pts_ns`; `None`: the last picture copied in
+    /// again. The copy is made on the GPU into a free input slot and waited for, so the caller
+    /// may draw into `source` again once this returns. `Ok(false)`: no picture yet, nothing
+    /// encoded (a keyframe asked for comes with the next one).
+    ///
+    /// Don't mix it with [`VideoEncoder::acquire`] on one encoder: it keeps its last picture in
+    /// a slot and signals the shared fence itself.
+    pub fn encode_copy(&self, source: Option<&ID3D11Texture2D>, pts_ns: i64, keyframe: bool) -> Result<bool, Error> {
+        let mut copier = self.copier.lock();
+        let c = &mut *copier;
+        let wanted = |e: Error| {
+            if keyframe {
+                self.request_keyframe();
+            }
+            e
+        };
+        if source.is_none() && c.last.is_none() {
+            if keyframe {
+                self.request_keyframe();
+            }
+            return Ok(false);
+        }
+        let Some(index) = self.shared.pool.acquire() else {
+            return Err(wanted(Error::Unsupported("every input slot is inside the encoder".into())));
+        };
+        let value = c.value + 1;
+        let copied = self.copy_into(c, source, index).and_then(|context| self.fence.signal(&context, value));
+        if let Err(e) = copied {
+            self.shared.pool.release(index);
+            return Err(wanted(e));
+        }
+        c.value = value;
+        c.last = Some(index);
+        drop(copier);
+        self.encode_slot(index, value, pts_ns, keyframe).map_err(wanted)?;
+        Ok(true)
+    }
+
+    /// Copies `source` (or the last picture) into slot `index`; returns the context to signal on.
+    fn copy_into(
+        &self,
+        c: &mut Copier,
+        source: Option<&ID3D11Texture2D>,
+        index: u32,
+    ) -> Result<ID3D11DeviceContext4, Error> {
+        let what = "the encoder's device has no immediate context";
+        let context = match &c.context {
+            Some(context) => context.clone(),
+            None => {
+                let immediate = unsafe { self.device.GetImmediateContext() }.map_err(platform(what))?;
+                let context: ID3D11DeviceContext4 = immediate.cast().map_err(platform(what))?;
+                c.context = Some(context.clone());
+                context
+            }
+        };
+        let slots = &self.shared.pool.slots;
+        let dst = &slots[index as usize].texture;
+        match (source, c.last) {
+            (Some(src), _) => {
+                if c.blit.is_none() {
+                    c.blit = Some(Blit::new(&self.device)?);
+                }
+                if let Some(blit) = c.blit.as_mut() {
+                    blit.copy(src, dst, &self.shared.settings.color)?;
+                }
+            }
+            // the slot that holds it already, else a copy of that slot
+            (None, Some(last)) if last != index => unsafe { context.CopyResource(dst, &slots[last as usize].texture) },
+            _ => {}
+        }
+        Ok(context)
     }
 
     fn submit(
@@ -780,7 +868,11 @@ fn configure(
     let output = media_type(&MFMediaType_Video, &subtype)?;
     describe_picture(&output, settings)?;
     let profile = match settings.codec {
-        VideoCodec::H264 => eAVEncH264VProfile_High.0 as u32,
+        VideoCodec::H264 => match settings.h264_profile {
+            H264Profile::Baseline => eAVEncH264VProfile_Base.0 as u32,
+            H264Profile::Main => eAVEncH264VProfile_Main.0 as u32,
+            H264Profile::High => eAVEncH264VProfile_High.0 as u32,
+        },
         VideoCodec::Hevc { main10: false } => eAVEncH265VProfile_Main_420_8.0 as u32,
         VideoCodec::Hevc { main10: true } => eAVEncH265VProfile_Main_420_10.0 as u32,
         VideoCodec::ProRes(_) => 0,

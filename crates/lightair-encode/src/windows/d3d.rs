@@ -14,12 +14,13 @@ use windows::Win32::Graphics::Direct3D11::{
     D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC, D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0,
     D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC, D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC_0, D3D11_VIDEO_PROCESSOR_STREAM,
     D3D11_VIDEO_USAGE_OPTIMAL_SPEED, D3D11_VPIV_DIMENSION_TEXTURE2D, D3D11_VPOV_DIMENSION_TEXTURE2D, D3D11CreateDevice,
-    ID3D11Device, ID3D11Device5, ID3D11Fence, ID3D11Multithread, ID3D11Texture2D, ID3D11VideoContext1,
-    ID3D11VideoDevice, ID3D11VideoProcessor, ID3D11VideoProcessorEnumerator, ID3D11VideoProcessorInputView,
-    ID3D11VideoProcessorOutputView,
+    ID3D11Device, ID3D11Device5, ID3D11DeviceContext4, ID3D11Fence, ID3D11Multithread, ID3D11Texture2D,
+    ID3D11VideoContext1, ID3D11VideoDevice, ID3D11VideoProcessor, ID3D11VideoProcessorEnumerator,
+    ID3D11VideoProcessorInputView, ID3D11VideoProcessorOutputView,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709, DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P709,
+    DXGI_COLOR_SPACE_YCBCR_FULL_G22_NONE_P709_X601, DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P601,
     DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P709, DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P2020, DXGI_FORMAT,
     DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_NV12, DXGI_FORMAT_P010, DXGI_RATIONAL, DXGI_SAMPLE_DESC,
 };
@@ -196,6 +197,16 @@ impl Fence {
         Ok(Fence { fence, handle, event })
     }
 
+    /// Queues a signal of `value` on `context` (the fence's device's) and sends the queued work
+    /// to the GPU.
+    pub(crate) fn signal(&self, context: &ID3D11DeviceContext4, value: u64) -> Result<(), Error> {
+        unsafe {
+            context.Signal(&self.fence, value).map_err(platform("Direct3D 11 wouldn't signal the encoder's fence"))?;
+            context.Flush();
+        }
+        Ok(())
+    }
+
     /// Waits (on this thread) until the fence reaches `value`; `false` after `timeout_ms`.
     pub(crate) fn wait(&self, value: u64, timeout_ms: u32) -> bool {
         unsafe {
@@ -320,10 +331,13 @@ impl Converter {
     }
 }
 
-/// The YCbCr colour space the converter writes for the stream's colour.
-fn output_color_space(color: &Color) -> windows::Win32::Graphics::Dxgi::Common::DXGI_COLOR_SPACE_TYPE {
+/// The YCbCr colour space the GPU's video processor writes for a stream's colour (BT.601's
+/// matrix for matrix codes 5 and 6, BT.2020's for 9, else BT.709's).
+pub(crate) fn output_color_space(color: &Color) -> windows::Win32::Graphics::Dxgi::Common::DXGI_COLOR_SPACE_TYPE {
     match (color.matrix, color.full_range) {
         (9, _) => DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P2020,
+        (5 | 6, true) => DXGI_COLOR_SPACE_YCBCR_FULL_G22_NONE_P709_X601,
+        (5 | 6, false) => DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P601,
         (_, true) => DXGI_COLOR_SPACE_YCBCR_FULL_G22_LEFT_P709,
         _ => DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P709,
     }
