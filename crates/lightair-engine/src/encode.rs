@@ -141,11 +141,7 @@ impl VideoEncoder {
         }
         let dropped = {
             let mut q = self.queue.lock();
-            let dropped = if q.len() >= QUEUE {
-                q.pop_front()
-            } else {
-                None
-            };
+            let dropped = if q.len() >= QUEUE { q.pop_front() } else { None };
             q.push_back(d);
             dropped
         };
@@ -172,11 +168,7 @@ impl VideoEncoder {
                 return Err(Closed);
             }
             if self.ready.wait_until(&mut q, deadline).timed_out() {
-                return if self.is_closed() {
-                    Err(Closed)
-                } else {
-                    Ok(None)
-                };
+                return if self.is_closed() { Err(Closed) } else { Ok(None) };
             }
         }
     }
@@ -219,9 +211,7 @@ impl VideoEncoder {
                     .map(|(i, _)| i)
             })
             .flatten();
-        let first = (!known)
-            .then(|| p.iter().rposition(|(m, _)| *m <= encoder_ns))
-            .flatten();
+        let first = (!known).then(|| p.iter().rposition(|(m, _)| *m <= encoder_ns)).flatten();
         let i = near.or(first).unwrap_or(0);
         let (m, pts) = p[i];
         p.drain(..=i);
@@ -349,11 +339,7 @@ impl AudioEncoder {
                 return Err(Closed);
             }
             if self.ready.wait_until(&mut g, deadline).timed_out() {
-                return if self.is_closed() {
-                    Err(Closed)
-                } else {
-                    Ok(None)
-                };
+                return if self.is_closed() { Err(Closed) } else { Ok(None) };
             }
         }
     }
@@ -385,12 +371,7 @@ mod tests {
         let (mut keys, mut since_host_key) = (Vec::new(), 0);
         for i in 0..60i64 {
             let pts = i * 200_000_000; // 5 fps for 12 s
-            e.queue(Drawn {
-                buffer: 0,
-                pts_ns: pts,
-                keyframe: false,
-                rgba: None,
-            });
+            e.queue(Drawn { buffer: 0, pts_ns: pts, keyframe: false, rgba: None });
             let d = e.next(Duration::ZERO).unwrap().unwrap();
             // the host: a keyframe when asked, else every 2 s × 30 frames of its own count
             let key = d.keyframe || since_host_key >= 60;
@@ -402,27 +383,16 @@ mod tests {
         }
         assert_eq!(keys.first(), Some(&0), "the stream starts on one");
         for w in keys.windows(2) {
-            assert!(
-                w[1] - w[0] <= 2_000_000_000,
-                "a keyframe every 2 s: {keys:?}"
-            );
+            assert!(w[1] - w[0] <= 2_000_000_000, "a keyframe every 2 s: {keys:?}");
         }
-        assert!(
-            *keys.last().unwrap() >= 10_000_000_000,
-            "to the end: {keys:?}"
-        );
+        assert!(*keys.last().unwrap() >= 10_000_000_000, "to the end: {keys:?}");
     }
 
     #[test]
     fn pulls_get_frames_in_order_then_end() {
         let e = encoder();
         for i in 0..5 {
-            e.queue(Drawn {
-                buffer: 0,
-                pts_ns: i,
-                keyframe: false,
-                rgba: None,
-            });
+            e.queue(Drawn { buffer: 0, pts_ns: i, keyframe: false, rgba: None });
         }
         // only the newest three wait; the first frame's keyframe request, dropped with it, is
         // carried on to the next frame queued
@@ -439,29 +409,16 @@ mod tests {
     #[test]
     fn closing_keeps_the_last_frames_and_stops_the_sound() {
         let e = encoder();
-        e.queue(Drawn {
-            buffer: 0,
-            pts_ns: 7,
-            keyframe: false,
-            rgba: None,
-        });
+        e.queue(Drawn { buffer: 0, pts_ns: 7, keyframe: false, rgba: None });
         e.close();
-        assert_eq!(
-            e.next(Duration::ZERO).unwrap().unwrap().pts_ns,
-            7,
-            "the tail is pulled"
-        );
+        assert_eq!(e.next(Duration::ZERO).unwrap().unwrap().pts_ns, 7, "the tail is pulled");
         assert!(e.next(Duration::ZERO).is_err());
         let a = AudioEncoder::new(2);
         a.write(&[0.1; 480], &[0.1; 480], 0);
         a.close();
         a.write(&[0.1; 480], &[0.1; 480], 10_000_000);
         let mut out = vec![0.0; 4096];
-        assert_eq!(
-            a.read(&mut out, Duration::ZERO).unwrap().unwrap().0,
-            480,
-            "nothing after the close"
-        );
+        assert_eq!(a.read(&mut out, Duration::ZERO).unwrap().unwrap().0, 480, "nothing after the close");
         assert!(a.read(&mut out, Duration::ZERO).is_err());
     }
 

@@ -32,11 +32,7 @@ pub const KINDS: [&str; 3] = ["studio.bg_blur", "studio.bg_remove", "studio.bg_r
 
 /// The source's background effect (the last switched on), if it has one.
 pub fn look(source: &Source) -> Option<Look> {
-    let e = source
-        .effects
-        .iter()
-        .rev()
-        .find(|e| e.enabled && KINDS.contains(&e.kind.as_str()))?;
+    let e = source.effects.iter().rev().find(|e| e.enabled && KINDS.contains(&e.kind.as_str()))?;
     let d = lightair_model::catalog::def(&e.kind)?;
     let mut s = serde_json::Map::new();
     s.extend(d.defaults());
@@ -52,31 +48,16 @@ pub fn look(source: &Source) -> Option<Look> {
             _ => 3,
         },
     };
-    let image = s
-        .get("bg_image")
-        .and_then(Value::as_str)
-        .filter(|f| !f.is_empty())
-        .map(String::from);
+    let image = s.get("bg_image").and_then(Value::as_str).filter(|f| !f.is_empty()).map(String::from);
     Some(Look {
         // an image not chosen yet: its colour
-        mode: if mode == 4 && image.is_none() {
-            3
-        } else {
-            mode
-        },
+        mode: if mode == 4 && image.is_none() { 3 } else { mode },
         blur: num("bg_blur", 60.0),
         feather: num("bg_feather", 30.0),
         shift: num("bg_shift", 0.0),
-        colour: s
-            .get("bg_color")
-            .and_then(Value::as_u64)
-            .unwrap_or(0xFF1A_1A1A) as u32,
+        colour: s.get("bg_color").and_then(Value::as_u64).unwrap_or(0xFF1A_1A1A) as u32,
         image,
-        quality: s
-            .get("bg_quality")
-            .and_then(Value::as_u64)
-            .unwrap_or(1)
-            .min(2) as u32,
+        quality: s.get("bg_quality").and_then(Value::as_u64).unwrap_or(1).min(2) as u32,
     })
 }
 
@@ -91,11 +72,7 @@ pub fn edge(shift: f32, feather: f32) -> (f32, f32) {
 pub fn cover(out: (u32, u32), image: (u32, u32)) -> (f32, f32) {
     let ao = out.0 as f32 / out.1.max(1) as f32;
     let ai = image.0 as f32 / image.1.max(1) as f32;
-    if ao > ai {
-        (1.0, ai / ao)
-    } else {
-        (ao / ai, 1.0)
-    }
+    if ao > ai { (1.0, ai / ao) } else { (ao / ai, 1.0) }
 }
 
 pub struct Pipelines {
@@ -145,10 +122,7 @@ impl Pipelines {
                     },
                 ),
                 entry(1, tex()),
-                entry(
-                    2,
-                    wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                ),
+                entry(2, wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering)),
                 entry(3, tex()),
                 entry(4, tex()),
             ],
@@ -205,11 +179,7 @@ impl Pipelines {
 fn target(gpu: &Gpu, size: (u32, u32)) -> wgpu::Texture {
     gpu.device().create_texture(&wgpu::TextureDescriptor {
         label: Some("background"),
-        size: wgpu::Extent3d {
-            width: size.0.max(1),
-            height: size.1.max(1),
-            depth_or_array_layers: 1,
-        },
+        size: wgpu::Extent3d { width: size.0.max(1), height: size.1.max(1), depth_or_array_layers: 1 },
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
@@ -227,22 +197,13 @@ fn size(t: &wgpu::Texture) -> (u32, u32) {
 
 /// The mask as a texture (uploaded again only when it's a new one).
 fn mask_texture<'a>(gpu: &Gpu, st: &'a mut State, mask: &Mask) -> &'a wgpu::Texture {
-    let fresh =
-        !matches!(&st.mask, Some((serial, t)) if *serial == mask.serial && size(t) == mask.size);
+    let fresh = !matches!(&st.mask, Some((serial, t)) if *serial == mask.serial && size(t) == mask.size);
     if fresh {
-        let reuse = st
-            .mask
-            .take()
-            .map(|(_, t)| t)
-            .filter(|t| size(t) == mask.size);
+        let reuse = st.mask.take().map(|(_, t)| t).filter(|t| size(t) == mask.size);
         let t = reuse.unwrap_or_else(|| {
             gpu.device().create_texture(&wgpu::TextureDescriptor {
                 label: Some("person mask"),
-                size: wgpu::Extent3d {
-                    width: mask.size.0,
-                    height: mask.size.1,
-                    depth_or_array_layers: 1,
-                },
+                size: wgpu::Extent3d { width: mask.size.0, height: mask.size.1, depth_or_array_layers: 1 },
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
@@ -259,11 +220,7 @@ fn mask_texture<'a>(gpu: &Gpu, st: &'a mut State, mask: &Mask) -> &'a wgpu::Text
                 bytes_per_row: Some(mask.size.0),
                 rows_per_image: Some(mask.size.1),
             },
-            wgpu::Extent3d {
-                width: mask.size.0,
-                height: mask.size.1,
-                depth_or_array_layers: 1,
-            },
+            wgpu::Extent3d { width: mask.size.0, height: mask.size.1, depth_or_array_layers: 1 },
         );
         st.mask = Some((mask.serial, t));
     }
@@ -301,26 +258,11 @@ fn pass(
         label: None,
         layout: &p.layout,
         entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::TextureView(&sv),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: wgpu::BindingResource::Sampler(&p.sampler),
-            },
-            wgpu::BindGroupEntry {
-                binding: 3,
-                resource: wgpu::BindingResource::TextureView(&mv),
-            },
-            wgpu::BindGroupEntry {
-                binding: 4,
-                resource: wgpu::BindingResource::TextureView(&bv),
-            },
+            wgpu::BindGroupEntry { binding: 0, resource: buffer.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&sv) },
+            wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&p.sampler) },
+            wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&mv) },
+            wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(&bv) },
         ],
     });
     let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -329,10 +271,7 @@ fn pass(
             view: &dv,
             depth_slice: None,
             resolve_target: None,
-            ops: wgpu::Operations {
-                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                store: wgpu::StoreOp::Store,
-            },
+            ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
         })],
         depth_stencil_attachment: None,
         timestamp_writes: None,
@@ -370,33 +309,13 @@ pub fn draw(
         let spacing = 0.5 + look.blur.clamp(0.0, 100.0) / 100.0 * 3.5;
         let mut params = [0f32; 16];
         params[..2].copy_from_slice(&src_texel);
-        pass(
-            gpu,
-            p,
-            &mut encoder,
-            &p.down,
-            params,
-            camera,
-            &mask_t,
-            camera,
-            &down,
-        );
+        pass(gpu, p, &mut encoder, &p.down, params, camera, &mask_t, camera, &down);
         for (dir, from, to) in [([1.0, 0.0], &down, &tmp), ([0.0, 1.0], &tmp, &down)] {
             let mut params = [0f32; 16];
             params[..2].copy_from_slice(&q_texel);
             params[2..4].copy_from_slice(&dir);
             params[12] = spacing;
-            pass(
-                gpu,
-                p,
-                &mut encoder,
-                &p.blur,
-                params,
-                from,
-                &mask_t,
-                from,
-                to,
-            );
+            pass(gpu, p, &mut encoder, &p.blur, params, from, &mask_t, from, to);
         }
         behind = down;
     } else if look.mode == 4
@@ -404,18 +323,10 @@ pub fn draw(
     {
         behind = i.clone();
     }
-    let out = st
-        .out
-        .take()
-        .filter(|t| size(t) == full)
-        .unwrap_or_else(|| target(gpu, full));
+    let out = st.out.take().filter(|t| size(t) == full).unwrap_or_else(|| target(gpu, full));
     let (threshold, softness) = edge(look.shift, look.feather);
     let c = look.colour;
-    let (sx, sy) = if look.mode == 4 {
-        cover(full, size(&behind))
-    } else {
-        (1.0, 1.0)
-    };
+    let (sx, sy) = if look.mode == 4 { cover(full, size(&behind)) } else { (1.0, 1.0) };
     let params = [
         look.mode as f32,
         threshold,
@@ -434,17 +345,7 @@ pub fn draw(
         0.0,
         0.0,
     ];
-    pass(
-        gpu,
-        p,
-        &mut encoder,
-        &p.composite,
-        params,
-        camera,
-        &mask_t,
-        &behind,
-        &out,
-    );
+    pass(gpu, p, &mut encoder, &p.composite, params, camera, &mask_t, &behind, &out);
     gpu.queue().submit([encoder.finish()]);
     st.out = Some(out.clone());
     out

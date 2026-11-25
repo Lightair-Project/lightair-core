@@ -154,8 +154,7 @@ impl Hot {
     /// Turns the privacy cut on or off from program sample `from`.
     pub fn set_privacy(&self, on: bool, from: u64) {
         let from = from & !(1 << 63);
-        self.privacy
-            .store(from | ((on as u64) << 63), Ordering::Release);
+        self.privacy.store(from | ((on as u64) << 63), Ordering::Release);
     }
 
     /// (on, from which program sample).
@@ -200,10 +199,7 @@ static NEXT: AtomicU64 = AtomicU64::new(1);
 
 pub fn register(hot: Arc<Hot>) -> u64 {
     let id = NEXT.fetch_add(1, Ordering::Relaxed);
-    REGISTRY
-        .write()
-        .get_or_insert_with(HashMap::new)
-        .insert(id, hot);
+    REGISTRY.write().get_or_insert_with(HashMap::new).insert(id, hot);
     id
 }
 

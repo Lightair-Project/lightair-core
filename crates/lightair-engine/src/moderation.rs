@@ -29,11 +29,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings {
-            word_filter: true,
-            words: Vec::new(),
-            hidden: BTreeSet::new(),
-        }
+        Settings { word_filter: true, words: Vec::new(), hidden: BTreeSet::new() }
     }
 }
 
@@ -65,21 +61,14 @@ struct State {
 }
 
 static STATE: Mutex<State> = Mutex::new(State {
-    settings: Settings {
-        word_filter: true,
-        words: Vec::new(),
-        hidden: BTreeSet::new(),
-    },
+    settings: Settings { word_filter: true, words: Vec::new(), hidden: BTreeSet::new() },
     file: None,
 });
 
 /// Where the settings are kept (the app's folder); read once.
 pub fn open(dir: &std::path::Path) {
     let file = dir.join("chat-safety.json");
-    let settings = std::fs::read_to_string(&file)
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default();
+    let settings = std::fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
     let mut s = STATE.lock();
     s.settings = settings;
     s.file = Some(file);
@@ -100,11 +89,7 @@ pub fn settings() -> Settings {
 pub fn set_word_filter(on: bool, words: Vec<String>) {
     let mut s = STATE.lock();
     s.settings.word_filter = on;
-    s.settings.words = words
-        .into_iter()
-        .map(|w| w.trim().to_lowercase())
-        .filter(|w| !w.is_empty())
-        .collect();
+    s.settings.words = words.into_iter().map(|w| w.trim().to_lowercase()).filter(|w| !w.is_empty()).collect();
     save(&s);
 }
 
@@ -123,21 +108,13 @@ pub fn hide(platform: &str, user_id: &str, name: &str) {
 
 pub fn unhide(platform: &str, user_id: &str) {
     let mut s = STATE.lock();
-    s.settings
-        .hidden
-        .retain(|h| !(h.platform == platform && h.user_id == user_id));
+    s.settings.hidden.retain(|h| !(h.platform == platform && h.user_id == user_id));
     save(&s);
 }
 
 /// Whether a message's author is hidden.
 pub fn is_hidden(platform: &str, user_id: &str) -> bool {
-    !user_id.is_empty()
-        && STATE
-            .lock()
-            .settings
-            .hidden
-            .iter()
-            .any(|h| h.platform == platform && h.user_id == user_id)
+    !user_id.is_empty() && STATE.lock().settings.hidden.iter().any(|h| h.platform == platform && h.user_id == user_id)
 }
 
 /// The text with filtered words masked (each letter a •), or as it is with the filter off.
@@ -146,11 +123,7 @@ pub fn mask(text: &str) -> String {
     if !s.settings.word_filter {
         return text.to_string();
     }
-    let words: Vec<String> = BUILT_IN
-        .iter()
-        .map(|w| w.to_string())
-        .chain(s.settings.words.iter().cloned())
-        .collect();
+    let words: Vec<String> = BUILT_IN.iter().map(|w| w.to_string()).chain(s.settings.words.iter().cloned()).collect();
     drop(s);
     mask_with(text, &words)
 }
@@ -207,25 +180,15 @@ pub fn apply(mut e: lightair_live::ChatEvent) -> Option<lightair_live::ChatEvent
 /// Where to report someone on their platform (the page with the platform's own Report), if
 /// known: their channel or profile page.
 pub fn report_url(platform: &str, user_id: &str, login: &str) -> Option<String> {
-    let enc = |s: &str| {
-        s.chars()
-            .filter(|c| c.is_ascii_alphanumeric() || "-_.".contains(*c))
-            .collect::<String>()
-    };
+    let enc = |s: &str| s.chars().filter(|c| c.is_ascii_alphanumeric() || "-_.".contains(*c)).collect::<String>();
     match platform {
         "twitch" if !login.is_empty() => Some(format!("https://www.twitch.tv/{}", enc(login))),
-        "youtube" if !user_id.is_empty() => {
-            Some(format!("https://www.youtube.com/channel/{}", enc(user_id)))
-        }
+        "youtube" if !user_id.is_empty() => Some(format!("https://www.youtube.com/channel/{}", enc(user_id))),
         "kick" if !login.is_empty() => Some(format!("https://kick.com/{}", enc(login))),
         "tiktok" if !login.is_empty() => Some(format!("https://www.tiktok.com/@{}", enc(login))),
         "x" | "twitter" if !login.is_empty() => Some(format!("https://x.com/{}", enc(login))),
-        "facebook" if !user_id.is_empty() => {
-            Some(format!("https://www.facebook.com/{}", enc(user_id)))
-        }
-        "instagram" if !login.is_empty() => {
-            Some(format!("https://www.instagram.com/{}", enc(login)))
-        }
+        "facebook" if !user_id.is_empty() => Some(format!("https://www.facebook.com/{}", enc(user_id))),
+        "instagram" if !login.is_empty() => Some(format!("https://www.instagram.com/{}", enc(login))),
         _ => None,
     }
 }
@@ -238,11 +201,7 @@ mod tests {
     fn words_are_masked_whole_and_people_hidden_by_id() {
         let words = vec!["darn".to_string()];
         assert_eq!(mask_with("Darn it, darned!", &words), "•••• it, ••••••!");
-        assert_eq!(
-            mask_with("adarnable", &words),
-            "adarnable",
-            "whole words only"
-        );
+        assert_eq!(mask_with("adarnable", &words), "adarnable", "whole words only");
         let tmp = tempfile::tempdir().unwrap();
         open(tmp.path());
         set_word_filter(true, vec![" Heck ".into()]);
@@ -257,10 +216,7 @@ mod tests {
         assert!(is_hidden("twitch", "42"));
         unhide("twitch", "42");
         assert!(!is_hidden("twitch", "42"));
-        assert_eq!(
-            report_url("twitch", "1", "some_one").as_deref(),
-            Some("https://www.twitch.tv/some_one")
-        );
+        assert_eq!(report_url("twitch", "1", "some_one").as_deref(), Some("https://www.twitch.tv/some_one"));
         assert_eq!(report_url("douyu", "1", "x"), None);
     }
 }

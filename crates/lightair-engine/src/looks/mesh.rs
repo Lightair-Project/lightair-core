@@ -107,11 +107,7 @@ pub fn fit_head_pose(mp: &[[f32; 2]], w: f32, h: f32, pose: &mut Pose) {
     for v in &mut r1 {
         *v /= n1;
     }
-    let mut r2 = [
-        r0[1] * r1[2] - r0[2] * r1[1],
-        r0[2] * r1[0] - r0[0] * r1[2],
-        r0[0] * r1[1] - r0[1] * r1[0],
-    ];
+    let mut r2 = [r0[1] * r1[2] - r0[2] * r1[1], r0[2] * r1[0] - r0[0] * r1[2], r0[0] * r1[1] - r0[1] * r1[0]];
     // the face looks towards the camera (also right for a mirrored picture)
     if r2[2] < 0.0 {
         for v in &mut r2 {
@@ -123,11 +119,7 @@ pub fn fit_head_pose(mp: &[[f32; 2]], w: f32, h: f32, pose: &mut Pose) {
     }
     // the head ellipsoid (`final.wgsl`: HEAD_R) centred at (0, 3, -4) cm canonical
     let sc = (n0 + n1raw) * 0.5;
-    let hc = [
-        0.0 - mean_c[0] as f64,
-        3.0 - mean_c[1] as f64,
-        -4.0 - mean_c[2] as f64,
-    ];
+    let hc = [0.0 - mean_c[0] as f64, 3.0 - mean_c[1] as f64, -4.0 - mean_c[2] as f64];
     pose.scale = sc as f32;
     pose.center = [
         (mx + sc * (r0[0] * hc[0] + r0[1] * hc[1] + r0[2] * hc[2])) as f32,
@@ -138,14 +130,7 @@ pub fn fit_head_pose(mp: &[[f32; 2]], w: f32, h: f32, pose: &mut Pose) {
 /// This frame's mesh triangles as vertices (x, y px; u, v), the ones facing away collapsed to a
 /// point, and the head pose; `None` when no mesh is drawn (no layout, weight < 0.01, never seen,
 /// or fewer than 468 mesh points).
-pub fn update(
-    face: &Face,
-    layout: &Layout,
-    face_weight: f32,
-    w: f32,
-    h: f32,
-    pose: &mut Pose,
-) -> Option<Vec<f32>> {
+pub fn update(face: &Face, layout: &Layout, face_weight: f32, w: f32, h: f32, pose: &mut Pose) -> Option<Vec<f32>> {
     let mp = face.region(Region::Mesh);
     if !layout.has_face || face_weight < 0.01 || !face.valid || mp.len() < MESH_POINTS {
         return None;
@@ -155,23 +140,12 @@ pub fn update(
     let mut out = Vec::with_capacity(TRIS_N * 3 * 4);
     for (t, tri) in TRIS.iter().enumerate() {
         let p = tri.map(|i| mp[i as usize]);
-        let (ax, ay, bx, by, cx, cy) = (
-            p[0][0] * w,
-            p[0][1] * h,
-            p[1][0] * w,
-            p[1][1] * h,
-            p[2][0] * w,
-            p[2][1] * h,
-        );
+        let (ax, ay, bx, by, cx, cy) = (p[0][0] * w, p[0][1] * h, p[1][0] * w, p[1][1] * h, p[2][0] * w, p[2][1] * h);
         let area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
         let shown = area * FRONT[t] as f32 * facing > 0.0; // facing the camera
         for (k, i) in tri.iter().enumerate() {
             let uv = UV[*i as usize];
-            let (x, y) = if shown {
-                (p[k][0] * w, p[k][1] * h)
-            } else {
-                (0.0, 0.0)
-            };
+            let (x, y) = if shown { (p[k][0] * w, p[k][1] * h) } else { (0.0, 0.0) };
             out.extend([x, y, uv[0], uv[1]]);
         }
     }
@@ -228,9 +202,7 @@ fn load_map(gpu: &Gpu, png: &[u8], name: &str) -> Option<wgpu::Texture> {
     let img = match image::load_from_memory_with_format(png, image::ImageFormat::Png) {
         Ok(i) => i.to_rgba8(),
         Err(e) => {
-            tracing::warn!(
-                "looks: {name} unreadable ({e}): contour, highlight, eyeliner and brow are off"
-            );
+            tracing::warn!("looks: {name} unreadable ({e}): contour, highlight, eyeliner and brow are off");
             return None;
         }
     };
@@ -238,11 +210,7 @@ fn load_map(gpu: &Gpu, png: &[u8], name: &str) -> Option<wgpu::Texture> {
     let levels = mip_chain(img.into_raw(), w, h);
     let t = gpu.device().create_texture(&wgpu::TextureDescriptor {
         label: Some(name),
-        size: wgpu::Extent3d {
-            width: w,
-            height: h,
-            depth_or_array_layers: 1,
-        },
+        size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
         mip_level_count: levels.len() as u32,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
@@ -259,16 +227,8 @@ fn load_map(gpu: &Gpu, png: &[u8], name: &str) -> Option<wgpu::Texture> {
                 aspect: wgpu::TextureAspect::All,
             },
             bytes,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(lw * 4),
-                rows_per_image: Some(*lh),
-            },
-            wgpu::Extent3d {
-                width: *lw,
-                height: *lh,
-                depth_or_array_layers: 1,
-            },
+            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(lw * 4), rows_per_image: Some(*lh) },
+            wgpu::Extent3d { width: *lw, height: *lh, depth_or_array_layers: 1 },
         );
     }
     Some(t)
@@ -280,8 +240,7 @@ fn get<'a>(
     png: &[u8],
     name: &str,
 ) -> Option<&'a wgpu::Texture> {
-    slot.get_or_insert_with(|| load_map(gpu, png, name))
-        .as_ref()
+    slot.get_or_insert_with(|| load_map(gpu, png, name)).as_ref()
 }
 
 impl Maps {
@@ -310,9 +269,7 @@ pub(crate) fn render_paint(
     out: &wgpu::Texture,
 ) -> bool {
     let Some(mesh) = mesh else { return false };
-    if m.makeup_amt <= 0.0
-        || !(m.liner_style > 0 || m.contour > 0.0 || m.highlight > 0.0 || m.brow > 0.0)
-    {
+    if m.makeup_amt <= 0.0 || !(m.liner_style > 0 || m.contour > 0.0 || m.highlight > 0.0 || m.brow > 0.0) {
         return false;
     }
     let Some((paint, liner)) = maps.paint(gpu) else {
@@ -830,33 +787,20 @@ mod tests {
     #[test]
     fn the_canonical_face_fits_itself_upright() {
         // the canonical mesh, orthographic, x right, y down (canonical y is up), 10 px per cm
-        let mp: Vec<[f32; 2]> = POS
-            .iter()
-            .map(|p| {
-                [
-                    (500.0 + 10.0 * p[0]) / 1000.0,
-                    (500.0 - 10.0 * p[1]) / 1000.0,
-                ]
-            })
-            .collect();
+        let mp: Vec<[f32; 2]> =
+            POS.iter().map(|p| [(500.0 + 10.0 * p[0]) / 1000.0, (500.0 - 10.0 * p[1]) / 1000.0]).collect();
         let mut pose = Pose::default();
         fit_head_pose(&mp, 1000.0, 1000.0, &mut pose);
         assert!((pose.scale - 10.0).abs() < 1e-3, "{}", pose.scale);
         let x = [pose.axes[0][0], pose.axes[1][0], pose.axes[2][0]];
         assert!((x[0] - 1.0).abs() < 1e-4, "canonical x → image x: {x:?}");
         let y = [pose.axes[0][1], pose.axes[1][1], pose.axes[2][1]];
-        assert!(
-            (y[1] + 1.0).abs() < 1e-4,
-            "canonical y (up) → image −y: {y:?}"
-        );
+        assert!((y[1] + 1.0).abs() < 1e-4, "canonical y (up) → image −y: {y:?}");
         // the ellipsoid's centre: (0, 3) cm canonical
         assert!((pose.center[0] - 500.0).abs() < 0.01);
         assert!((pose.center[1] - 470.0).abs() < 0.01, "{:?}", pose.center);
 
-        let mut degenerate = Pose {
-            scale: 7.0,
-            ..Default::default()
-        };
+        let mut degenerate = Pose { scale: 7.0, ..Default::default() };
         fit_head_pose(&vec![[0.5, 0.5]; VERTS], 100.0, 100.0, &mut degenerate);
         assert_eq!(degenerate.scale, 7.0, "a degenerate fit keeps it");
     }

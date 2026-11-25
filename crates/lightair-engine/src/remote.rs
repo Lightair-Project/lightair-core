@@ -10,8 +10,7 @@ use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use lightair_remote::{
-    ApiError, Call, Config, DesktopInfo, DeviceRequest, Identity, Pairing, Reply, Scope,
-    SecureConfig, Server,
+    ApiError, Call, Config, DesktopInfo, DeviceRequest, Identity, Pairing, Reply, Scope, SecureConfig, Server,
 };
 use parking_lot::Mutex;
 use serde_json::{Value, json};
@@ -94,9 +93,7 @@ fn answer(session: &Session, call: &Call) -> Reply {
     let st = session.state();
     let ws = &st.workspace;
     let id_of = |v: &Value| -> Option<lightair_model::Id> {
-        v.as_str()
-            .and_then(|s| uuid::Uuid::parse_str(s).ok())
-            .map(lightair_model::Id)
+        v.as_str().and_then(|s| uuid::Uuid::parse_str(s).ok()).map(lightair_model::Id)
     };
     match call.method.as_str() {
         "scene.list" => Ok(json!({
@@ -156,10 +153,7 @@ fn answer(session: &Session, call: &Call) -> Reply {
         }
         "clip.save" => {
             let seconds = p["seconds"].as_u64().unwrap_or(30) as u32;
-            session
-                .save_clip(seconds)
-                .map(|path| json!({ "path": path.to_string_lossy() }))
-                .map_err(ApiError::state)
+            session.save_clip(seconds).map(|path| json!({ "path": path.to_string_lossy() })).map_err(ApiError::state)
         }
         "panic.on" | "panic.off" => {
             session.set_privacy_cut(call.method == "panic.on");
@@ -169,9 +163,7 @@ fn answer(session: &Session, call: &Call) -> Reply {
         // the desktop's API, as a phone's Remote mode reads it
         "state.get" => Ok(desktop_state(session)),
         "stats.get" => {
-            let fps = ws
-                .canvas(st.canvas)
-                .map_or(30, |c| c.fps_num / c.fps_den.max(1));
+            let fps = ws.canvas(st.canvas).map_or(30, |c| c.fps_num / c.fps_den.max(1));
             Ok(json!({ "fps": fps }))
         }
         "outputs.list" => Ok(json!({ "destinations": destinations(session) })),
@@ -196,9 +188,8 @@ fn answer(session: &Session, call: &Call) -> Reply {
             use base64::Engine as _;
             let max_width = p["max_width"].as_u64().unwrap_or(720).clamp(16, 1920) as u32;
             let canvas = id_of(&p["canvas"]);
-            let (jpeg, width, height) = session
-                .program_jpeg(max_width, canvas)
-                .ok_or_else(|| ApiError::state("no picture yet"))?;
+            let (jpeg, width, height) =
+                session.program_jpeg(max_width, canvas).ok_or_else(|| ApiError::state("no picture yet"))?;
             Ok(json!({
                 "mime": "image/jpeg",
                 "width": width,
@@ -206,17 +197,12 @@ fn answer(session: &Session, call: &Call) -> Reply {
                 "data": base64::engine::general_purpose::STANDARD.encode(jpeg),
             }))
         }
-        _ => Err(ApiError::new(
-            lightair_remote::ErrorKind::Unknown,
-            "not on a phone",
-        )),
+        _ => Err(ApiError::new(lightair_remote::ErrorKind::Unknown, "not on a phone")),
     }
 }
 
 fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
 fn all_muted(session: &Session) -> bool {
@@ -255,15 +241,11 @@ fn desktop_state(session: &Session) -> Value {
     let ws = &st.workspace;
     let now = now_ms();
     let live_s = match st.live {
-        crate::host::LiveState::Live { since_ms } => {
-            Some(now.saturating_sub(since_ms) as f64 / 1000.0)
-        }
+        crate::host::LiveState::Live { since_ms } => Some(now.saturating_sub(since_ms) as f64 / 1000.0),
         _ => None,
     };
     let rec_s = match &st.recording {
-        crate::host::RecordingState::Recording { since_ms, .. } => {
-            Some(now.saturating_sub(*since_ms) as f64 / 1000.0)
-        }
+        crate::host::RecordingState::Recording { since_ms, .. } => Some(now.saturating_sub(*since_ms) as f64 / 1000.0),
         _ => None,
     };
     json!({
@@ -324,38 +306,21 @@ fn state(session: &Session) -> Value {
 impl Remote {
     /// Starts the server for `session`: its keys and paired devices kept in `dir`, `name` the
     /// phone's (what controllers show).
-    pub fn start(
-        session: &Arc<Session>,
-        dir: &Path,
-        name: &str,
-        port: u16,
-    ) -> Result<Remote, String> {
+    pub fn start(session: &Arc<Session>, dir: &Path, name: &str, port: u16) -> Result<Remote, String> {
         let id = phone_id(dir);
         let identity = identity(dir, &id)?;
         let fingerprint = identity.fingerprint_b64();
         let short = identity.short_fingerprint();
-        let info = DesktopInfo {
-            id,
-            name: name.to_string(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
-        };
+        let info = DesktopInfo { id, name: name.to_string(), version: env!("CARGO_PKG_VERSION").to_string() };
         let weak: Weak<Session> = Arc::downgrade(session);
         let handler = Arc::new(move |call: Call| -> Reply {
-            let s = weak
-                .upgrade()
-                .ok_or_else(|| ApiError::state("Studio is closed"))?;
+            let s = weak.upgrade().ok_or_else(|| ApiError::state("Studio is closed"))?;
             answer(&s, &call)
         });
         // the plain server stays on this phone only; controllers come in over TLS
-        let server = Server::start(
-            Config {
-                port: 0,
-                lan: false,
-                password: Some(lightair_remote::new_password()),
-            },
-            handler,
-        )
-        .map_err(|e| e.to_string())?;
+        let server =
+            Server::start(Config { port: 0, lan: false, password: Some(lightair_remote::new_password()) }, handler)
+                .map_err(|e| e.to_string())?;
         let server = Arc::new(server);
         let devices_file: PathBuf = dir.join("remote-devices.json");
         let devices = std::fs::read_to_string(&devices_file)
@@ -369,11 +334,7 @@ impl Remote {
                 // asks the person on the phone (remote_answer), a minute at most
                 let (tx, rx) = std::sync::mpsc::channel();
                 *asking.lock() = Some((
-                    PairRequest {
-                        name: r.name.clone(),
-                        model: r.model.clone(),
-                        platform: r.platform.clone(),
-                    },
+                    PairRequest { name: r.name.clone(), model: r.model.clone(), platform: r.platform.clone() },
                     tx,
                 ));
                 let yes = rx.recv_timeout(Duration::from_secs(60)).unwrap_or(false);
@@ -381,10 +342,7 @@ impl Remote {
                 yes
             },
             move |list| {
-                let _ = std::fs::write(
-                    &devices_file,
-                    lightair_remote::pairing::devices_to_json(list),
-                );
+                let _ = std::fs::write(&devices_file, lightair_remote::pairing::devices_to_json(list));
             },
         );
         let secure = server
@@ -409,86 +367,65 @@ impl Remote {
             )
             .map_err(|e| e.to_string())?;
         let port = secure.addr().port();
-        let advertiser = lightair_remote::mdns::Advertiser::start_as(
-            info.clone(),
-            port,
-            &short,
-            "studio-mobile",
-        )
-        .map_err(|e| tracing::warn!("not advertised on the network: {e}"))
-        .ok();
+        let advertiser = lightair_remote::mdns::Advertiser::start_as(info.clone(), port, &short, "studio-mobile")
+            .map_err(|e| tracing::warn!("not advertised on the network: {e}"))
+            .ok();
         // the state, to every controller, when it changes
         let stop = Arc::new(AtomicBool::new(false));
         {
             let (stop, weak, server) = (stop.clone(), Arc::downgrade(session), server.clone());
-            let _ = std::thread::Builder::new()
-                .name("lightair-remote-state".into())
-                .spawn(move || {
-                    let (mut last, mut tick) = (Value::Null, 0u32);
-                    while !stop.load(Ordering::Acquire) {
-                        let Some(s) = weak.upgrade() else { break };
-                        // meters ten times a second, as the desktop's `audio.levels`
-                        let levels: Vec<Value> = s
-                            .hot()
-                            .levels
-                            .read()
-                            .iter()
-                            .map(|l| {
-                                json!({
-                                    "track": l.track.to_string(),
-                                    "peak": [l.peak_db, l.peak_db],
-                                    "rms": [l.rms_db, l.rms_db],
-                                })
+            let _ = std::thread::Builder::new().name("lightair-remote-state".into()).spawn(move || {
+                let (mut last, mut tick) = (Value::Null, 0u32);
+                while !stop.load(Ordering::Acquire) {
+                    let Some(s) = weak.upgrade() else { break };
+                    // meters ten times a second, as the desktop's `audio.levels`
+                    let levels: Vec<Value> = s
+                        .hot()
+                        .levels
+                        .read()
+                        .iter()
+                        .map(|l| {
+                            json!({
+                                "track": l.track.to_string(),
+                                "peak": [l.peak_db, l.peak_db],
+                                "rms": [l.rms_db, l.rms_db],
                             })
-                            .collect();
-                        let now = state(&s);
-                        drop(s);
-                        if !levels.is_empty() {
-                            server.emit("audio.levels", json!({ "tracks": levels }));
-                        }
-                        tick += 1;
-                        if now != last && tick % 3 == 0 {
-                            server.emit("state.changed", now.clone());
-                            // the desktop's events a phone's Remote mode listens for
-                            if now["scene"] != last["scene"] {
-                                server.emit("scene.program", json!({ "id": now["scene"] }));
-                            }
-                            if now["live"] != last["live"] {
-                                server.emit("stream.state", json!({ "active": now["live"] }));
-                            }
-                            if now["recording"] != last["recording"] {
-                                server.emit("record.state", json!({ "active": now["recording"] }));
-                            }
-                            if now["privacy"] != last["privacy"] {
-                                server.emit(
-                                    "panic.state",
-                                    json!({ "privacy": now["privacy"], "muted_all": false }),
-                                );
-                            }
-                            last = now;
-                        }
-                        std::thread::sleep(Duration::from_millis(100));
+                        })
+                        .collect();
+                    let now = state(&s);
+                    drop(s);
+                    if !levels.is_empty() {
+                        server.emit("audio.levels", json!({ "tracks": levels }));
                     }
-                });
+                    tick += 1;
+                    if now != last && tick % 3 == 0 {
+                        server.emit("state.changed", now.clone());
+                        // the desktop's events a phone's Remote mode listens for
+                        if now["scene"] != last["scene"] {
+                            server.emit("scene.program", json!({ "id": now["scene"] }));
+                        }
+                        if now["live"] != last["live"] {
+                            server.emit("stream.state", json!({ "active": now["live"] }));
+                        }
+                        if now["recording"] != last["recording"] {
+                            server.emit("record.state", json!({ "active": now["recording"] }));
+                        }
+                        if now["privacy"] != last["privacy"] {
+                            server.emit("panic.state", json!({ "privacy": now["privacy"], "muted_all": false }));
+                        }
+                        last = now;
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+            });
         }
-        Ok(Remote {
-            server,
-            _secure: secure,
-            _advertiser: advertiser,
-            pairing,
-            info,
-            port,
-            fingerprint,
-            pending,
-            stop,
-        })
+        Ok(Remote { server, _secure: secure, _advertiser: advertiser, pairing, info, port, fingerprint, pending, stop })
     }
 
     /// A one-time pairing link for a controller (the QR code; 2 minutes, one use).
     pub fn offer(&self, addresses: &[String]) -> String {
         let offer = self.pairing.offer(Scope::Control);
-        self.pairing
-            .link(&offer, &self.info, addresses, self.port, &self.fingerprint)
+        self.pairing.link(&offer, &self.info, addresses, self.port, &self.fingerprint)
     }
 
     pub fn status(&self) -> RemoteStatus {
@@ -515,12 +452,7 @@ impl Remote {
 
     /// Forgets a paired device (its key stops working at once).
     pub fn forget(&self, name: &str) {
-        for d in self
-            .pairing
-            .devices()
-            .into_iter()
-            .filter(|d| d.name == name)
-        {
+        for d in self.pairing.devices().into_iter().filter(|d| d.name == name) {
             self.pairing.remove(&d.id);
         }
     }

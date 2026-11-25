@@ -194,10 +194,7 @@ impl Layout {
 pub fn map(l: &Layout, fx: f32, fy: f32) -> [f32; 2] {
     let (ux, uy) = (l.axis_u[0], l.axis_u[1]);
     let (vx, vy, d) = (-uy, ux, l.iod_px);
-    [
-        l.origin[0] + (ux * fx + vx * fy) * d,
-        l.origin[1] + (uy * fx + vy * fy) * d,
-    ]
+    [l.origin[0] + (ux * fx + vx * fy) * d, l.origin[1] + (uy * fx + vy * fy) * d]
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -236,38 +233,22 @@ impl Ctx<'_> {
     /// Pixels → face units.
     fn to_face(&self, p: V2) -> V2 {
         let (dx, dy) = (p.x - self.m.x, p.y - self.m.y);
-        v(
-            (dx * self.u.x + dy * self.u.y) / self.d,
-            (dx * self.v.x + dy * self.v.y) / self.d,
-        )
+        v((dx * self.u.x + dy * self.u.y) / self.d, (dx * self.v.x + dy * self.v.y) / self.d)
     }
 
     /// Face units → pixels.
     fn face_to_px(&self, f: V2) -> V2 {
-        v(
-            self.m.x + (self.u.x * f.x + self.v.x * f.y) * self.d,
-            self.m.y + (self.u.y * f.x + self.v.y * f.y) * self.d,
-        )
+        v(self.m.x + (self.u.x * f.x + self.v.x * f.y) * self.d, self.m.y + (self.u.y * f.x + self.v.y * f.y) * self.d)
     }
 
     /// A face-frame direction in pixels.
     fn dir_px(&self, f: V2) -> V2 {
-        v(
-            self.u.x * f.x + self.v.x * f.y,
-            self.u.y * f.x + self.v.y * f.y,
-        )
+        v(self.u.x * f.x + self.v.x * f.y, self.u.y * f.x + self.v.y * f.y)
     }
 
     /// A region's point count, centroid and bounds, in face units.
     fn region_stats(&self, face: &Face, r: Region, w: f32, h: f32) -> Stats {
-        let mut s = Stats {
-            n: 0,
-            c: v(0.0, 0.0),
-            x0: 1e9,
-            x1: -1e9,
-            y0: 1e9,
-            y1: -1e9,
-        };
+        let mut s = Stats { n: 0, c: v(0.0, 0.0), x0: 1e9, x1: -1e9, y0: 1e9, y1: -1e9 };
         for p in face.region(r) {
             let f = self.to_face(v(p[0] * w, p[1] * h));
             s.c.x += f.x;
@@ -324,16 +305,7 @@ impl Ctx<'_> {
         let cp = self.face_to_px(center);
         let r = r_f * self.d;
         let o = self.out.warp_count * 8;
-        self.out.data[o..o + 8].copy_from_slice(&[
-            cp.x,
-            cp.y,
-            r,
-            kind as f32,
-            vec_px.x,
-            vec_px.y,
-            s,
-            0.0,
-        ]);
+        self.out.data[o..o + 8].copy_from_slice(&[cp.x, cp.y, r, kind as f32, vec_px.x, vec_px.y, s, 0.0]);
         self.out.warp_count += 1;
         self.grow_bounds(cp, r);
     }
@@ -404,8 +376,7 @@ pub fn face_ring(face: &Face, r: Region, w: f32, h: f32, max_points: usize) -> V
     if n < 3 {
         return Vec::new();
     }
-    let mut ring: Vec<(f32, f32, f32)> =
-        pts[..n].iter().map(|p| (0.0, p[0] * w, p[1] * h)).collect();
+    let mut ring: Vec<(f32, f32, f32)> = pts[..n].iter().map(|p| (0.0, p[0] * w, p[1] * h)).collect();
     let (mut cx, mut cy) = (0.0f32, 0.0f32);
     for p in &ring {
         cx += p.1;
@@ -429,12 +400,7 @@ fn spline_ring(pts: &[[f32; 2]], sub: usize, max_points: usize) -> Vec<[f32; 2]>
         if out.len() >= max_points {
             break;
         }
-        let (p0, p1, p2, p3) = (
-            pts[(i + n - 1) % n],
-            pts[i],
-            pts[(i + 1) % n],
-            pts[(i + 2) % n],
-        );
+        let (p0, p1, p2, p3) = (pts[(i + n - 1) % n], pts[i], pts[(i + 1) % n], pts[(i + 2) % n]);
         for k in 0..sub {
             if out.len() >= max_points {
                 break;
@@ -578,10 +544,7 @@ pub fn fan(xy: &[[f32; 2]]) -> Vec<[f32; 2]> {
 pub fn band(l: &Layout, xy: &[[f32; 2]], hw: f32) -> Vec<[f32; 2]> {
     let (ux, uy) = (l.axis_u[0], l.axis_u[1]);
     let (vx, vy) = (-uy, ux);
-    let mut pts: Vec<(f32, f32, f32)> = xy
-        .iter()
-        .map(|p| (p[0] * ux + p[1] * uy, p[0], p[1]))
-        .collect();
+    let mut pts: Vec<(f32, f32, f32)> = xy.iter().map(|p| (p[0] * ux + p[1] * uy, p[0], p[1])).collect();
     pts.sort_by(|a, b| cmp(a.0, b.0));
     let mut out = Vec::new();
     for i in 0..pts.len().saturating_sub(1) {
@@ -618,22 +581,10 @@ pub struct MaskDraw {
 /// The landmark mask's geometry, in draw order: R = the
 /// outer lips minus the mouth opening, B = the mouth opening and both eye interiors, A = a band
 /// along each brow. `None` when there's no mask to draw (no face, weight < 0.01, or never seen).
-pub fn mask_draws(
-    face: Option<&Face>,
-    l: &Layout,
-    face_weight: f32,
-    w: f32,
-    h: f32,
-) -> Option<Vec<MaskDraw>> {
+pub fn mask_draws(face: Option<&Face>, l: &Layout, face_weight: f32, w: f32, h: f32) -> Option<Vec<MaskDraw>> {
     let face = face.filter(|f| l.has_face && face_weight >= 0.01 && f.valid)?;
     let mut draws = Vec::new();
-    let mut put = |channel, value, triangles| {
-        draws.push(MaskDraw {
-            channel,
-            value,
-            triangles,
-        })
-    };
+    let mut put = |channel, value, triangles| draws.push(MaskDraw { channel, value, triangles });
     // R: lips = outer polygon minus inner (open mouth) polygon
     let lips = lips_outer(face, w, h, LIP_MAX);
     if lips.len() >= 3 {
@@ -664,20 +615,10 @@ pub fn mask_draws(
 
 /// Warp primitives + region ellipses
 /// in output pixels; `weight` (0..1) fades everything in and out with the face.
-pub fn build(
-    face: Option<&Face>,
-    sh: &Shape,
-    w: f32,
-    h: f32,
-    weight: f32,
-    blush_style: i32,
-) -> Layout {
+pub fn build(face: Option<&Face>, sh: &Shape, w: f32, h: f32, weight: f32, blush_style: i32) -> Layout {
     let mut out = Layout::empty();
     let Some(face) = face else { return out };
-    if !face.valid
-        || face.region(Region::LeftEye).is_empty()
-        || face.region(Region::RightEye).is_empty()
-    {
+    if !face.valid || face.region(Region::LeftEye).is_empty() || face.region(Region::RightEye).is_empty() {
         return out;
     }
 
@@ -700,15 +641,7 @@ pub fn build(
     out.origin = [m.x, m.y];
     out.axis_u = [u.x, u.y];
     out.has_face = true;
-    let mut c = Ctx {
-        out: &mut out,
-        m,
-        u,
-        v: v(-u.y, u.x),
-        d,
-        weight,
-        side_pts: [Vec::new(), Vec::new()],
-    };
+    let mut c = Ctx { out: &mut out, m, u, v: v(-u.y, u.x), d, weight, side_pts: [Vec::new(), Vec::new()] };
 
     // --- contour, split into image-left / image-right halves ---
     let (mut chin_y, mut chin_x, mut half_w) = (1.75f32, 0.0f32, 1.0f32);
@@ -759,22 +692,10 @@ pub fn build(
 
     let nose_cx = if nose.n > 0 { nose.c.x } else { 0.0 };
     let tip_y = if nose.n > 0 { nose.y1 } else { 0.75 };
-    let nose_w = if nose.n > 0 {
-        (nose.x1 - nose.x0).max(0.25)
-    } else {
-        0.4
-    };
+    let nose_w = if nose.n > 0 { (nose.x1 - nose.x0).max(0.25) } else { 0.4 };
     let mc = if lips.n > 0 { lips.c } else { v(0.0, 1.15) };
-    let mw = if lips.n > 0 {
-        (lips.x1 - lips.x0).max(0.3)
-    } else {
-        0.75
-    };
-    let mh = if lips.n > 0 {
-        (lips.y1 - lips.y0).max(0.1)
-    } else {
-        0.3
-    };
+    let mw = if lips.n > 0 { (lips.x1 - lips.x0).max(0.3) } else { 0.75 };
+    let mh = if lips.n > 0 { (lips.y1 - lips.y0).max(0.1) } else { 0.3 };
     let corner = [v(mc.x - mw * 0.5, mc.y), v(mc.x + mw * 0.5, mc.y)];
     let face_c = v(0.0, chin_y * 0.45);
 
@@ -792,43 +713,16 @@ pub fn build(
         for i in 0..5 {
             let y = chin_y * 0.92 * (i as f32 / 4.0);
             let p = v(c.contour_x(s, y), y);
-            c.translate(
-                p,
-                0.55,
-                v(
-                    (face_c.x - p.x) * small * 0.10,
-                    (face_c.y - p.y) * small * 0.10,
-                ),
-            );
+            c.translate(p, 0.55, v((face_c.x - p.x) * small * 0.10, (face_c.y - p.y) * small * 0.10));
         }
-        c.translate(
-            v(c.contour_x(s, chin_y * 0.78), chin_y * 0.78),
-            0.42,
-            v(inw * vface * 0.09, -vface * 0.02),
-        );
-        c.translate(
-            v(c.contour_x(s, chin_y * 0.9), chin_y * 0.9),
-            0.38,
-            v(inw * vface * 0.07, -vface * 0.02),
-        );
+        c.translate(v(c.contour_x(s, chin_y * 0.78), chin_y * 0.78), 0.42, v(inw * vface * 0.09, -vface * 0.02));
+        c.translate(v(c.contour_x(s, chin_y * 0.9), chin_y * 0.9), 0.38, v(inw * vface * 0.07, -vface * 0.02));
 
-        c.translate(
-            v(c.contour_x(s, 0.3), 0.3),
-            0.4,
-            v(inw * sh.cheekbone * 0.07, 0.0),
-        );
-        c.translate(
-            v(c.contour_x(s, 0.5), 0.5),
-            0.35,
-            v(inw * sh.cheekbone * 0.04, 0.0),
-        );
+        c.translate(v(c.contour_x(s, 0.3), 0.3), 0.4, v(inw * sh.cheekbone * 0.07, 0.0));
+        c.translate(v(c.contour_x(s, 0.5), 0.5), 0.35, v(inw * sh.cheekbone * 0.04, 0.0));
 
         let jaw_y = (mc.y + 0.2).min(chin_y - 0.25);
-        c.translate(
-            v(c.contour_x(s, jaw_y), jaw_y),
-            0.45,
-            v(inw * sh.jawbone * 0.08, 0.0),
-        );
+        c.translate(v(c.contour_x(s, jaw_y), jaw_y), 0.45, v(inw * sh.jawbone * 0.08, 0.0));
     }
     c.translate(v(chin_x, chin_y), 0.6, v(0.0, -small * 0.08));
     c.scale_dir(face_c, 1.5, v(1.0, 0.0), -sh.face_narrow * 0.10);
@@ -840,16 +734,8 @@ pub fn build(
     for s in 0..2 {
         let out_dir = if s == 1 { 1.0 } else { -1.0 }; // away from the nose
         let ec = eye[s].c;
-        let ew = if eye[s].n > 0 {
-            (eye[s].x1 - eye[s].x0).max(0.2)
-        } else {
-            0.45
-        };
-        let eh = if eye[s].n > 0 {
-            (eye[s].y1 - eye[s].y0).max(0.05)
-        } else {
-            0.15
-        };
+        let ew = if eye[s].n > 0 { (eye[s].x1 - eye[s].x0).max(0.2) } else { 0.45 };
+        let eh = if eye[s].n > 0 { (eye[s].y1 - eye[s].y0).max(0.05) } else { 0.15 };
         let outer = v(ec.x + out_dir * ew * 0.5, ec.y);
         let innr = v(ec.x - out_dir * ew * 0.5, ec.y);
 
@@ -860,28 +746,14 @@ pub fn build(
         c.translate(innr, 0.20, v(0.0, sh.eye_tilt * 0.02));
         c.translate(innr, 0.16, v(-out_dir * sh.eye_inner * 0.035, 0.0));
         c.translate(outer, 0.18, v(out_dir * sh.eye_outer * 0.035, 0.0));
-        c.translate(
-            v(ec.x, ec.y + eh * 0.5),
-            0.20,
-            v(0.0, sh.eye_lower_lid * 0.03),
-        );
+        c.translate(v(ec.x, ec.y + eh * 0.5), 0.20, v(0.0, sh.eye_lower_lid * 0.03));
         c.scale(pupil[s], 0.14, sh.eye_pupil * 0.22);
     }
 
     // ================= NOSE =================
-    c.scale_dir(
-        v(nose_cx, tip_y - 0.08),
-        (nose_w * 0.9).max(0.35),
-        v(1.0, 0.0),
-        -sh.nose_narrow * 0.22,
-    );
+    c.scale_dir(v(nose_cx, tip_y - 0.08), (nose_w * 0.9).max(0.35), v(1.0, 0.0), -sh.nose_narrow * 0.22);
     c.translate(v(nose_cx, tip_y), 0.30, v(0.0, -sh.nose_length * 0.06));
-    c.scale_dir(
-        v(nose_cx, tip_y * 0.5),
-        0.28,
-        v(1.0, 0.0),
-        -sh.nose_bridge * 0.22,
-    );
+    c.scale_dir(v(nose_cx, tip_y * 0.5), 0.28, v(1.0, 0.0), -sh.nose_bridge * 0.22);
     c.scale(v(nose_cx, tip_y - 0.04), 0.16, -sh.nose_tip * 0.22);
 
     // ================= MOUTH =================
@@ -889,11 +761,7 @@ pub fn build(
     c.translate(mc, 0.5, v(0.0, -sh.mouth_position * 0.06));
     for (s, k) in corner.iter().enumerate() {
         let side = if s == 1 { 1.0 } else { -1.0 };
-        c.translate(
-            *k,
-            0.15,
-            v(side * sh.mouth_smile * 0.01, -sh.mouth_smile * 0.035),
-        );
+        c.translate(*k, 0.15, v(side * sh.mouth_smile * 0.01, -sh.mouth_smile * 0.035));
     }
 
     // ================= BROWS =================
@@ -908,49 +776,17 @@ pub fn build(
 
     // ================= REGIONS (for colour work) =================
     let up = v(0.0, 1.0);
-    c.region(
-        REGION_FACE,
-        v(0.0, (chin_y - 1.05) * 0.5),
-        half_w * 1.05,
-        (chin_y + 1.05) * 0.5,
-        up,
-    );
+    c.region(REGION_FACE, v(0.0, (chin_y - 1.05) * 0.5), half_w * 1.05, (chin_y + 1.05) * 0.5, up);
     for s in 0..2 {
         let side = if s == 1 { 1.0 } else { -1.0 };
-        let ew = if eye[s].n > 0 {
-            (eye[s].x1 - eye[s].x0).max(0.2)
-        } else {
-            0.45
-        };
-        let eh = if eye[s].n > 0 {
-            (eye[s].y1 - eye[s].y0).max(0.05)
-        } else {
-            0.15
-        };
-        c.region(
-            REGION_EYE_L + s,
-            eye[s].c,
-            ew * 0.62,
-            (eh * 0.9).max(0.07) + 0.04,
-            up,
-        );
+        let ew = if eye[s].n > 0 { (eye[s].x1 - eye[s].x0).max(0.2) } else { 0.45 };
+        let eh = if eye[s].n > 0 { (eye[s].y1 - eye[s].y0).max(0.05) } else { 0.15 };
+        c.region(REGION_EYE_L + s, eye[s].c, ew * 0.62, (eh * 0.9).max(0.07) + 0.04, up);
         if brow[s].n > 0 {
-            c.region(
-                REGION_BROW_L + s,
-                brow[s].c,
-                (brow[s].x1 - brow[s].x0).max(0.3) * 0.58,
-                0.10,
-                up,
-            );
+            c.region(REGION_BROW_L + s, brow[s].c, (brow[s].x1 - brow[s].x0).max(0.3) * 0.58, 0.10, up);
         }
         // dark circles: the whole eye surround, centred below the eye
-        c.region(
-            REGION_UNDER_EYE_L + s,
-            v(eye[s].c.x + side * 0.02, eye[s].c.y + 0.10),
-            ew * 0.85 + 0.06,
-            0.34,
-            up,
-        );
+        c.region(REGION_UNDER_EYE_L + s, v(eye[s].c.x + side * 0.02, eye[s].c.y + 0.10), ew * 0.85 + 0.06, 0.34, up);
 
         // ---- makeup ----
         match blush_style {
@@ -963,45 +799,17 @@ pub fn build(
                 v(side * 0.8, -0.6),
             ),
             // band across the nose and cheeks
-            BLUSH_SUNKISSED => c.region(
-                REGION_CHEEK_L + s,
-                v(eye[s].c.x * 0.8, eye[s].c.y + 0.48),
-                0.20,
-                0.40,
-                v(1.0, 0.0),
-            ),
+            BLUSH_SUNKISSED => {
+                c.region(REGION_CHEEK_L + s, v(eye[s].c.x * 0.8, eye[s].c.y + 0.48), 0.20, 0.40, v(1.0, 0.0))
+            }
             // apples of the cheeks
-            _ => c.region(
-                REGION_CHEEK_L + s,
-                v(eye[s].c.x + side * 0.08, eye[s].c.y + 0.55),
-                0.24,
-                0.20,
-                up,
-            ),
+            _ => c.region(REGION_CHEEK_L + s, v(eye[s].c.x + side * 0.08, eye[s].c.y + 0.55), 0.24, 0.20, up),
         }
-        c.region(
-            REGION_SHADOW_L + s,
-            v(eye[s].c.x + side * 0.04, eye[s].c.y - eh * 0.5 - 0.06),
-            ew * 0.72,
-            0.13,
-            up,
-        );
+        c.region(REGION_SHADOW_L + s, v(eye[s].c.x + side * 0.04, eye[s].c.y - eh * 0.5 - 0.06), ew * 0.72, 0.13, up);
     }
     // rough person silhouette: head with hair, then shoulders / torso
-    c.region(
-        REGION_PERSON_HEAD,
-        v(0.0, (chin_y - 1.6) * 0.5),
-        half_w * 1.55,
-        (chin_y + 1.6) * 0.5 * 1.1,
-        up,
-    );
-    c.region(
-        REGION_PERSON_BODY,
-        v(0.0, chin_y + 1.9),
-        half_w * 2.9,
-        2.2,
-        up,
-    );
+    c.region(REGION_PERSON_HEAD, v(0.0, (chin_y - 1.6) * 0.5), half_w * 1.55, (chin_y + 1.6) * 0.5 * 1.1, up);
+    c.region(REGION_PERSON_BODY, v(0.0, chin_y + 1.9), half_w * 2.9, 2.2, up);
 
     // sticker anchors
     c.out.anchor = [
@@ -1056,10 +864,8 @@ pub(crate) mod tests {
             .collect();
         regions[Region::LeftEye as usize] = ring(0.6, 0.4, 0.04, 0.015, 16);
         regions[Region::RightEye as usize] = ring(0.4, 0.4, 0.04, 0.015, 16);
-        regions[Region::LeftBrow as usize] =
-            (0..10).map(|i| [0.55 + 0.01 * i as f32, 0.35]).collect();
-        regions[Region::RightBrow as usize] =
-            (0..10).map(|i| [0.36 + 0.01 * i as f32, 0.35]).collect();
+        regions[Region::LeftBrow as usize] = (0..10).map(|i| [0.55 + 0.01 * i as f32, 0.35]).collect();
+        regions[Region::RightBrow as usize] = (0..10).map(|i| [0.36 + 0.01 * i as f32, 0.35]).collect();
         regions[Region::Nose as usize] = ring(0.5, 0.5, 0.03, 0.04, 13);
         regions[Region::OuterLips as usize] = ring(0.5, 0.62, 0.07, 0.03, 20);
         regions[Region::InnerLips as usize] = ring(0.5, 0.62, 0.05, 0.01, 20);
@@ -1133,20 +939,13 @@ pub(crate) mod tests {
     #[test]
     fn sliders_become_warps_faded_by_the_weight() {
         let face = synthetic_face();
-        let shape = Shape {
-            eye_size: 0.5,
-            face_slim: 1.0,
-            ..Default::default()
-        };
+        let shape = Shape { eye_size: 0.5, face_slim: 1.0, ..Default::default() };
         let l = build(Some(&face), &shape, 1000.0, 1000.0, 1.0, 0);
         assert!(l.warp_count > 0 && l.bounds[0] < l.bounds[2]);
         let moved = l.data[4];
         assert!(moved > 0.0, "the slim moves the side in");
         let faded = build(Some(&face), &shape, 1000.0, 1000.0, 0.5, 0);
-        assert!(
-            (faded.data[4] - moved * 0.5).abs() < 1e-3,
-            "half the weight, half the move"
-        );
+        assert!((faded.data[4] - moved * 0.5).abs() < 1e-3, "half the weight, half the move");
         let gone = build(Some(&face), &shape, 1000.0, 1000.0, 0.0, 0);
         assert_eq!(gone.warp_count, 0);
         assert!(gone.has_face, "the regions stay");

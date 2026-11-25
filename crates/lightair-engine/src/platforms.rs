@@ -60,58 +60,19 @@ pub struct Platform {
 }
 
 pub const TWITCH_SERVERS: &[(&str, &str)] = &[
-    (
-        "Asia Pacific (Mumbai)",
-        "rtmp://aps30.contribute.live-video.net/app/",
-    ),
-    (
-        "Asia Pacific (Seoul)",
-        "rtmp://apn20.contribute.live-video.net/app/",
-    ),
-    (
-        "Asia Pacific (Singapore)",
-        "rtmp://aps10.contribute.live-video.net/app/",
-    ),
-    (
-        "Asia Pacific (Sydney)",
-        "rtmp://aps20.contribute.live-video.net/app/",
-    ),
-    (
-        "Asia Pacific (Tokyo)",
-        "rtmp://apn10.contribute.live-video.net/app/",
-    ),
-    (
-        "Europe (Frankfurt)",
-        "rtmp://euc10.contribute.live-video.net/app/",
-    ),
-    (
-        "Europe (Ireland)",
-        "rtmp://euw10.contribute.live-video.net/app/",
-    ),
-    (
-        "Europe (Paris)",
-        "rtmp://euw30.contribute.live-video.net/app/",
-    ),
-    (
-        "Europe (Stockholm)",
-        "rtmp://eun10.contribute.live-video.net/app/",
-    ),
-    (
-        "South America (São Paulo)",
-        "rtmp://sae10.contribute.live-video.net/app/",
-    ),
-    (
-        "US East (N. Virginia)",
-        "rtmp://use10.contribute.live-video.net/app/",
-    ),
-    (
-        "US East (Ohio)",
-        "rtmp://use20.contribute.live-video.net/app/",
-    ),
-    (
-        "US West (Oregon)",
-        "rtmp://usw20.contribute.live-video.net/app/",
-    ),
+    ("Asia Pacific (Mumbai)", "rtmp://aps30.contribute.live-video.net/app/"),
+    ("Asia Pacific (Seoul)", "rtmp://apn20.contribute.live-video.net/app/"),
+    ("Asia Pacific (Singapore)", "rtmp://aps10.contribute.live-video.net/app/"),
+    ("Asia Pacific (Sydney)", "rtmp://aps20.contribute.live-video.net/app/"),
+    ("Asia Pacific (Tokyo)", "rtmp://apn10.contribute.live-video.net/app/"),
+    ("Europe (Frankfurt)", "rtmp://euc10.contribute.live-video.net/app/"),
+    ("Europe (Ireland)", "rtmp://euw10.contribute.live-video.net/app/"),
+    ("Europe (Paris)", "rtmp://euw30.contribute.live-video.net/app/"),
+    ("Europe (Stockholm)", "rtmp://eun10.contribute.live-video.net/app/"),
+    ("South America (São Paulo)", "rtmp://sae10.contribute.live-video.net/app/"),
+    ("US East (N. Virginia)", "rtmp://use10.contribute.live-video.net/app/"),
+    ("US East (Ohio)", "rtmp://use20.contribute.live-video.net/app/"),
+    ("US West (Oregon)", "rtmp://usw20.contribute.live-video.net/app/"),
 ];
 
 pub const PLATFORMS: &[Platform] = &[
@@ -279,10 +240,7 @@ pub const PLATFORMS: &[Platform] = &[
         color: 0x00FFA3,
         mark: "CZ",
         logo: None,
-        servers: &[(
-            "Default",
-            "rtmp://global-rtmp.lip2.navercorp.com:8080/relay",
-        )],
+        servers: &[("Default", "rtmp://global-rtmp.lip2.navercorp.com:8080/relay")],
         help: "CHZZK 스튜디오 → 방송 설정 (studio.chzzk.naver.com): copy the 스트림 키. Once Lightair is live, press start in the studio. Keyframes every second, no B-frames.",
         key_link: Some("https://studio.chzzk.naver.com"),
         shape: Shape::Landscape,
@@ -419,14 +377,8 @@ pub const PLATFORMS: &[Platform] = &[
         mark: "ふ",
         logo: None,
         servers: &[
-            (
-                "Global (RTMPS, recommended)",
-                "rtmps://ingest.global-contribute.live-video.net:443/app",
-            ),
-            (
-                "Global (RTMP)",
-                "rtmp://ingest.global-contribute.live-video.net/app",
-            ),
+            ("Global (RTMPS, recommended)", "rtmps://ingest.global-contribute.live-video.net:443/app"),
+            ("Global (RTMP)", "rtmp://ingest.global-contribute.live-video.net/app"),
         ],
         help: "ふわっち: open the broadcast screen in the app and copy the stream key. No B-frames.",
         key_link: Some("https://whowatch.tv"),
@@ -444,22 +396,10 @@ pub const PLATFORMS: &[Platform] = &[
         mark: "B",
         logo: Some("platforms/bilibili"),
         servers: &[
-            (
-                "Global: primary",
-                "rtmp://live-push.bilivideo.com/live-bvc/",
-            ),
-            (
-                "Outside mainland China: primary",
-                "rtmp://bdy.live-push.bilivideo.com/live-bvc/",
-            ),
-            (
-                "Mainland China: backup",
-                "rtmp://txy2.live-push.bilivideo.com/live-bvc/",
-            ),
-            (
-                "Outside mainland China: backup",
-                "rtmp://txy.live-push.bilivideo.com/live-bvc/",
-            ),
+            ("Global: primary", "rtmp://live-push.bilivideo.com/live-bvc/"),
+            ("Outside mainland China: primary", "rtmp://bdy.live-push.bilivideo.com/live-bvc/"),
+            ("Mainland China: backup", "rtmp://txy2.live-push.bilivideo.com/live-bvc/"),
+            ("Outside mainland China: backup", "rtmp://txy.live-push.bilivideo.com/live-bvc/"),
         ],
         help: "哔哩哔哩直播: link.bilibili.com → 直播中心 → 我的直播间 → 开播设置 → choose 分区 → 开始直播, then copy the 推流码. Needs real-name verification and 5,000 followers; below that, use 直播姬's third-party mode (第三方开播模式).",
         key_link: Some("https://link.bilibili.com/p/center/index#/my-room/start-live"),
@@ -617,10 +557,7 @@ pub fn guess(server: &str) -> Option<&'static Platform> {
     if host.is_empty() {
         return None;
     }
-    if let Some(p) = PLATFORMS
-        .iter()
-        .find(|p| p.servers.iter().any(|(_, s)| self::host(s) == host))
-    {
+    if let Some(p) = PLATFORMS.iter().find(|p| p.servers.iter().any(|(_, s)| self::host(s) == host)) {
         return Some(p);
     }
     let under = |domain: &str| host == domain || host.ends_with(&format!(".{domain}"));
@@ -679,11 +616,7 @@ pub fn guess(server: &str) -> Option<&'static Platform> {
 /// its id or an alias, ignoring case.
 pub fn matches(p: &Platform, query: &str) -> bool {
     let q = query.trim().to_lowercase();
-    q.is_empty()
-        || [p.name, p.native, p.id]
-            .iter()
-            .chain(p.aliases)
-            .any(|n| n.to_lowercase().contains(&q))
+    q.is_empty() || [p.name, p.native, p.id].iter().chain(p.aliases).any(|n| n.to_lowercase().contains(&q))
 }
 
 /// What a platform takes, where known from its published guidance (`None`: not limited here).
@@ -729,14 +662,11 @@ pub fn automatic_server(p: &Platform) -> Result<String, String> {
     {
         return Ok(i.url);
     }
-    p.servers
-        .first()
-        .map(|(_, url)| url.to_string())
-        .ok_or_else(|| {
-            format!(
-                "{} gives every account its own server: paste it from {}.",
-                p.name,
-                p.key_link.unwrap_or("the platform's settings")
-            )
-        })
+    p.servers.first().map(|(_, url)| url.to_string()).ok_or_else(|| {
+        format!(
+            "{} gives every account its own server: paste it from {}.",
+            p.name,
+            p.key_link.unwrap_or("the platform's settings")
+        )
+    })
 }

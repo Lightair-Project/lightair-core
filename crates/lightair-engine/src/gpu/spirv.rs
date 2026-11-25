@@ -7,8 +7,8 @@
 
 use rspirv::dr::{Builder, Operand};
 use rspirv::spirv::{
-    AddressingModel, BuiltIn, Capability, Decoration, Dim, ExecutionMode, ExecutionModel,
-    FunctionControl, ImageFormat, MemoryModel, StorageClass,
+    AddressingModel, BuiltIn, Capability, Decoration, Dim, ExecutionMode, ExecutionModel, FunctionControl, ImageFormat,
+    MemoryModel, StorageClass,
 };
 
 fn module(b: Builder) -> Vec<u32> {
@@ -42,18 +42,10 @@ pub fn vertex() -> Vec<u32> {
     // inputs and outputs
     let in_i32 = b.type_pointer(None, StorageClass::Input, i32_);
     let vertex_index = b.variable(in_i32, None, StorageClass::Input, None);
-    b.decorate(
-        vertex_index,
-        Decoration::BuiltIn,
-        [Operand::BuiltIn(BuiltIn::VertexIndex)],
-    );
+    b.decorate(vertex_index, Decoration::BuiltIn, [Operand::BuiltIn(BuiltIn::VertexIndex)]);
     let out_v4 = b.type_pointer(None, StorageClass::Output, v4);
     let position = b.variable(out_v4, None, StorageClass::Output, None);
-    b.decorate(
-        position,
-        Decoration::BuiltIn,
-        [Operand::BuiltIn(BuiltIn::Position)],
-    );
+    b.decorate(position, Decoration::BuiltIn, [Operand::BuiltIn(BuiltIn::Position)]);
     let out_v2 = b.type_pointer(None, StorageClass::Output, v2);
     let uv_out = b.variable(out_v2, None, StorageClass::Output, None);
     b.decorate(uv_out, Decoration::Location, [Operand::LiteralBit32(0)]);
@@ -66,9 +58,7 @@ pub fn vertex() -> Vec<u32> {
     let pc = b.variable(pc_ptr, None, StorageClass::PushConstant, None);
     let pc_v4 = b.type_pointer(None, StorageClass::PushConstant, v4);
 
-    let main = b
-        .begin_function(void, None, FunctionControl::NONE, fn_ty)
-        .expect("a function");
+    let main = b.begin_function(void, None, FunctionControl::NONE, fn_ty).expect("a function");
     b.begin_block(None).expect("a block");
     let vi = b.load(i32_, None, vertex_index, None, []).expect("load");
     // x = float((vi << 1) & 2), y = float(vi & 2)
@@ -82,9 +72,7 @@ pub fn vertex() -> Vec<u32> {
     let y2 = b.f_mul(f32_, None, y, two).expect("mul");
     let px = b.f_sub(f32_, None, x2, one).expect("sub");
     let py = b.f_sub(f32_, None, y2, one).expect("sub");
-    let pos = b
-        .composite_construct(v4, None, [px, py, zero, one])
-        .expect("construct");
+    let pos = b.composite_construct(v4, None, [px, py, zero, one]).expect("construct");
     b.store(position, pos, None, []).expect("store");
     // uv = (m.x·x + m.y·y + o.x, m.z·x + m.w·y + o.y)
     let m_ptr = b.access_chain(pc_v4, None, pc, [c0]).expect("chain");
@@ -92,12 +80,7 @@ pub fn vertex() -> Vec<u32> {
     let m = b.load(v4, None, m_ptr, None, []).expect("load");
     let o = b.load(v4, None, o_ptr, None, []).expect("load");
     let part = |b: &mut Builder, i: u32| b.composite_extract(f32_, None, m, [i]).expect("extract");
-    let (mx, my, mz, mw) = (
-        part(&mut b, 0),
-        part(&mut b, 1),
-        part(&mut b, 2),
-        part(&mut b, 3),
-    );
+    let (mx, my, mz, mw) = (part(&mut b, 0), part(&mut b, 1), part(&mut b, 2), part(&mut b, 3));
     let ox = b.composite_extract(f32_, None, o, [0]).expect("extract");
     let oy = b.composite_extract(f32_, None, o, [1]).expect("extract");
     let ax = b.f_mul(f32_, None, mx, x).expect("mul");
@@ -112,12 +95,7 @@ pub fn vertex() -> Vec<u32> {
     b.store(uv_out, uv, None, []).expect("store");
     b.ret().expect("return");
     b.end_function().expect("end");
-    b.entry_point(
-        ExecutionModel::Vertex,
-        main,
-        "main",
-        [vertex_index, position, uv_out],
-    );
+    b.entry_point(ExecutionModel::Vertex, main, "main", [vertex_index, position, uv_out]);
     module(b)
 }
 
@@ -135,11 +113,7 @@ pub fn fragment() -> Vec<u32> {
     let sampled = b.type_sampled_image(image);
     let sampled_ptr = b.type_pointer(None, StorageClass::UniformConstant, sampled);
     let picture = b.variable(sampled_ptr, None, StorageClass::UniformConstant, None);
-    b.decorate(
-        picture,
-        Decoration::DescriptorSet,
-        [Operand::LiteralBit32(0)],
-    );
+    b.decorate(picture, Decoration::DescriptorSet, [Operand::LiteralBit32(0)]);
     b.decorate(picture, Decoration::Binding, [Operand::LiteralBit32(0)]);
     let in_v2 = b.type_pointer(None, StorageClass::Input, v2);
     let uv_in = b.variable(in_v2, None, StorageClass::Input, None);
@@ -148,15 +122,11 @@ pub fn fragment() -> Vec<u32> {
     let colour = b.variable(out_v4, None, StorageClass::Output, None);
     b.decorate(colour, Decoration::Location, [Operand::LiteralBit32(0)]);
 
-    let main = b
-        .begin_function(void, None, FunctionControl::NONE, fn_ty)
-        .expect("a function");
+    let main = b.begin_function(void, None, FunctionControl::NONE, fn_ty).expect("a function");
     b.begin_block(None).expect("a block");
     let uv = b.load(v2, None, uv_in, None, []).expect("load");
     let s = b.load(sampled, None, picture, None, []).expect("load");
-    let c = b
-        .image_sample_implicit_lod(v4, None, s, uv, None, [])
-        .expect("sample");
+    let c = b.image_sample_implicit_lod(v4, None, s, uv, None, []).expect("sample");
     let opaque = b.composite_insert(v4, None, one, c, [3]).expect("alpha");
     b.store(colour, opaque, None, []).expect("store");
     b.ret().expect("return");
@@ -189,8 +159,7 @@ mod tests {
 
     fn parses(words: &[u32]) {
         let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
-        let module =
-            naga::front::spv::parse_u8_slice(&bytes, &Default::default()).expect("valid SPIR-V");
+        let module = naga::front::spv::parse_u8_slice(&bytes, &Default::default()).expect("valid SPIR-V");
         naga::valid::Validator::new(Default::default(), naga::valid::Capabilities::all())
             .validate(&module)
             .expect("a valid module");
@@ -205,17 +174,12 @@ mod tests {
         rspirv::binary::parse_words(fragment(), &mut l).expect("a SPIR-V module");
         let m = l.module();
         assert_eq!(m.entry_points.len(), 1);
-        assert!(
-            m.types_global_values
-                .iter()
-                .any(|i| i.class.opcode == rspirv::spirv::Op::TypeSampledImage)
-        );
+        assert!(m.types_global_values.iter().any(|i| i.class.opcode == rspirv::spirv::Op::TypeSampledImage));
     }
 
     #[test]
     fn the_transform_matches_the_yuv_shaders() {
-        let at =
-            |t: [f32; 8], x: f32, y: f32| (t[0] * x + t[1] * y + t[4], t[2] * x + t[3] * y + t[5]);
+        let at = |t: [f32; 8], x: f32, y: f32| (t[0] * x + t[1] * y + t[4], t[2] * x + t[3] * y + t[5]);
         // upright top-left comes from…
         assert_eq!(at(transform(0, false), 0.0, 0.0), (0.0, 0.0));
         assert_eq!(at(transform(90, false), 0.0, 0.0), (0.0, 1.0));

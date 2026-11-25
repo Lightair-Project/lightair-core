@@ -67,19 +67,12 @@ impl Projects {
             Ok(n) => tracing::info!(n, "recordings put back in the Studio index"),
             Err(e) => tracing::warn!(%e, "the Studio index"),
         }
-        Ok(Projects {
-            root,
-            shared,
-            cache: cache.to_path_buf(),
-            device,
-        })
+        Ok(Projects { root, shared, cache: cache.to_path_buf(), device })
     }
 
     /// Studio's own folder (what's kept for every project: effect presets).
     pub fn app_dir(&self) -> PathBuf {
-        self.root
-            .parent()
-            .map_or_else(|| self.root.clone(), Path::to_path_buf)
+        self.root.parent().map_or_else(|| self.root.clone(), Path::to_path_buf)
     }
 
     pub fn dir(&self, id: &str) -> Result<PathBuf, ProjectError> {
@@ -88,11 +81,7 @@ impl Projects {
             return Err(ProjectError::NotFound);
         }
         let d = self.root.join(id);
-        if lightair_store::is_workspace(&d) {
-            Ok(d)
-        } else {
-            Err(ProjectError::NotFound)
-        }
+        if lightair_store::is_workspace(&d) { Ok(d) } else { Err(ProjectError::NotFound) }
     }
 
     fn summary(id: &str, dir: &Path) -> Option<Summary> {
@@ -110,15 +99,7 @@ impl Projects {
             formats: ws
                 .canvases
                 .iter()
-                .map(|c| {
-                    (
-                        c.id.to_string(),
-                        c.name.clone(),
-                        c.width,
-                        c.height,
-                        c.fps_num / c.fps_den.max(1),
-                    )
-                })
+                .map(|c| (c.id.to_string(), c.name.clone(), c.width, c.height, c.fps_num / c.fps_den.max(1)))
                 .collect(),
             thumbnail: Some(dir.join(crate::thumb::FILE)).filter(|p| p.is_file()),
         })
@@ -157,11 +138,7 @@ impl Projects {
 
     pub fn create(&self, name: &str) -> Result<Summary, ProjectError> {
         let (short, fps) = self.device.default_format();
-        let name = if name.trim().is_empty() {
-            "My studio"
-        } else {
-            name.trim()
-        };
+        let name = if name.trim().is_empty() { "My studio" } else { name.trim() };
         self.write_new(&crate::templates::project(name, short, fps))
     }
 

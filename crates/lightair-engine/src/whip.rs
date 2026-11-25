@@ -15,19 +15,15 @@ use rtc::media::Sample;
 use rtc::media_stream::MediaStreamTrack;
 use rtc::peer_connection::configuration::RTCConfigurationBuilder;
 use rtc::peer_connection::configuration::interceptor_registry::register_default_interceptors;
-use rtc::peer_connection::configuration::media_engine::{
-    MIME_TYPE_H264, MIME_TYPE_OPUS, MediaEngine,
-};
+use rtc::peer_connection::configuration::media_engine::{MIME_TYPE_H264, MIME_TYPE_OPUS, MediaEngine};
 use rtc::peer_connection::sdp::RTCSessionDescription;
 use rtc::rtp_transceiver::rtp_sender::{
-    RTCRtpCodec, RTCRtpCodecParameters, RTCRtpCodingParameters, RTCRtpEncodingParameters,
-    RtpCodecKind,
+    RTCRtpCodec, RTCRtpCodecParameters, RTCRtpCodingParameters, RTCRtpEncodingParameters, RtpCodecKind,
 };
 use webrtc::media_stream::track_local::TrackLocal;
 use webrtc::media_stream::track_local::static_sample::TrackLocalStaticSample;
 use webrtc::peer_connection::{
-    PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler, RTCIceGatheringState,
-    RTCPeerConnectionState,
+    PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler, RTCIceGatheringState, RTCPeerConnectionState,
 };
 use webrtc::runtime::default_runtime;
 
@@ -82,10 +78,7 @@ impl WhipSender {
         std::thread::Builder::new()
             .name("lightair-whip".into())
             .spawn(move || {
-                let rt = match tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                {
+                let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
                     Ok(rt) => rt,
                     Err(e) => {
                         *c.error.lock() = Some(e.to_string());
@@ -95,12 +88,7 @@ impl WhipSender {
                 rt.block_on(run(url, token, rx, c));
             })
             .map_err(|e| e.to_string())?;
-        Ok(WhipSender {
-            tx,
-            counters,
-            parameter_sets: Vec::new(),
-            waiting_key: true,
-        })
+        Ok(WhipSender { tx, counters, parameter_sets: Vec::new(), waiting_key: true })
     }
 
     pub fn parameter_sets(&mut self, nals: &[Vec<u8>]) {
@@ -156,14 +144,9 @@ impl WhipSender {
         if !c.connected.load(Ordering::Relaxed) || self.waiting_key {
             return;
         }
-        if self
-            .tx
-            .try_send(Media::Audio(Bytes::copy_from_slice(data), pts_us))
-            .is_ok()
-        {
+        if self.tx.try_send(Media::Audio(Bytes::copy_from_slice(data), pts_us)).is_ok() {
             c.queued.fetch_add(1, Ordering::Relaxed);
-            c.queued_bytes
-                .fetch_add(data.len() as u64, Ordering::Relaxed);
+            c.queued_bytes.fetch_add(data.len() as u64, Ordering::Relaxed);
         }
     }
 
@@ -179,10 +162,7 @@ impl WhipSender {
             sent_bytes: c.sent_bytes.load(Ordering::Relaxed),
             dropped: c.dropped.load(Ordering::Relaxed),
             error: c.error.lock().clone(),
-            retry_in: c
-                .retry_at
-                .lock()
-                .map(|t| t.saturating_duration_since(Instant::now())),
+            retry_in: c.retry_at.lock().map(|t| t.saturating_duration_since(Instant::now())),
         }
     }
 
@@ -197,12 +177,7 @@ impl Drop for WhipSender {
     }
 }
 
-async fn run(
-    url: String,
-    token: Option<String>,
-    mut rx: tokio::sync::mpsc::Receiver<Media>,
-    c: Arc<Counters>,
-) {
+async fn run(url: String, token: Option<String>, mut rx: tokio::sync::mpsc::Receiver<Media>, c: Arc<Counters>) {
     let mut backoff = lightair_feed::backoff::Backoff::default();
     while !c.stop.load(Ordering::Relaxed) {
         let result = session(&url, token.as_deref(), &mut rx, &c, &mut backoff).await;
@@ -264,8 +239,7 @@ fn codecs() -> (RTCRtpCodecParameters, RTCRtpCodecParameters) {
             mime_type: MIME_TYPE_H264.to_owned(),
             clock_rate: 90_000,
             channels: 0,
-            sdp_fmtp_line: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
-                .to_owned(),
+            sdp_fmtp_line: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f".to_owned(),
             rtcp_feedback: vec![],
         },
         payload_type: 102,
@@ -283,11 +257,7 @@ fn codecs() -> (RTCRtpCodecParameters, RTCRtpCodecParameters) {
     (video, audio)
 }
 
-fn track(
-    kind: RtpCodecKind,
-    codec: &RTCRtpCodec,
-    ssrc: u32,
-) -> Result<TrackLocalStaticSample, String> {
+fn track(kind: RtpCodecKind, codec: &RTCRtpCodec, ssrc: u32) -> Result<TrackLocalStaticSample, String> {
     TrackLocalStaticSample::new(
         Instant::now(),
         MediaStreamTrack::new(
@@ -296,10 +266,7 @@ fn track(
             format!("lightair-{kind}"),
             kind,
             vec![RTCRtpEncodingParameters {
-                rtp_coding_parameters: RTCRtpCodingParameters {
-                    ssrc: Some(ssrc),
-                    ..Default::default()
-                },
+                rtp_coding_parameters: RTCRtpCodingParameters { ssrc: Some(ssrc), ..Default::default() },
                 codec: codec.clone(),
                 ..Default::default()
             }],
@@ -309,20 +276,14 @@ fn track(
 }
 
 /// The WHIP exchange: the offer posted, the answer and the session's address back.
-fn post_offer(
-    url: &str,
-    token: Option<&str>,
-    offer: &str,
-) -> Result<(String, Option<String>), String> {
+fn post_offer(url: &str, token: Option<&str>, offer: &str) -> Result<(String, Option<String>), String> {
     let agent = lightair_live::net::agent();
     let mut req = agent.post(url).header("Content-Type", "application/sdp");
     if let Some(t) = token.filter(|t| !t.is_empty()) {
         req = req.header("Authorization", &format!("Bearer {t}"));
     }
     let mut res = req.send(offer).map_err(|e| match e {
-        ureq::Error::StatusCode(401) | ureq::Error::StatusCode(403) => {
-            "the server refused the token".to_string()
-        }
+        ureq::Error::StatusCode(401) | ureq::Error::StatusCode(403) => "the server refused the token".to_string(),
         e => e.to_string(),
     })?;
     match res.status().as_u16() {
@@ -330,11 +291,7 @@ fn post_offer(
         401 | 403 => return Err("the server refused the token".into()),
         s => return Err(format!("the server answered {s}")),
     }
-    let location = res
-        .headers()
-        .get("location")
-        .and_then(|l| l.to_str().ok())
-        .map(|l| resolve_location(url, l));
+    let location = res.headers().get("location").and_then(|l| l.to_str().ok()).map(|l| resolve_location(url, l));
     let answer = res.body_mut().read_to_string().map_err(|e| e.to_string())?;
     Ok((answer, location))
 }
@@ -344,10 +301,7 @@ fn resolve_location(url: &str, location: &str) -> String {
     if location.contains("://") {
         return location.to_string();
     }
-    let origin_end = url
-        .find("://")
-        .and_then(|i| url[i + 3..].find('/').map(|j| i + 3 + j))
-        .unwrap_or(url.len());
+    let origin_end = url.find("://").and_then(|i| url[i + 3..].find('/').map(|j| i + 3 + j)).unwrap_or(url.len());
     if location.starts_with('/') {
         format!("{}{location}", &url[..origin_end])
     } else {
@@ -375,12 +329,8 @@ async fn session(
     let e = |e: rtc::shared::error::Error| e.to_string();
     let (video_codec, audio_codec) = codecs();
     let mut media = MediaEngine::default();
-    media
-        .register_codec(video_codec.clone(), RtpCodecKind::Video)
-        .map_err(e)?;
-    media
-        .register_codec(audio_codec.clone(), RtpCodecKind::Audio)
-        .map_err(e)?;
+    media.register_codec(video_codec.clone(), RtpCodecKind::Video).map_err(e)?;
+    media.register_codec(audio_codec.clone(), RtpCodecKind::Audio).map_err(e)?;
     let registry = register_default_interceptors(Registry::new(), &mut media).map_err(e)?;
     let (gathered_tx, mut gathered) = tokio::sync::mpsc::channel(1);
     let (state_tx, mut state) = tokio::sync::watch::channel(RTCPeerConnectionState::New);
@@ -389,34 +339,17 @@ async fn session(
         .with_configuration(RTCConfigurationBuilder::new().build())
         .with_media_engine(media)
         .with_interceptor_registry(registry)
-        .with_handler(Arc::new(Handler {
-            gathered: gathered_tx,
-            state: state_tx,
-        }))
+        .with_handler(Arc::new(Handler { gathered: gathered_tx, state: state_tx }))
         .with_runtime(runtime)
         .with_udp_addrs(vec!["0.0.0.0:0".to_string()])
         .build()
         .await
         .map_err(e)?;
     let (video_ssrc, audio_ssrc) = (rand_ssrc(1), rand_ssrc(2));
-    let video = Arc::new(track(
-        RtpCodecKind::Video,
-        &video_codec.rtp_codec,
-        video_ssrc,
-    )?);
-    let audio = Arc::new(track(
-        RtpCodecKind::Audio,
-        &audio_codec.rtp_codec,
-        audio_ssrc,
-    )?);
-    let video_sender = pc
-        .add_track(Arc::clone(&video) as Arc<dyn TrackLocal>)
-        .await
-        .map_err(e)?;
-    let audio_sender = pc
-        .add_track(Arc::clone(&audio) as Arc<dyn TrackLocal>)
-        .await
-        .map_err(e)?;
+    let video = Arc::new(track(RtpCodecKind::Video, &video_codec.rtp_codec, video_ssrc)?);
+    let audio = Arc::new(track(RtpCodecKind::Audio, &audio_codec.rtp_codec, audio_ssrc)?);
+    let video_sender = pc.add_track(Arc::clone(&video) as Arc<dyn TrackLocal>).await.map_err(e)?;
+    let audio_sender = pc.add_track(Arc::clone(&audio) as Arc<dyn TrackLocal>).await.map_err(e)?;
     let offer = pc.create_offer(None).await.map_err(e)?;
     pc.set_local_description(offer).await.map_err(e)?;
     // the candidates in the offer (WHIP sends one offer)
@@ -427,9 +360,7 @@ async fn session(
         tokio::task::spawn_blocking(move || post_offer(&url_owned, token_owned.as_deref(), &offer))
             .await
             .map_err(|e| e.to_string())??;
-    pc.set_remote_description(RTCSessionDescription::answer(answer).map_err(e)?)
-        .await
-        .map_err(e)?;
+    pc.set_remote_description(RTCSessionDescription::answer(answer).map_err(e)?).await.map_err(e)?;
     // connected within 10 s, else try again
     let connected = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
@@ -456,11 +387,7 @@ async fn session(
     let payload = |sender: &Arc<dyn webrtc::rtp_transceiver::RtpSender>| {
         let sender = sender.clone();
         async move {
-            sender
-                .get_parameters()
-                .await
-                .ok()
-                .and_then(|p| p.rtp_parameters.codecs.first().map(|c| c.payload_type))
+            sender.get_parameters().await.ok().and_then(|p| p.rtp_parameters.codecs.first().map(|c| c.payload_type))
         }
     };
     let video_pt = payload(&video_sender).await.unwrap_or(102);
@@ -515,12 +442,8 @@ async fn session(
 
 /// An SSRC that differs between sessions and tracks.
 fn rand_ssrc(salt: u32) -> u32 {
-    let t = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.subsec_nanos());
-    t.wrapping_mul(2_654_435_761)
-        .wrapping_add(salt.wrapping_mul(40_503))
-        | 1
+    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos());
+    t.wrapping_mul(2_654_435_761).wrapping_add(salt.wrapping_mul(40_503)) | 1
 }
 
 #[cfg(test)]
@@ -530,14 +453,8 @@ mod tests {
     #[test]
     fn locations_are_read_against_the_endpoint() {
         let url = "https://whip.example.com/rtc/v1/whip/?app=live&stream=me";
-        assert_eq!(
-            resolve_location(url, "/rtc/v1/whip/session/1"),
-            "https://whip.example.com/rtc/v1/whip/session/1"
-        );
-        assert_eq!(
-            resolve_location("https://h:8889/live/me/whip", "abc"),
-            "https://h:8889/live/me/abc"
-        );
+        assert_eq!(resolve_location(url, "/rtc/v1/whip/session/1"), "https://whip.example.com/rtc/v1/whip/session/1");
+        assert_eq!(resolve_location("https://h:8889/live/me/whip", "abc"), "https://h:8889/live/me/abc");
         assert_eq!(resolve_location(url, "https://other/x"), "https://other/x");
     }
 
@@ -560,8 +477,7 @@ mod tests {
             let packets = self.packets.clone();
             tokio::spawn(async move {
                 while let Some(e) = track.poll().await {
-                    if let webrtc::media_stream::track_remote::TrackRemoteEvent::OnRtpPacket(_) = e
-                    {
+                    if let webrtc::media_stream::track_remote::TrackRemoteEvent::OnRtpPacket(_) = e {
                         packets[i].fetch_add(1, Ordering::Relaxed);
                     }
                 }
@@ -574,10 +490,7 @@ mod tests {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .unwrap();
+            let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
             let mut pcs = Vec::new();
             for stream in listener.incoming() {
                 let mut stream = stream.unwrap();
@@ -606,22 +519,17 @@ mod tests {
                     continue;
                 }
                 if !auth.eq_ignore_ascii_case("Authorization: Bearer secret") {
-                    let _ =
-                        stream.write_all(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n");
+                    let _ = stream.write_all(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n");
                     continue;
                 }
                 let offer = String::from_utf8(body).unwrap();
-                let handler = Arc::new(Receiver {
-                    packets: packets.clone(),
-                    connected: connected.clone(),
-                });
+                let handler = Arc::new(Receiver { packets: packets.clone(), connected: connected.clone() });
                 let (pc, answer) = rt.block_on(async move {
                     let (video, audio) = codecs();
                     let mut media = MediaEngine::default();
                     media.register_codec(video, RtpCodecKind::Video).unwrap();
                     media.register_codec(audio, RtpCodecKind::Audio).unwrap();
-                    let registry =
-                        register_default_interceptors(Registry::new(), &mut media).unwrap();
+                    let registry = register_default_interceptors(Registry::new(), &mut media).unwrap();
                     let pc = PeerConnectionBuilder::new()
                         .with_configuration(RTCConfigurationBuilder::new().build())
                         .with_media_engine(media)
@@ -632,9 +540,7 @@ mod tests {
                         .build()
                         .await
                         .unwrap();
-                    pc.set_remote_description(RTCSessionDescription::offer(offer).unwrap())
-                        .await
-                        .unwrap();
+                    pc.set_remote_description(RTCSessionDescription::offer(offer).unwrap()).await.unwrap();
                     let answer = pc.create_answer(None).await.unwrap();
                     pc.set_local_description(answer).await.unwrap();
                     tokio::time::sleep(Duration::from_millis(1500)).await;
@@ -662,11 +568,7 @@ mod tests {
         s.parameter_sets(&[vec![0x67, 0x42, 0xe0, 0x1f], vec![0x68, 0xce, 0x3c, 0x80]]);
         let start = Instant::now();
         while !s.stats().connected {
-            assert!(
-                start.elapsed() < Duration::from_secs(20),
-                "no connection: {:?}",
-                s.stats().error
-            );
+            assert!(start.elapsed() < Duration::from_secs(20), "no connection: {:?}", s.stats().error);
             std::thread::sleep(Duration::from_millis(20));
         }
         // a second of pictures (a keyframe first) and 20 ms Opus packets
@@ -695,16 +597,8 @@ mod tests {
         // a wrong token is refused, and said so
         let wrong = WhipSender::start(url_again, Some("wrong".into())).unwrap();
         let start = Instant::now();
-        while !wrong
-            .stats()
-            .error
-            .is_some_and(|e| e.contains("refused the token"))
-        {
-            assert!(
-                start.elapsed() < Duration::from_secs(10),
-                "{:?}",
-                wrong.stats().error
-            );
+        while !wrong.stats().error.is_some_and(|e| e.contains("refused the token")) {
+            assert!(start.elapsed() < Duration::from_secs(10), "{:?}", wrong.stats().error);
             std::thread::sleep(Duration::from_millis(20));
         }
     }
@@ -724,16 +618,9 @@ mod tests {
         s.video(&[0, 0, 0, 2, 0x41, 9], false, 0, false);
         assert!(s.take_keyframe_request());
         s.video(&[0, 0, 0, 2, 0x65, 7], false, 33_333, true);
-        let Some(Media::Video(d, pts)) = rx.try_recv().ok() else {
-            panic!("the keyframe")
-        };
+        let Some(Media::Video(d, pts)) = rx.try_recv().ok() else { panic!("the keyframe") };
         assert_eq!(pts, 33_333);
-        assert_eq!(
-            &d[..],
-            [
-                0, 0, 0, 1, 0x67, 1, 0, 0, 0, 1, 0x68, 2, 0, 0, 0, 1, 0x65, 7
-            ]
-        );
+        assert_eq!(&d[..], [0, 0, 0, 1, 0x67, 1, 0, 0, 0, 1, 0x68, 2, 0, 0, 0, 1, 0x65, 7]);
         s.video(&[0, 0, 0, 1, 0x41, 3], true, 66_666, false);
         assert!(matches!(rx.try_recv(), Ok(Media::Video(..))));
         s.audio(&[0xfc, 1, 2], 70_000);

@@ -116,15 +116,10 @@ pub trait Host: Send + Sync {
     fn audio_inputs(&self) -> Vec<AudioInput>;
     fn open_media(&self, feed: u32, request: MediaRequest) -> Result<(), HostError>;
     fn close_media(&self, feed: u32);
-    fn open_video_encoder(
-        &self,
-        encoder: u32,
-        config: VideoEncoderConfig,
-    ) -> Result<EncoderTarget, HostError>;
+    fn open_video_encoder(&self, encoder: u32, config: VideoEncoderConfig) -> Result<EncoderTarget, HostError>;
     fn set_video_bitrate(&self, encoder: u32, kbps: u32);
     fn close_video_encoder(&self, encoder: u32);
-    fn open_audio_encoder(&self, encoder: u32, config: AudioEncoderConfig)
-    -> Result<(), HostError>;
+    fn open_audio_encoder(&self, encoder: u32, config: AudioEncoderConfig) -> Result<(), HostError>;
     fn close_audio_encoder(&self, encoder: u32);
     fn start_recording(&self, recording: u32, request: RecordingRequest) -> Result<(), HostError>;
     fn stop_recording(&self, recording: u32);

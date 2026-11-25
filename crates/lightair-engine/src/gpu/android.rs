@@ -23,9 +23,7 @@ pub fn make_device() -> bool {
         return false;
     };
     if adapter.get_info().backend != wgpu::Backend::Vulkan
-        || !adapter
-            .features()
-            .contains(wgpu::Features::TEXTURE_FORMAT_NV12)
+        || !adapter.features().contains(wgpu::Features::TEXTURE_FORMAT_NV12)
     {
         return false;
     }
@@ -36,13 +34,10 @@ pub fn make_device() -> bool {
             return false;
         };
         let instance = hal.shared_instance().raw_instance();
-        let Ok(exts) =
-            (unsafe { instance.enumerate_device_extension_properties(hal.raw_physical_device()) })
-        else {
+        let Ok(exts) = (unsafe { instance.enumerate_device_extension_properties(hal.raw_physical_device()) }) else {
             return false;
         };
-        let has =
-            |name: &std::ffi::CStr| exts.iter().any(|e| e.extension_name_as_c_str() == Ok(name));
+        let has = |name: &std::ffi::CStr| exts.iter().any(|e| e.extension_name_as_c_str() == Ok(name));
         if !has(AHB_EXT) || !has(FOREIGN_EXT) {
             return false;
         }
@@ -53,9 +48,7 @@ pub fn make_device() -> bool {
                 }
             }
         });
-        match unsafe {
-            hal.open_with_callback(features, &limits, &Default::default(), Some(callback))
-        } {
+        match unsafe { hal.open_with_callback(features, &limits, &Default::default(), Some(callback)) } {
             Ok(o) => o,
             Err(e) => {
                 tracing::warn!("no Vulkan device for the zero-copy camera import: {e}");
@@ -63,11 +56,7 @@ pub fn make_device() -> bool {
             }
         }
     };
-    let desc = wgpu::DeviceDescriptor {
-        required_features: features,
-        required_limits: limits,
-        ..Default::default()
-    };
+    let desc = wgpu::DeviceDescriptor { required_features: features, required_limits: limits, ..Default::default() };
     match unsafe { adapter.create_device_from_hal::<Vulkan>(open, &desc) } {
         Ok((device, queue)) => lightair_render::compose::set_device(device, queue),
         Err(e) => {
@@ -116,13 +105,7 @@ struct InFlight {
 }
 
 /// A buffer imported: (image, memory, view, size, its conversion).
-type Imported<'a> = (
-    vk::Image,
-    vk::DeviceMemory,
-    vk::ImageView,
-    (u32, u32),
-    &'a Conversion,
-);
+type Imported<'a> = (vk::Image, vk::DeviceMemory, vk::ImageView, (u32, u32), &'a Conversion);
 
 /// Frames are freed this many draws later.
 const KEEP: u64 = 6;
@@ -148,8 +131,7 @@ impl Importer {
         let hal = unsafe { device.as_hal::<Vulkan>() }?;
         let raw = hal.raw_device().clone();
         let instance = hal.shared_instance().raw_instance();
-        let ahb =
-            ash::android::external_memory_android_hardware_buffer::Device::new(instance, &raw);
+        let ahb = ash::android::external_memory_android_hardware_buffer::Device::new(instance, &raw);
         let family = hal.queue_family_index();
         let attachment = vk::AttachmentDescription::default()
             .format(vk::Format::R8G8B8A8_UNORM)
@@ -160,18 +142,15 @@ impl Importer {
             .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
             .initial_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
             .final_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
-        let colour = [vk::AttachmentReference::default()
-            .attachment(0)
-            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)];
+        let colour =
+            [vk::AttachmentReference::default().attachment(0).layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)];
         let subpass = [vk::SubpassDescription::default()
             .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
             .color_attachments(&colour)];
         let attachments = [attachment];
         let render_pass = unsafe {
             raw.create_render_pass(
-                &vk::RenderPassCreateInfo::default()
-                    .attachments(&attachments)
-                    .subpasses(&subpass),
+                &vk::RenderPassCreateInfo::default().attachments(&attachments).subpasses(&subpass),
                 None,
             )
         }
@@ -195,10 +174,7 @@ impl Importer {
         })
     }
 
-    fn conversion(
-        &mut self,
-        props: &vk::AndroidHardwareBufferFormatPropertiesANDROID,
-    ) -> Option<&Conversion> {
+    fn conversion(&mut self, props: &vk::AndroidHardwareBufferFormatPropertiesANDROID) -> Option<&Conversion> {
         let key = (props.external_format, props.format.as_raw());
         if !self.conversions.contains_key(&key) {
             let c = unsafe { self.make_conversion(props) }?;
@@ -207,10 +183,7 @@ impl Importer {
         self.conversions.get(&key)
     }
 
-    unsafe fn make_conversion(
-        &self,
-        props: &vk::AndroidHardwareBufferFormatPropertiesANDROID,
-    ) -> Option<Conversion> {
+    unsafe fn make_conversion(&self, props: &vk::AndroidHardwareBufferFormatPropertiesANDROID) -> Option<Conversion> {
         let d = &self.device;
         // once per format: what the driver suggests (the colour check)
         tracing::info!(
@@ -224,21 +197,11 @@ impl Importer {
             features = ?props.format_features,
             "zero-copy camera conversion"
         );
-        let linear = props
-            .format_features
-            .contains(vk::FormatFeatureFlags::SAMPLED_IMAGE_YCBCR_CONVERSION_LINEAR_FILTER);
-        let filter = if linear {
-            vk::Filter::LINEAR
-        } else {
-            vk::Filter::NEAREST
-        };
-        let mut external =
-            vk::ExternalFormatANDROID::default().external_format(props.external_format);
-        let format = if props.external_format != 0 {
-            vk::Format::UNDEFINED
-        } else {
-            props.format
-        };
+        let linear =
+            props.format_features.contains(vk::FormatFeatureFlags::SAMPLED_IMAGE_YCBCR_CONVERSION_LINEAR_FILTER);
+        let filter = if linear { vk::Filter::LINEAR } else { vk::Filter::NEAREST };
+        let mut external = vk::ExternalFormatANDROID::default().external_format(props.external_format);
+        let format = if props.external_format != 0 { vk::Format::UNDEFINED } else { props.format };
         let mut info = vk::SamplerYcbcrConversionCreateInfo::default()
             .format(format)
             .ycbcr_model(props.suggested_ycbcr_model)
@@ -275,23 +238,14 @@ impl Importer {
             .stage_flags(vk::ShaderStageFlags::FRAGMENT)
             .immutable_samplers(&samplers)];
         let set_layout = unsafe {
-            d.create_descriptor_set_layout(
-                &vk::DescriptorSetLayoutCreateInfo::default().bindings(&binding),
-                None,
-            )
+            d.create_descriptor_set_layout(&vk::DescriptorSetLayoutCreateInfo::default().bindings(&binding), None)
         }
         .ok()?;
         let layouts = [set_layout];
-        let push = [vk::PushConstantRange {
-            stage_flags: vk::ShaderStageFlags::VERTEX,
-            offset: 0,
-            size: 32,
-        }];
+        let push = [vk::PushConstantRange { stage_flags: vk::ShaderStageFlags::VERTEX, offset: 0, size: 32 }];
         let layout = unsafe {
             d.create_pipeline_layout(
-                &vk::PipelineLayoutCreateInfo::default()
-                    .set_layouts(&layouts)
-                    .push_constant_ranges(&push),
+                &vk::PipelineLayoutCreateInfo::default().set_layouts(&layouts).push_constant_ranges(&push),
                 None,
             )
         }
@@ -308,20 +262,18 @@ impl Importer {
                 .name(name),
         ];
         let vertex_input = vk::PipelineVertexInputStateCreateInfo::default();
-        let assembly = vk::PipelineInputAssemblyStateCreateInfo::default()
-            .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
-        let viewport = vk::PipelineViewportStateCreateInfo::default()
-            .viewport_count(1)
-            .scissor_count(1);
+        let assembly =
+            vk::PipelineInputAssemblyStateCreateInfo::default().topology(vk::PrimitiveTopology::TRIANGLE_LIST);
+        let viewport = vk::PipelineViewportStateCreateInfo::default().viewport_count(1).scissor_count(1);
         let raster = vk::PipelineRasterizationStateCreateInfo::default()
             .polygon_mode(vk::PolygonMode::FILL)
             .cull_mode(vk::CullModeFlags::NONE)
             .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
             .line_width(1.0);
-        let multisample = vk::PipelineMultisampleStateCreateInfo::default()
-            .rasterization_samples(vk::SampleCountFlags::TYPE_1);
-        let blend_attachment = [vk::PipelineColorBlendAttachmentState::default()
-            .color_write_mask(vk::ColorComponentFlags::RGBA)];
+        let multisample =
+            vk::PipelineMultisampleStateCreateInfo::default().rasterization_samples(vk::SampleCountFlags::TYPE_1);
+        let blend_attachment =
+            [vk::PipelineColorBlendAttachmentState::default().color_write_mask(vk::ColorComponentFlags::RGBA)];
         let blend = vk::PipelineColorBlendStateCreateInfo::default().attachments(&blend_attachment);
         let dynamic = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
         let dynamic_state = vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic);
@@ -337,15 +289,9 @@ impl Importer {
             .layout(layout)
             .render_pass(self.render_pass)
             .subpass(0);
-        let pipeline =
-            unsafe { d.create_graphics_pipelines(vk::PipelineCache::null(), &[info], None) }
-                .ok()?
-                .remove(0);
+        let pipeline = unsafe { d.create_graphics_pipelines(vk::PipelineCache::null(), &[info], None) }.ok()?.remove(0);
         // a Y′CbCr image can take several descriptors each: room for plenty
-        let sizes = [vk::DescriptorPoolSize {
-            ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-            descriptor_count: 64,
-        }];
+        let sizes = [vk::DescriptorPoolSize { ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER, descriptor_count: 64 }];
         let pool = unsafe {
             d.create_descriptor_pool(
                 &vk::DescriptorPoolCreateInfo::default()
@@ -356,14 +302,7 @@ impl Importer {
             )
         }
         .ok()?;
-        Some(Conversion {
-            conversion,
-            sampler,
-            set_layout,
-            layout,
-            pipeline,
-            pool,
-        })
+        Some(Conversion { conversion, sampler, set_layout, layout, pipeline, pool })
     }
 
     /// The camera frame `held` drawn upright (turned `rotation` clockwise degrees from as
@@ -383,16 +322,13 @@ impl Importer {
         let Some((image, memory, view, size, conv)) = (unsafe { self.import(held.buffer) }) else {
             return false;
         };
-        let (pool, set_layout, layout, pipeline) =
-            (conv.pool, conv.set_layout, conv.layout, conv.pipeline);
+        let (pool, set_layout, layout, pipeline) = (conv.pool, conv.set_layout, conv.layout, conv.pipeline);
         let d = self.device.clone();
         let render_pass = self.render_pass;
         let layouts = [set_layout];
         let Ok(sets) = (unsafe {
             d.allocate_descriptor_sets(
-                &vk::DescriptorSetAllocateInfo::default()
-                    .descriptor_pool(pool)
-                    .set_layouts(&layouts),
+                &vk::DescriptorSetAllocateInfo::default().descriptor_pool(pool).set_layouts(&layouts),
             )
         }) else {
             unsafe { self.destroy(image, memory, view) };
@@ -412,9 +348,7 @@ impl Importer {
                 &[],
             )
         };
-        let Some(target_raw) =
-            (unsafe { target.as_hal::<Vulkan>() }).map(|t| unsafe { t.raw_handle() })
-        else {
+        let Some(target_raw) = (unsafe { target.as_hal::<Vulkan>() }).map(|t| unsafe { t.raw_handle() }) else {
             return false;
         };
         let (tw, th) = (target.width(), target.height());
@@ -486,13 +420,8 @@ impl Importer {
                     &[],
                     &[acquire],
                 );
-                let area = vk::Rect2D {
-                    offset: vk::Offset2D { x: 0, y: 0 },
-                    extent: vk::Extent2D {
-                        width: tw,
-                        height: th,
-                    },
-                };
+                let area =
+                    vk::Rect2D { offset: vk::Offset2D { x: 0, y: 0 }, extent: vk::Extent2D { width: tw, height: th } };
                 d.cmd_begin_render_pass(
                     cmd,
                     &vk::RenderPassBeginInfo::default()
@@ -515,14 +444,7 @@ impl Importer {
                     }],
                 );
                 d.cmd_set_scissor(cmd, 0, &[area]);
-                d.cmd_bind_descriptor_sets(
-                    cmd,
-                    vk::PipelineBindPoint::GRAPHICS,
-                    layout,
-                    0,
-                    &[set],
-                    &[],
-                );
+                d.cmd_bind_descriptor_sets(cmd, vk::PipelineBindPoint::GRAPHICS, layout, 0, &[set], &[]);
                 d.cmd_push_constants(cmd, layout, vk::ShaderStageFlags::VERTEX, 0, &push_bytes);
                 d.cmd_draw(cmd, 3, 1, 0, 0);
                 d.cmd_end_render_pass(cmd);
@@ -548,10 +470,8 @@ impl Importer {
                     .subresource_range(colour);
                 d.cmd_pipeline_barrier(
                     cmd,
-                    vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
-                        | vk::PipelineStageFlags::FRAGMENT_SHADER,
-                    vk::PipelineStageFlags::FRAGMENT_SHADER
-                        | vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+                    vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT | vk::PipelineStageFlags::FRAGMENT_SHADER,
+                    vk::PipelineStageFlags::FRAGMENT_SHADER | vk::PipelineStageFlags::BOTTOM_OF_PIPE,
                     vk::DependencyFlags::empty(),
                     &[],
                     &[],
@@ -561,32 +481,17 @@ impl Importer {
             })
         };
         queue.submit([encoder.finish()]);
-        self.in_flight.push_back(InFlight {
-            frame: self.frame,
-            image,
-            memory,
-            view,
-            set: (pool, set),
-            _held: held,
-        });
+        self.in_flight.push_back(InFlight { frame: self.frame, image, memory, view, set: (pool, set), _held: held });
         recorded
     }
 
     /// The buffer as a Vulkan image with its conversion: (image, memory, view, size, conversion).
     unsafe fn import(&mut self, buffer: *mut ndk_sys::AHardwareBuffer) -> Option<Imported<'_>> {
         let mut format = vk::AndroidHardwareBufferFormatPropertiesANDROID::default();
-        let mut props =
-            vk::AndroidHardwareBufferPropertiesANDROID::default().push_next(&mut format);
-        unsafe {
-            self.ahb
-                .get_android_hardware_buffer_properties(buffer.cast(), &mut props)
-        }
-        .ok()?;
+        let mut props = vk::AndroidHardwareBufferPropertiesANDROID::default().push_next(&mut format);
+        unsafe { self.ahb.get_android_hardware_buffer_properties(buffer.cast(), &mut props) }.ok()?;
         let (allocation_size, memory_bits) = (props.allocation_size, props.memory_type_bits);
-        let format = vk::AndroidHardwareBufferFormatPropertiesANDROID {
-            p_next: std::ptr::null_mut(),
-            ..format
-        };
+        let format = vk::AndroidHardwareBufferFormatPropertiesANDROID { p_next: std::ptr::null_mut(), ..format };
         let mut desc = ndk_sys::AHardwareBuffer_Desc {
             width: 0,
             height: 0,
@@ -601,21 +506,12 @@ impl Importer {
         let (w, h) = (desc.width, desc.height);
         let mut external_memory = vk::ExternalMemoryImageCreateInfo::default()
             .handle_types(vk::ExternalMemoryHandleTypeFlags::ANDROID_HARDWARE_BUFFER_ANDROID);
-        let mut external_format =
-            vk::ExternalFormatANDROID::default().external_format(format.external_format);
-        let vk_format = if format.external_format != 0 {
-            vk::Format::UNDEFINED
-        } else {
-            format.format
-        };
+        let mut external_format = vk::ExternalFormatANDROID::default().external_format(format.external_format);
+        let vk_format = if format.external_format != 0 { vk::Format::UNDEFINED } else { format.format };
         let info = vk::ImageCreateInfo::default()
             .image_type(vk::ImageType::TYPE_2D)
             .format(vk_format)
-            .extent(vk::Extent3D {
-                width: w,
-                height: h,
-                depth: 1,
-            })
+            .extent(vk::Extent3D { width: w, height: h, depth: 1 })
             .mip_levels(1)
             .array_layers(1)
             .samples(vk::SampleCountFlags::TYPE_1)
@@ -627,8 +523,7 @@ impl Importer {
             .push_next(&mut external_format);
         let d = self.device.clone();
         let image = unsafe { d.create_image(&info, None) }.ok()?;
-        let mut import =
-            vk::ImportAndroidHardwareBufferInfoANDROID::default().buffer(buffer.cast());
+        let mut import = vk::ImportAndroidHardwareBufferInfoANDROID::default().buffer(buffer.cast());
         let mut dedicated = vk::MemoryDedicatedAllocateInfo::default().image(image);
         let memory_type = memory_bits.trailing_zeros();
         let memory = match unsafe {
@@ -756,11 +651,7 @@ impl Importer {
 
     /// Frames drawn long enough ago for the GPU to be done: freed, their buffers given back.
     fn free_done(&mut self) {
-        while self
-            .in_flight
-            .front()
-            .is_some_and(|f| f.frame + KEEP <= self.frame)
-        {
+        while self.in_flight.front().is_some_and(|f| f.frame + KEEP <= self.frame) {
             let Some(f) = self.in_flight.pop_front() else {
                 break;
             };

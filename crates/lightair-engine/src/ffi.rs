@@ -28,11 +28,7 @@ fn analysed_on_host_clock(pts_ns: i64, what: &str) -> i64 {
 fn within(host_ns: i64, past_ns: u64, what: &str) -> i64 {
     static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     let now = crate::clock::host_now_ns();
-    let ok = if host_ns <= now {
-        now.abs_diff(host_ns) <= past_ns
-    } else {
-        host_ns.abs_diff(now) <= 2_000_000_000
-    };
+    let ok = if host_ns <= now { now.abs_diff(host_ns) <= past_ns } else { host_ns.abs_diff(now) <= 2_000_000_000 };
     if ok {
         return host_ns;
     }
@@ -91,22 +87,14 @@ pub unsafe fn push_pixel_buffer(studio: u64, feed: u32, buffer: *mut c_void, hos
         return false;
     };
     let Some(v) = f.video() else { return false };
-    v.push(
-        Picture::Buffer(b, kept),
-        on_host_clock(host_ns, "a picture"),
-    );
+    v.push(Picture::Buffer(b, kept), on_host_clock(host_ns, "a picture"));
     true
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "ios")))]
 /// # Safety
 /// Never dereferences `buffer` here (no pixel buffers off Apple platforms).
-pub unsafe fn push_pixel_buffer(
-    _studio: u64,
-    _feed: u32,
-    _buffer: *mut c_void,
-    _host_ns: i64,
-) -> bool {
+pub unsafe fn push_pixel_buffer(_studio: u64, _feed: u32, _buffer: *mut c_void, _host_ns: i64) -> bool {
     false
 }
 
@@ -138,17 +126,7 @@ pub unsafe fn push_yuv(
     };
     let Some(vf) = f.video() else { return false };
     let planes = unsafe {
-        copy_yuv(
-            vf,
-            y,
-            y_stride as usize,
-            u,
-            v,
-            uv_stride as usize,
-            uv_pixel_stride as usize,
-            width,
-            height,
-        )
+        copy_yuv(vf, y, y_stride as usize, u, v, uv_stride as usize, uv_pixel_stride as usize, width, height)
     };
     let Some((ly, uv)) = planes else { return false };
     let frame = Yuv {
@@ -174,8 +152,7 @@ pub fn face_wanted(studio: u64, feed: u32) -> bool {
     let Some(f) = hot.feed(feed) else {
         return false;
     };
-    f.video()
-        .is_some_and(|v| v.face_wanted(crate::clock::host_now_ns()))
+    f.video().is_some_and(|v| v.face_wanted(crate::clock::host_now_ns()))
 }
 
 /// A face for a camera feed: `count` points (478, MediaPipe's indexing) as x, y pairs in
@@ -214,13 +191,7 @@ pub unsafe fn push_face(
     if present && pts.len() != crate::feeds::FACE_POINTS {
         return false;
     }
-    v.push_face(
-        analysed_on_host_clock(pts_ns, "a face"),
-        present,
-        score,
-        pts,
-        (width, height),
-    );
+    v.push_face(analysed_on_host_clock(pts_ns, "a face"), present, score, pts, (width, height));
     true
 }
 
@@ -258,11 +229,7 @@ pub unsafe fn push_segmentation(
         let src = unsafe { std::slice::from_raw_parts(data.add(y * stride as usize), row) };
         rgba.extend_from_slice(src);
     }
-    v.push_segmentation(
-        analysed_on_host_clock(pts_ns, "a segmentation"),
-        rgba,
-        (width, height),
-    );
+    v.push_segmentation(analysed_on_host_clock(pts_ns, "a segmentation"), rgba, (width, height));
     true
 }
 
@@ -272,8 +239,7 @@ pub fn mask_wanted(studio: u64, feed: u32) -> i32 {
     let Some(hot) = lookup(studio) else { return -1 };
     let Some(f) = hot.feed(feed) else { return -1 };
     let Some(v) = f.video() else { return -1 };
-    v.mask_wanted(crate::clock::host_now_ns())
-        .map_or(-1, |q| q as i32)
+    v.mask_wanted(crate::clock::host_now_ns()).map_or(-1, |q| q as i32)
 }
 
 /// A person mask for a camera feed: `width`×`height` bytes a pixel (255 the person) with
@@ -308,8 +274,7 @@ pub unsafe fn push_mask(
     let Some(v) = f.video() else { return false };
     let mut bytes = Vec::with_capacity(total);
     for y in 0..height as usize {
-        let src =
-            unsafe { std::slice::from_raw_parts(data.add(y * stride as usize), width as usize) };
+        let src = unsafe { std::slice::from_raw_parts(data.add(y * stride as usize), width as usize) };
         bytes.extend_from_slice(src);
     }
     v.push_mask(bytes, (width, height), rotation, mirrored);
@@ -346,14 +311,9 @@ pub unsafe fn push_rgba(
     let Some(v) = f.video() else { return false };
     let mut bytes = Vec::with_capacity(total);
     for y in 0..height as usize {
-        bytes.extend_from_slice(unsafe {
-            std::slice::from_raw_parts(data.add(y * stride as usize), row)
-        });
+        bytes.extend_from_slice(unsafe { std::slice::from_raw_parts(data.add(y * stride as usize), row) });
     }
-    v.push(
-        Picture::Rgba(bytes, (width, height)),
-        on_host_clock(host_ns, "a picture"),
-    );
+    v.push(Picture::Rgba(bytes, (width, height)), on_host_clock(host_ns, "a picture"));
     true
 }
 
@@ -386,11 +346,7 @@ pub unsafe fn push_hardware_buffer(
         return false;
     }
     unsafe { ndk_sys::AHardwareBuffer_acquire(buffer) };
-    let held = std::sync::Arc::new(crate::gpu::android::Held {
-        buffer,
-        token,
-        released: hot.released.clone(),
-    });
+    let held = std::sync::Arc::new(crate::gpu::android::Held { buffer, token, released: hot.released.clone() });
     let Some(f) = hot.feed(feed) else {
         return false;
     };
@@ -407,12 +363,7 @@ pub unsafe fn push_hardware_buffer(
     };
     unsafe { ndk_sys::AHardwareBuffer_describe(buffer, &mut desc) };
     v.push(
-        Picture::Hardware {
-            held,
-            size: (desc.width, desc.height),
-            rotation: rotation % 360 / 90 * 90,
-            mirrored,
-        },
+        Picture::Hardware { held, size: (desc.width, desc.height), rotation: rotation % 360 / 90 * 90, mirrored },
         on_host_clock(host_ns, "a picture"),
     );
     true
@@ -424,14 +375,7 @@ pub fn released_frames(studio: u64) -> Vec<i64> {
 }
 
 /// Real-time safe.
-pub fn push_audio(
-    studio: u64,
-    feed: u32,
-    samples: &[f32],
-    channels: u32,
-    rate: u32,
-    host_ns: i64,
-) -> bool {
+pub fn push_audio(studio: u64, feed: u32, samples: &[f32], channels: u32, rate: u32, host_ns: i64) -> bool {
     let Some(hot) = lookup(studio) else {
         return false;
     };
@@ -474,12 +418,7 @@ pub fn next_video_frame(studio: u64, encoder: u32, timeout_ms: u32) -> (i32, usi
 
 /// Program sound into `out` (stereo interleaved): (frames, pts), (0, 0) on timeout, (-1, 0)
 /// once closed.
-pub fn read_program_audio(
-    studio: u64,
-    encoder: u32,
-    out: &mut [f32],
-    timeout_ms: u32,
-) -> (i32, i64) {
+pub fn read_program_audio(studio: u64, encoder: u32, out: &mut [f32], timeout_ms: u32) -> (i32, i64) {
     let Some(hot) = lookup(studio) else {
         return (-1, 0);
     };
@@ -499,12 +438,7 @@ pub fn parameter_sets(studio: u64, encoder: u32, nals: Vec<Vec<u8>>) {
     if let Some(e) = hot.video_encoder(encoder) {
         e.sent.lock().parameter_sets = nals.clone();
     }
-    for o in hot
-        .outputs
-        .read()
-        .iter()
-        .filter(|o| o.video_encoder() == encoder)
-    {
+    for o in hot.outputs.read().iter().filter(|o| o.video_encoder() == encoder) {
         o.parameter_sets(&nals);
     }
 }
@@ -539,26 +473,11 @@ pub fn video_packet(
             }
         }
         // a stream encode's last minute, for clips
-        if hot
-            .outputs
-            .read()
-            .iter()
-            .any(|o| o.video_encoder() == encoder)
-        {
-            e.clip.push(crate::clips::Packet {
-                pts_ns: pts,
-                keyframe,
-                data: data.to_vec(),
-                length_prefixed,
-            });
+        if hot.outputs.read().iter().any(|o| o.video_encoder() == encoder) {
+            e.clip.push(crate::clips::Packet { pts_ns: pts, keyframe, data: data.to_vec(), length_prefixed });
         }
         // the stream's destinations
-        for o in hot
-            .outputs
-            .read()
-            .iter()
-            .filter(|o| o.video_encoder() == encoder)
-        {
+        for o in hot.outputs.read().iter().filter(|o| o.video_encoder() == encoder) {
             o.video(data, length_prefixed, pts, keyframe);
         }
     }
@@ -567,27 +486,12 @@ pub fn video_packet(
 
 pub fn audio_packet(studio: u64, encoder: u32, data: &[u8], pts_ns: i64) {
     let Some(hot) = lookup(studio) else { return };
-    for o in hot
-        .outputs
-        .read()
-        .iter()
-        .filter(|o| o.audio_encoder == encoder)
-    {
+    for o in hot.outputs.read().iter().filter(|o| o.audio_encoder == encoder) {
         o.audio(data, pts_ns);
     }
     if let Some(e) = hot.audio_encoder(encoder) {
-        if hot
-            .outputs
-            .read()
-            .iter()
-            .any(|o| o.audio_encoder == encoder)
-        {
-            e.clip.push(crate::clips::Packet {
-                pts_ns,
-                keyframe: true,
-                data: data.to_vec(),
-                length_prefixed: false,
-            });
+        if hot.outputs.read().iter().any(|o| o.audio_encoder == encoder) {
+            e.clip.push(crate::clips::Packet { pts_ns, keyframe: true, data: data.to_vec(), length_prefixed: false });
         }
         let mut s = e.sent.lock();
         s.packets += 1;
@@ -628,26 +532,13 @@ mod tests {
             frozen: Vec::new(),
         };
         let hot = std::sync::Arc::new(crate::hot::Hot::new(program, 0));
-        hot.feeds.write().insert(
-            1,
-            std::sync::Arc::new(Feed::Video(crate::feeds::VideoFeed::default())),
-        );
+        hot.feeds.write().insert(1, std::sync::Arc::new(Feed::Video(crate::feeds::VideoFeed::default())));
         let studio = crate::hot::register(hot.clone());
         let now = crate::clock::host_now_ns();
         let points = vec![0.5f32; crate::feeds::FACE_POINTS * 2];
         let late = now - 3_000_000_000;
         let pushed = unsafe {
-            push_face(
-                studio,
-                1,
-                late,
-                true,
-                0.9,
-                points.as_ptr(),
-                crate::feeds::FACE_POINTS as u32,
-                256,
-                256,
-            )
+            push_face(studio, 1, late, true, 0.9, points.as_ptr(), crate::feeds::FACE_POINTS as u32, 256, 256)
         };
         assert!(pushed);
         let f = hot.feed(1).unwrap();

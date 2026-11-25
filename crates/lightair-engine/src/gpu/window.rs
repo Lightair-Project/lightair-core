@@ -29,23 +29,15 @@ impl WindowSurface {
     ///
     /// # Safety
     /// `handle` must stay valid until the surface is dropped (Apple: the caller keeps the layer).
-    pub unsafe fn new(
-        gpu: &Gpu,
-        handle: u64,
-        size: (u32, u32),
-        kind: Kind,
-    ) -> Option<WindowSurface> {
+    pub unsafe fn new(gpu: &Gpu, handle: u64, size: (u32, u32), kind: Kind) -> Option<WindowSurface> {
         if handle == 0 {
             return None;
         }
         #[cfg(any(target_os = "macos", target_os = "ios"))]
-        let target =
-            wgpu::SurfaceTargetUnsafe::CoreAnimationLayer(handle as usize as *mut std::ffi::c_void);
+        let target = wgpu::SurfaceTargetUnsafe::CoreAnimationLayer(handle as usize as *mut std::ffi::c_void);
         #[cfg(target_os = "android")]
         let target = {
-            use raw_window_handle::{
-                AndroidDisplayHandle, AndroidNdkWindowHandle, RawDisplayHandle, RawWindowHandle,
-            };
+            use raw_window_handle::{AndroidDisplayHandle, AndroidNdkWindowHandle, RawDisplayHandle, RawWindowHandle};
             let ptr = std::ptr::NonNull::new(handle as usize as *mut std::ffi::c_void)?;
             wgpu::SurfaceTargetUnsafe::RawHandle {
                 raw_display_handle: Some(RawDisplayHandle::Android(AndroidDisplayHandle::new())),
@@ -76,12 +68,7 @@ impl WindowSurface {
                 return None;
             };
             // an sRGB format where there is one (the blit then writes linear light as is)
-            let format = caps
-                .formats
-                .iter()
-                .copied()
-                .find(|f| f.is_srgb())
-                .unwrap_or(first);
+            let format = caps.formats.iter().copied().find(|f| f.is_srgb()).unwrap_or(first);
             let present_mode = match kind {
                 Kind::Preview => wgpu::PresentMode::AutoNoVsync,
                 Kind::Encoder => wgpu::PresentMode::Fifo,
@@ -93,11 +80,7 @@ impl WindowSurface {
                 height: size.1.max(1),
                 present_mode,
                 desired_maximum_frame_latency: 2,
-                alpha_mode: caps
-                    .alpha_modes
-                    .first()
-                    .copied()
-                    .unwrap_or(wgpu::CompositeAlphaMode::Auto),
+                alpha_mode: caps.alpha_modes.first().copied().unwrap_or(wgpu::CompositeAlphaMode::Auto),
                 view_formats: vec![],
                 color_space: wgpu::SurfaceColorSpace::Auto,
             };
@@ -130,8 +113,7 @@ impl WindowSurface {
     /// The next texture to draw into, or `None` when there's none ready now (skip this frame).
     pub fn texture(&self, gpu: &Gpu) -> Option<wgpu::SurfaceTexture> {
         match self.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(t)
-            | wgpu::CurrentSurfaceTexture::Suboptimal(t) => Some(t),
+            wgpu::CurrentSurfaceTexture::Success(t) | wgpu::CurrentSurfaceTexture::Suboptimal(t) => Some(t),
             wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
                 let _ = self.configure(gpu);
                 None

@@ -51,23 +51,11 @@ pub struct Governor {
 
 impl Governor {
     pub fn new(now: Instant) -> Governor {
-        Governor {
-            step: 0,
-            since_state: now,
-            since_step: now,
-            state: Thermal::Nominal,
-            at_seven: None,
-        }
+        Governor { step: 0, since_state: now, since_step: now, state: Thermal::Nominal, at_seven: None }
     }
 
     /// The state now; returns the step's message when it changed.
-    pub fn update(
-        &mut self,
-        thermal: Thermal,
-        battery: f32,
-        charging: bool,
-        now: Instant,
-    ) -> Option<&'static str> {
+    pub fn update(&mut self, thermal: Thermal, battery: f32, charging: bool, now: Instant) -> Option<&'static str> {
         if thermal != self.state {
             self.state = thermal;
             self.since_state = now;
@@ -92,9 +80,7 @@ impl Governor {
         if want > self.step {
             self.step = want;
             self.since_step = now;
-        } else if want < self.step
-            && now.duration_since(self.since_step) >= Duration::from_secs(120)
-        {
+        } else if want < self.step && now.duration_since(self.since_step) >= Duration::from_secs(120) {
             // undone one at a time, every 120 s of a better state
             self.step -= 1;
             self.since_step = now;
@@ -120,9 +106,7 @@ impl Governor {
             encode_every: if s >= 4 { 2 } else { 1 },
             bitrate_percent: if s >= 5 { 56 } else { 100 },
             stop_recording: s >= 7,
-            end_stream: self
-                .at_seven
-                .is_some_and(|t| now.duration_since(t) >= Duration::from_secs(60)),
+            end_stream: self.at_seven.is_some_and(|t| now.duration_since(t) >= Duration::from_secs(60)),
         }
     }
 }

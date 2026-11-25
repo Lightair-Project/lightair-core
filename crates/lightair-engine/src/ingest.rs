@@ -27,10 +27,7 @@ pub fn parse(v: &Value) -> Vec<Ingest> {
         .flatten()
         .filter(|i| i["availability"].as_f64().unwrap_or(1.0) > 0.0)
         .filter_map(|i| {
-            let template = i["url_template_secure"]
-                .as_str()
-                .filter(|t| !t.is_empty())
-                .or(i["url_template"].as_str())?;
+            let template = i["url_template_secure"].as_str().filter(|t| !t.is_empty()).or(i["url_template"].as_str())?;
             Some(Ingest {
                 name: i["name"].as_str().unwrap_or("Twitch").to_string(),
                 url: template.replace("{stream_key}", ""),
@@ -60,10 +57,7 @@ fn connect_time(url: &str) -> Option<Duration> {
 }
 
 /// The one of `ingests` that `probe` finds fastest, all tried at once.
-pub fn fastest(
-    ingests: Vec<Ingest>,
-    probe: impl Fn(&str) -> Option<Duration> + Sync,
-) -> Option<Ingest> {
+pub fn fastest(ingests: Vec<Ingest>, probe: impl Fn(&str) -> Option<Duration> + Sync) -> Option<Ingest> {
     let probe = &probe;
     let times: Vec<Option<Duration>> = std::thread::scope(|s| {
         let tries: Vec<_> = ingests
@@ -75,12 +69,7 @@ pub fn fastest(
             .collect();
         tries.into_iter().map(|t| t.join().ok().flatten()).collect()
     });
-    ingests
-        .into_iter()
-        .zip(times)
-        .filter_map(|(i, t)| Some((t?, i)))
-        .min_by_key(|(t, _)| *t)
-        .map(|(_, i)| i)
+    ingests.into_iter().zip(times).filter_map(|(i, t)| Some((t?, i))).min_by_key(|(t, _)| *t).map(|(_, i)| i)
 }
 
 /// Twitch's nearest ingest, found once per half hour (Twitch's list and a connect to each).
@@ -115,18 +104,9 @@ mod tests {
         let list = parse(&v);
         assert_eq!(list.len(), 2);
         assert_eq!(list[0].url, "rtmps://iad05.contribute.live-video.net/app/");
-        assert_eq!(
-            address(&list[0].url),
-            Some(("iad05.contribute.live-video.net".into(), 443))
-        );
+        assert_eq!(address(&list[0].url), Some(("iad05.contribute.live-video.net".into(), 443)));
         assert_eq!(address("rtmp://h:1936/app/"), Some(("h".into(), 1936)));
-        let near = fastest(list, |url| {
-            Some(Duration::from_millis(if url.contains("fra05") {
-                20
-            } else {
-                90
-            }))
-        });
+        let near = fastest(list, |url| Some(Duration::from_millis(if url.contains("fra05") { 20 } else { 90 })));
         assert_eq!(near.unwrap().name, "Europe: Germany, Frankfurt");
     }
 }

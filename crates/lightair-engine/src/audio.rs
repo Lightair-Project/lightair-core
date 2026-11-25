@@ -25,10 +25,7 @@ pub fn node(id: Id) -> la::NodeId {
 }
 
 fn num(e: &Effect, key: &str, default: f32) -> f32 {
-    e.settings
-        .get(key)
-        .and_then(|v| v.as_f64())
-        .map_or(default, |v| v as f32)
+    e.settings.get(key).and_then(|v| v.as_f64()).map_or(default, |v| v as f32)
 }
 
 /// The effects Studio runs on a track: Voice Clarity, noise suppression, gain.
@@ -36,21 +33,14 @@ fn params(e: &Effect) -> Option<Params> {
     Some(match e.kind.as_str() {
         "audio.voice" => Params::Voice(VoiceParams {
             amount: num(e, "amount", 0.5).clamp(0.0, 1.0),
-            podcast: e
-                .settings
-                .get("podcast")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false),
+            podcast: e.settings.get("podcast").and_then(|v| v.as_bool()).unwrap_or(false),
             ..VoiceParams::default()
         }),
         "audio.noise" => Params::Noise(NoiseParams {
             strength: num(e, "strength", 1.0).clamp(0.0, 1.0),
             vad_threshold: num(e, "vad_threshold", 0.0),
         }),
-        "audio.gain" => Params::Gain(la::dsp::GainParams {
-            db: num(e, "db", 0.0),
-            ..Default::default()
-        }),
+        "audio.gain" => Params::Gain(la::dsp::GainParams { db: num(e, "db", 0.0), ..Default::default() }),
         _ => return None,
     })
 }
@@ -76,13 +66,7 @@ pub fn spec(ws: &Workspace, inputs: &HashMap<Id, u32>) -> GraphSpec {
         s.inserts = t
             .effects
             .iter()
-            .filter_map(|e| {
-                Some(EffectSpec {
-                    id: node(e.id),
-                    enabled: e.enabled,
-                    params: params(e)?,
-                })
-            })
+            .filter_map(|e| Some(EffectSpec { id: node(e.id), enabled: e.enabled, params: params(e)? }))
             .collect();
         g.strips.push(s);
     }
@@ -103,16 +87,7 @@ struct Input {
 
 impl Input {
     fn new(feed: u32, node: la::NodeId, mic: bool) -> Input {
-        Input {
-            feed,
-            node,
-            mic,
-            pending: Vec::new(),
-            pos: 0.0,
-            l: vec![0.0; BLOCK],
-            r: vec![0.0; BLOCK],
-            gain: 1.0,
-        }
+        Input { feed, node, mic, pending: Vec::new(), pos: 0.0, l: vec![0.0; BLOCK], r: vec![0.0; BLOCK], gain: 1.0 }
     }
 
     /// Reads what's in the ring into `pending` (stereo frames).
@@ -133,11 +108,7 @@ impl Input {
                 for s in frame.iter_mut().take(channels) {
                     *s = *it.next().unwrap_or(&0.0);
                 }
-                let (l, r) = if channels == 1 {
-                    (frame[0], frame[0])
-                } else {
-                    (frame[0], frame[1])
-                };
+                let (l, r) = if channels == 1 { (frame[0], frame[0]) } else { (frame[0], frame[1]) };
                 self.pending.push([l, r]);
             }
             chunk.commit_all();
@@ -164,8 +135,7 @@ impl Input {
             // early: wait for it, but never more than the ring holds
             let frames = frames.min(rate as usize * 2 / 5);
             let at = self.pos as usize;
-            self.pending
-                .splice(at..at, std::iter::repeat_n([0.0, 0.0], frames));
+            self.pending.splice(at..at, std::iter::repeat_n([0.0, 0.0], frames));
         } else {
             let cut = frames.min(self.pending.len().saturating_sub(self.pos as usize));
             let at = self.pos as usize;
@@ -186,11 +156,8 @@ impl Input {
         const RAMP: f32 = 1.0 / 120.0;
         for i in 0..BLOCK {
             let target = gain(i);
-            self.gain = if self.gain < target {
-                (self.gain + RAMP).min(target)
-            } else {
-                (self.gain - RAMP).max(target)
-            };
+            self.gain =
+                if self.gain < target { (self.gain + RAMP).min(target) } else { (self.gain - RAMP).max(target) };
             let p = self.pos as usize;
             let (l, r) = if p + 1 < self.pending.len() {
                 let t = (self.pos - p as f64) as f32;
@@ -247,22 +214,14 @@ pub fn spawn(
     routing: Arc<parking_lot::Mutex<Routing>>,
     quit: Arc<AtomicBool>,
 ) -> std::io::Result<std::thread::JoinHandle<()>> {
-    std::thread::Builder::new()
-        .name("lightair-mix".into())
-        .spawn(move || {
-            *hot.mixer.lock() = Some(std::thread::current());
-            let failed = hot.clone();
-            let mut m = Mixer {
-                hot,
-                renderer,
-                inputs: Vec::new(),
-                routing,
-                quit,
-            };
-            if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| m.run())) {
-                failed.fail(format!("The sound stopped: {}", crate::hot::panic_text(&e)));
-            }
-        })
+    std::thread::Builder::new().name("lightair-mix".into()).spawn(move || {
+        *hot.mixer.lock() = Some(std::thread::current());
+        let failed = hot.clone();
+        let mut m = Mixer { hot, renderer, inputs: Vec::new(), routing, quit };
+        if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| m.run())) {
+            failed.fail(format!("The sound stopped: {}", crate::hot::panic_text(&e)));
+        }
+    })
 }
 
 impl Mixer {
@@ -276,12 +235,7 @@ impl Mixer {
 
     fn sync_inputs(&mut self) {
         let routing = self.routing.lock().clone();
-        self.inputs.retain(|i| {
-            routing
-                .feeds
-                .iter()
-                .any(|(f, n, _)| *f == i.feed && *n == i.node)
-        });
+        self.inputs.retain(|i| routing.feeds.iter().any(|(f, n, _)| *f == i.feed && *n == i.node));
         for (f, n, mic) in routing.feeds {
             if !self.inputs.iter().any(|i| i.feed == f) {
                 self.inputs.push(Input::new(f, n, mic));
@@ -340,10 +294,7 @@ impl Mixer {
         let (on, from) = hot.privacy();
         let covered = |i: usize| if samples + i as u64 >= from { on } else { !on };
         for (i, f) in self.inputs.iter_mut().zip(&feeds) {
-            let rate = f
-                .as_deref()
-                .and_then(Feed::audio)
-                .map_or(RATE, |a| a.rate.load(Ordering::Relaxed));
+            let rate = f.as_deref().and_then(Feed::audio).map_or(RATE, |a| a.rate.load(Ordering::Relaxed));
             let mic = i.mic;
             i.block(rate, |k| if mic && covered(k) { 0.0 } else { 1.0 });
         }
@@ -424,11 +375,7 @@ mod tests {
         assert!(i.available(16_000) >= BLOCK);
         i.block(16_000, |_| 1.0);
         // 10 ms at 48 kHz used 160 input frames: the block ends near 0.5
-        assert!(
-            (i.l[BLOCK - 1] - 159.66 / 320.0).abs() < 0.01,
-            "{}",
-            i.l[BLOCK - 1]
-        );
+        assert!((i.l[BLOCK - 1] - 159.66 / 320.0).abs() < 0.01, "{}", i.l[BLOCK - 1]);
         assert_eq!(i.l[100], i.r[100]);
     }
 }

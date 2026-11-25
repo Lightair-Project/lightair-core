@@ -61,26 +61,14 @@ pub fn tile_motion(luma: &Luma, mw: usize, mh: usize, prev: &mut Vec<f32>) -> Ve
 // The person mask blended towards `next` by the picture's motion: still areas slowly (~1/9 a
 // frame), steady motion ~1/3, a big change all at once. One channel of `stride` bytes a pixel;
 // motion of the wrong size counts as a big change.
-pub fn smooth_person(
-    mask: &mut [u8],
-    next: &[u8],
-    w: usize,
-    h: usize,
-    motion: &[f32],
-    stride: usize,
-    channel: usize,
-) {
+pub fn smooth_person(mask: &mut [u8], next: &[u8], w: usize, h: usize, motion: &[f32], stride: usize, channel: usize) {
     const T: usize = PERSON_TILE;
     let tw = w.div_ceil(T);
     let have = motion.len() == tw * h.div_ceil(T);
     for y in 0..h {
         for x in 0..w {
             let i = (y * w + x) * stride + channel;
-            let m = if have {
-                motion[(y / T) * tw + x / T]
-            } else {
-                255.0
-            };
+            let m = if have { motion[(y / T) * tw + x / T] } else { 255.0 };
             let small = ((m - 1.5) / 4.5).clamp(0.0, 1.0); // noise .. steady motion
             let large = ((m - 8.0) / 16.0).clamp(0.0, 1.0); // a big change
             // of 256: still ~1/9 of the new mask per frame, steady motion ~1/3, a big change all
@@ -118,9 +106,8 @@ impl MaskFilter {
             return false;
         }
         self.last_serial = Some(seg.serial);
-        let usable = luma.filter(|l| {
-            l.width > 0 && l.height > 0 && l.bytes.len() >= l.width as usize * l.height as usize
-        });
+        let usable =
+            luma.filter(|l| l.width > 0 && l.height > 0 && l.bytes.len() >= l.width as usize * l.height as usize);
         let motion = match usable {
             Some(l) => tile_motion(l, mw, mh, &mut self.tile_luma),
             None => {
@@ -139,11 +126,8 @@ impl MaskFilter {
                         continue; // the person: graded by the picture's motion, below
                     }
                     let d = m[i] as i32 - mask[i] as i32;
-                    mask[i] = if !(-40..=40).contains(&d) {
-                        m[i]
-                    } else {
-                        (mask[i] as u32 + m[i] as u32).div_ceil(2) as u8
-                    };
+                    mask[i] =
+                        if !(-40..=40).contains(&d) { m[i] } else { (mask[i] as u32 + m[i] as u32).div_ceil(2) as u8 };
                 }
                 smooth_person(mask, m, mw, mh, &motion, 4, 3);
             }
@@ -158,12 +142,7 @@ impl MaskFilter {
 
     /// The filtered mask for drawing; its serial changes with each new one.
     pub fn masks(&self) -> Masks {
-        Masks {
-            seg: self
-                .mask
-                .as_ref()
-                .map(|m| (m.clone(), self.size, self.serial)),
-        }
+        Masks { seg: self.mask.as_ref().map(|m| (m.clone(), self.size, self.serial)) }
     }
 }
 
@@ -172,21 +151,11 @@ mod tests {
     use super::*;
 
     fn seg(serial: u64, px: [u8; 4]) -> Segmentation {
-        Segmentation {
-            pts_ns: serial as i64,
-            rgba: px.repeat(32 * 32),
-            size: (32, 32),
-            serial,
-        }
+        Segmentation { pts_ns: serial as i64, rgba: px.repeat(32 * 32), size: (32, 32), serial }
     }
 
     fn grey(v: u8) -> Luma {
-        Luma {
-            width: 64,
-            height: 64,
-            bytes: vec![v; 64 * 64],
-            cbcr: Vec::new(),
-        }
+        Luma { width: 64, height: 64, bytes: vec![v; 64 * 64], cbcr: Vec::new() }
     }
 
     fn first(f: &MaskFilter) -> [u8; 4] {

@@ -66,25 +66,15 @@ impl Face {
     pub fn eye_anchor(&self, eye: usize) -> [f32; 2] {
         let mesh = self.region(Region::Mesh);
         if mesh.len() >= MESH_POINTS {
-            let (a, b) = if eye == 1 {
-                (mesh[33], mesh[133])
-            } else {
-                (mesh[263], mesh[362])
-            };
+            let (a, b) = if eye == 1 { (mesh[33], mesh[133]) } else { (mesh[263], mesh[362]) };
             return [(a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5];
         }
-        let pts = self.region(if eye == 1 {
-            Region::RightEye
-        } else {
-            Region::LeftEye
-        });
+        let pts = self.region(if eye == 1 { Region::RightEye } else { Region::LeftEye });
         if pts.is_empty() {
             return [0.0, 0.0];
         }
         let n = pts.len() as f32;
-        let s = pts
-            .iter()
-            .fold([0.0, 0.0], |a, p| [a[0] + p[0], a[1] + p[1]]);
+        let s = pts.iter().fold([0.0, 0.0], |a, p| [a[0] + p[0], a[1] + p[1]]);
         [s[0] / n, s[1] / n]
     }
 }
@@ -164,13 +154,7 @@ impl LookSupport {
         let small = class == crate::device::Class::C;
         let face = if hot { TooSlow } else { Ok };
         let mesh = if hot || small { TooSlow } else { Ok };
-        LookSupport {
-            skin: face,
-            shape: mesh,
-            makeup: mesh,
-            light: Ok,
-            grade: Ok,
-        }
+        LookSupport { skin: face, shape: mesh, makeup: mesh, light: Ok, grade: Ok }
     }
 }
 
@@ -184,25 +168,11 @@ mod tests {
     #[test]
     fn looks_a_phone_cant_keep_up_with_are_too_slow() {
         let cool = LookSupport::of(Class::A, 0);
-        assert!(
-            [cool.skin, cool.shape, cool.makeup, cool.light, cool.grade]
-                .iter()
-                .all(|s| *s == Support::Ok)
-        );
+        assert!([cool.skin, cool.shape, cool.makeup, cool.light, cool.grade].iter().all(|s| *s == Support::Ok));
         let small = LookSupport::of(Class::C, 0);
-        assert_eq!(
-            (small.skin, small.shape, small.makeup),
-            (Support::Ok, Support::TooSlow, Support::TooSlow)
-        );
+        assert_eq!((small.skin, small.shape, small.makeup), (Support::Ok, Support::TooSlow, Support::TooSlow));
         let hot = LookSupport::of(Class::A, LIGHTER_STEP);
-        assert_eq!(
-            (hot.skin, hot.shape, hot.makeup),
-            (Support::TooSlow, Support::TooSlow, Support::TooSlow)
-        );
-        assert_eq!(
-            (hot.light, hot.grade),
-            (Support::Ok, Support::Ok),
-            "one pass each: they stay"
-        );
+        assert_eq!((hot.skin, hot.shape, hot.makeup), (Support::TooSlow, Support::TooSlow, Support::TooSlow));
+        assert_eq!((hot.light, hot.grade), (Support::Ok, Support::Ok), "one pass each: they stay");
     }
 }

@@ -83,82 +83,57 @@ pub fn hit(scene: &Scene, canvas: Id, view: &View, x: f32, y: f32) -> Option<Id>
         .objects
         .iter()
         .rev()
-        .find(|o| {
-            !o.locked
-                && o.layouts
-                    .get(&canvas)
-                    .is_some_and(|l| l.visible && contains(l, p))
-        })
+        .find(|o| !o.locked && o.layouts.get(&canvas).is_some_and(|l| l.visible && contains(l, p)))
         .map(|o| o.id)
 }
 
 /// The layout after `d`, snapped; the guides shown and the angle snapped to (if any).
-pub fn apply(
-    start: &Layout,
-    others: &[Layout],
-    view: &View,
-    d: &Delta,
-) -> (Layout, Vec<Guide>, Option<f32>) {
+pub fn apply(start: &Layout, others: &[Layout], view: &View, d: &Delta) -> (Layout, Vec<Guide>, Option<f32>) {
     let mut l = *start;
-    let scale = if d.scale.is_finite() && d.scale > 0.01 {
-        d.scale
-    } else {
-        1.0
-    };
+    let scale = if d.scale.is_finite() && d.scale > 0.01 { d.scale } else { 1.0 };
     let (cx0, cy0) = (start.x + start.width / 2.0, start.y + start.height / 2.0);
     l.width = start.width * scale;
     l.height = start.height * scale;
     let (mut cx, mut cy) = (cx0 + d.dx * view.kx(), cy0 + d.dy * view.ky());
     let mut guides = Vec::new();
     // edges and centres: the box's (unturned) against the canvas's and the other layers'
-    let snap =
-        |c: f32, half: f32, size: f32, others: &mut dyn Iterator<Item = (f32, f32)>, t: f32| {
-            let mut targets = vec![0.0, size / 2.0, size];
-            for (o, oh) in others {
-                targets.extend([o - oh, o, o + oh]);
-            }
-            let mut best: Option<(f32, f32)> = None; // (shift, target)
-            for edge in [c - half, c, c + half] {
-                for &tg in &targets {
-                    let shift = tg - edge;
-                    if shift.abs() <= t && best.is_none_or(|(s, _)| shift.abs() < s.abs()) {
-                        best = Some((shift, tg));
-                    }
+    let snap = |c: f32, half: f32, size: f32, others: &mut dyn Iterator<Item = (f32, f32)>, t: f32| {
+        let mut targets = vec![0.0, size / 2.0, size];
+        for (o, oh) in others {
+            targets.extend([o - oh, o, o + oh]);
+        }
+        let mut best: Option<(f32, f32)> = None; // (shift, target)
+        for edge in [c - half, c, c + half] {
+            for &tg in &targets {
+                let shift = tg - edge;
+                if shift.abs() <= t && best.is_none_or(|(s, _)| shift.abs() < s.abs()) {
+                    best = Some((shift, tg));
                 }
             }
-            best
-        };
+        }
+        best
+    };
     let t = d.snap_threshold.max(0.0);
     if d.dx != 0.0 || d.dy != 0.0 {
         if let Some((shift, tg)) = snap(
             cx,
             l.width.abs() / 2.0,
             view.canvas.0,
-            &mut others
-                .iter()
-                .map(|o| (o.x + o.width / 2.0, o.width.abs() / 2.0)),
+            &mut others.iter().map(|o| (o.x + o.width / 2.0, o.width.abs() / 2.0)),
             t * view.kx(),
         ) {
             cx += shift;
-            guides.push(Guide {
-                vertical: true,
-                position: tg / view.kx(),
-            });
+            guides.push(Guide { vertical: true, position: tg / view.kx() });
         }
         if let Some((shift, tg)) = snap(
             cy,
             l.height.abs() / 2.0,
             view.canvas.1,
-            &mut others
-                .iter()
-                .map(|o| (o.y + o.height / 2.0, o.height.abs() / 2.0)),
+            &mut others.iter().map(|o| (o.y + o.height / 2.0, o.height.abs() / 2.0)),
             t * view.ky(),
         ) {
             cy += shift;
-            guides.push(Guide {
-                vertical: false,
-                position: tg / view.ky(),
-            });
+            guides.push(Guide { vertical: false, position: tg / view.ky() });
         }
     }
     l.x = cx - l.width / 2.0;
@@ -201,19 +176,10 @@ pub fn others(scene: &Scene, canvas: Id, except: Id) -> Vec<Layout> {
 mod tests {
     use super::*;
 
-    const V: View = View {
-        view: (360.0, 640.0),
-        canvas: (1080.0, 1920.0),
-    };
+    const V: View = View { view: (360.0, 640.0), canvas: (1080.0, 1920.0) };
 
     fn delta(dx: f32, dy: f32) -> Delta {
-        Delta {
-            dx,
-            dy,
-            scale: 1.0,
-            rotation: 0.0,
-            snap_threshold: 8.0,
-        }
+        Delta { dx, dy, scale: 1.0, rotation: 0.0, snap_threshold: 8.0 }
     }
 
     #[test]
@@ -223,13 +189,7 @@ mod tests {
         // (under 8 points = 24 px): snapped
         let (l, guides, _) = apply(&start, &[], &V, &delta(118.0, 0.0));
         assert_eq!(l.x + l.width / 2.0, 540.0);
-        assert_eq!(
-            guides,
-            vec![Guide {
-                vertical: true,
-                position: 180.0
-            }]
-        );
+        assert_eq!(guides, vec![Guide { vertical: true, position: 180.0 }]);
         // far from anything: moves freely
         let (l, guides, _) = apply(&start, &[], &V, &delta(50.0, 10.0));
         assert_eq!((l.x, l.y), (250.0, 130.0));
@@ -239,20 +199,11 @@ mod tests {
     #[test]
     fn pinches_keep_the_centre_and_turns_snap_to_15_degrees() {
         let start = Layout::boxed(0.0, 0.0, 100.0, 100.0);
-        let d = Delta {
-            dx: 0.0,
-            dy: 0.0,
-            scale: 2.0,
-            rotation: 43.0,
-            snap_threshold: 0.0,
-        };
+        let d = Delta { dx: 0.0, dy: 0.0, scale: 2.0, rotation: 43.0, snap_threshold: 0.0 };
         let (l, _, snapped) = apply(&start, &[], &V, &d);
         assert_eq!((l.x, l.y, l.width), (-50.0, -50.0, 200.0));
         assert_eq!((l.rotation, snapped), (45.0, Some(45.0)));
-        let d = Delta {
-            rotation: 37.0,
-            ..d
-        };
+        let d = Delta { rotation: 37.0, ..d };
         assert_eq!(apply(&start, &[], &V, &d).2, None);
     }
 
@@ -260,23 +211,13 @@ mod tests {
     fn hits_the_topmost_and_respects_turns() {
         let canvas = Id::new();
         let mut scene = Scene::new("S");
-        let a = Object::new(
-            "a",
-            Id::new(),
-            [(canvas, Layout::boxed(0.0, 0.0, 1080.0, 1920.0))],
-        );
+        let a = Object::new("a", Id::new(), [(canvas, Layout::boxed(0.0, 0.0, 1080.0, 1920.0))]);
         let mut small = Layout::boxed(400.0, 800.0, 300.0, 30.0);
         small.rotation = 90.0;
         let b = Object::new("b", Id::new(), [(canvas, small)]);
         scene.objects = vec![a.clone(), b.clone()];
         // the turned bar stands upright around its centre (550, 815)
-        assert_eq!(
-            hit(&scene, canvas, &V, 550.0 / 3.0, 700.0 / 3.0),
-            Some(b.id)
-        );
-        assert_eq!(
-            hit(&scene, canvas, &V, 450.0 / 3.0, 815.0 / 3.0),
-            Some(a.id)
-        );
+        assert_eq!(hit(&scene, canvas, &V, 550.0 / 3.0, 700.0 / 3.0), Some(b.id));
+        assert_eq!(hit(&scene, canvas, &V, 450.0 / 3.0, 815.0 / 3.0), Some(a.id));
     }
 }

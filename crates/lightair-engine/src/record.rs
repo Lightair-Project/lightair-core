@@ -75,13 +75,11 @@ fn read_index(index: &Path) -> std::io::Result<Value> {
     };
     match serde_json::from_slice::<Value>(&bytes) {
         Ok(v) if v["version"] == 1 && v["items"].is_array() => Ok(v),
-        Ok(v) if v["version"].as_u64().is_some_and(|n| n > 1) => Err(std::io::Error::other(
-            "the Studio index is a newer version than this app writes",
-        )),
+        Ok(v) if v["version"].as_u64().is_some_and(|n| n > 1) => {
+            Err(std::io::Error::other("the Studio index is a newer version than this app writes"))
+        }
         _ => {
-            let ms = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_millis());
+            let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis());
             let aside = index.with_extension(format!("json.broken-{ms}"));
             tracing::warn!(aside = %aside.display(), "the Studio index couldn't be read: kept aside");
             fs::rename(index, &aside)?;
@@ -98,12 +96,7 @@ fn write_index(index: &Path, doc: &Value) -> std::io::Result<()> {
 
 fn push(doc: &mut Value, shared: &Path, item: &Item) -> String {
     let root = shared.join("Lightair");
-    let rel = item
-        .file
-        .strip_prefix(&root)
-        .unwrap_or(&item.file)
-        .to_string_lossy()
-        .replace('\\', "/");
+    let rel = item.file.strip_prefix(&root).unwrap_or(&item.file).to_string_lossy().replace('\\', "/");
     let id = uuid::Uuid::new_v4().to_string();
     let entry = json!({
         "id": id,
@@ -134,12 +127,8 @@ pub fn recover(shared: &Path) -> std::io::Result<usize> {
     };
     let index = dir.join("index.json");
     let mut doc = read_index(&index)?;
-    let listed: std::collections::HashSet<String> = doc["items"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|i| i["file"].as_str().map(str::to_string))
-        .collect();
+    let listed: std::collections::HashSet<String> =
+        doc["items"].as_array().into_iter().flatten().filter_map(|i| i["file"].as_str().map(str::to_string)).collect();
     let root = shared.join("Lightair");
     let mut added = 0;
     for e in entries.flatten() {
@@ -147,11 +136,7 @@ pub fn recover(shared: &Path) -> std::io::Result<usize> {
         if path.extension().and_then(|x| x.to_str()) != Some("mp4") {
             continue;
         }
-        let rel = path
-            .strip_prefix(&root)
-            .unwrap_or(&path)
-            .to_string_lossy()
-            .replace('\\', "/");
+        let rel = path.strip_prefix(&root).unwrap_or(&path).to_string_lossy().replace('\\', "/");
         if listed.contains(&rel) || e.metadata().map_or(true, |m| m.len() == 0) {
             continue;
         }
@@ -162,21 +147,8 @@ pub fn recover(shared: &Path) -> std::io::Result<usize> {
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map_or(0, |d| d.as_millis() as u64);
         let (width, height) = video_size(&path).unwrap_or((0, 0));
-        let name = path
-            .file_stem()
-            .map_or(String::new(), |s| s.to_string_lossy().to_string());
-        push(
-            &mut doc,
-            shared,
-            &Item {
-                name,
-                created_ms,
-                duration_ms: 0,
-                width,
-                height,
-                file: path.clone(),
-            },
-        );
+        let name = path.file_stem().map_or(String::new(), |s| s.to_string_lossy().to_string());
+        push(&mut doc, shared, &Item { name, created_ms, duration_ms: 0, width, height, file: path.clone() });
         added += 1;
     }
     if added > 0 {
@@ -190,11 +162,7 @@ pub fn recover(shared: &Path) -> std::io::Result<usize> {
 fn video_size(path: &Path) -> Option<(u32, u32)> {
     use std::io::Read;
     let mut head = Vec::new();
-    fs::File::open(path)
-        .ok()?
-        .take(1 << 20)
-        .read_to_end(&mut head)
-        .ok()?;
+    fs::File::open(path).ok()?.take(1 << 20).read_to_end(&mut head).ok()?;
     let mut at = 0;
     while let Some(i) = head[at..].windows(4).position(|w| w == b"tkhd") {
         let Some(start) = (at + i).checked_sub(4) else {
@@ -226,14 +194,8 @@ mod tests {
         let dir = folder(tmp.path());
         fs::create_dir_all(&dir).unwrap();
         let index = dir.join("index.json");
-        let item = |f: &str| Item {
-            name: f.into(),
-            created_ms: 1,
-            duration_ms: 2,
-            width: 9,
-            height: 16,
-            file: dir.join(f),
-        };
+        let item =
+            |f: &str| Item { name: f.into(), created_ms: 1, duration_ms: 2, width: 9, height: 16, file: dir.join(f) };
         // unreadable: kept aside, a fresh one started
         fs::write(&index, b"{ not json").unwrap();
         add_to_index(tmp.path(), &item("a.mp4")).unwrap();
@@ -246,11 +208,7 @@ mod tests {
         // a newer version: left alone
         fs::write(&index, br#"{"version": 2, "items": [{"id": "x"}]}"#).unwrap();
         assert!(add_to_index(tmp.path(), &item("b.mp4")).is_err());
-        assert!(
-            fs::read_to_string(&index)
-                .unwrap()
-                .contains("\"version\": 2")
-        );
+        assert!(fs::read_to_string(&index).unwrap().contains("\"version\": 2"));
         // an MP4 the index doesn't list (an app ended mid-recording) is put back, with its size
         fs::remove_file(&index).unwrap();
         add_to_index(tmp.path(), &item("listed.mp4")).unwrap();
@@ -271,11 +229,7 @@ mod tests {
         let doc: Value = serde_json::from_slice(&fs::read(&index).unwrap()).unwrap();
         let lost = &doc["items"][1];
         assert_eq!(
-            (
-                lost["name"].as_str(),
-                lost["width"].as_u64(),
-                lost["height"].as_u64()
-            ),
+            (lost["name"].as_str(), lost["width"].as_u64(), lost["height"].as_u64()),
             (Some("2026-11-21 10.00 Lost"), Some(1080), Some(1920))
         );
     }
@@ -288,32 +242,16 @@ mod tests {
         let dir = folder(tmp.path());
         fs::create_dir_all(&dir).unwrap();
         let f = file_name(&dir, "Tokyo: walk", 1_795_100_000, 9 * 60);
-        assert!(
-            f.to_string_lossy().contains("2026-11-19 23.53 Tokyo"),
-            "{}",
-            f.display()
-        );
+        assert!(f.to_string_lossy().contains("2026-11-19 23.53 Tokyo"), "{}", f.display());
         fs::write(&f, b"x").unwrap();
         assert_ne!(file_name(&dir, "Tokyo: walk", 1_795_100_000, 9 * 60), f);
-        let item = Item {
-            name: "Tokyo walk".into(),
-            created_ms: 1,
-            duration_ms: 2,
-            width: 1080,
-            height: 1920,
-            file: f,
-        };
+        let item =
+            Item { name: "Tokyo walk".into(), created_ms: 1, duration_ms: 2, width: 1080, height: 1920, file: f };
         add_to_index(tmp.path(), &item).unwrap();
         add_to_index(tmp.path(), &item).unwrap();
-        let doc: Value =
-            serde_json::from_slice(&fs::read(dir.join("index.json")).unwrap()).unwrap();
+        let doc: Value = serde_json::from_slice(&fs::read(dir.join("index.json")).unwrap()).unwrap();
         assert_eq!(doc["version"], 1);
         assert_eq!(doc["items"].as_array().unwrap().len(), 2);
-        assert!(
-            doc["items"][0]["file"]
-                .as_str()
-                .unwrap()
-                .starts_with("Studio/2026-11-19 23.53")
-        );
+        assert!(doc["items"][0]["file"].as_str().unwrap().starts_with("Studio/2026-11-19 23.53"));
     }
 }

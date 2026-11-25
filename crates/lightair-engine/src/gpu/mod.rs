@@ -40,12 +40,7 @@ pub fn zero_copy() -> bool {
 }
 
 fn entry(binding: u32, ty: wgpu::BindingType) -> wgpu::BindGroupLayoutEntry {
-    wgpu::BindGroupLayoutEntry {
-        binding,
-        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-        ty,
-        count: None,
-    }
+    wgpu::BindGroupLayoutEntry { binding, visibility: wgpu::ShaderStages::VERTEX_FRAGMENT, ty, count: None }
 }
 
 fn uniform() -> wgpu::BindingType {
@@ -91,11 +86,7 @@ fn pipeline(
             module,
             entry_point: Some("fs"),
             compilation_options: Default::default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format,
-                blend: None,
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
+            targets: &[Some(wgpu::ColorTargetState { format, blend: None, write_mask: wgpu::ColorWrites::ALL })],
         }),
         multiview_mask: None,
         cache: None,
@@ -118,10 +109,7 @@ impl Gpu {
         let _ = zero_copy;
         let shared = lightair_render::shared_gpu()?;
         #[cfg(target_os = "android")]
-        let importer = zero_copy
-            .then(|| android::Importer::new(&shared.device))
-            .flatten()
-            .map(parking_lot::Mutex::new);
+        let importer = zero_copy.then(|| android::Importer::new(&shared.device)).flatten().map(parking_lot::Mutex::new);
         let device = &shared.device;
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             mag_filter: wgpu::FilterMode::Linear,
@@ -143,19 +131,9 @@ impl Gpu {
         });
         let yuv_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
-            entries: &[
-                entry(0, uniform()),
-                entry(1, tex()),
-                entry(2, tex()),
-                entry(3, filtering),
-            ],
+            entries: &[entry(0, uniform()), entry(1, tex()), entry(2, tex()), entry(3, filtering)],
         });
-        let yuv = pipeline(
-            device,
-            &yuv_module,
-            &yuv_layout,
-            wgpu::TextureFormat::Rgba8Unorm,
-        );
+        let yuv = pipeline(device, &yuv_module, &yuv_layout, wgpu::TextureFormat::Rgba8Unorm);
         Ok(Gpu {
             shared,
             sampler,
@@ -211,18 +189,9 @@ impl Gpu {
             label: None,
             layout: &self.blit_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: u.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
+                wgpu::BindGroupEntry { binding: 0, resource: u.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&view) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.sampler) },
             ],
         });
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -231,10 +200,7 @@ impl Gpu {
                 view: dst,
                 depth_slice: None,
                 resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                    store: wgpu::StoreOp::Store,
-                },
+                ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
             })],
             depth_stencil_attachment: None,
             timestamp_writes: None,
@@ -256,11 +222,7 @@ impl Gpu {
         let plane = |format, size: (u32, u32), data: &[u8], bpp: u32| {
             let t = device.create_texture(&wgpu::TextureDescriptor {
                 label: None,
-                size: wgpu::Extent3d {
-                    width: size.0,
-                    height: size.1,
-                    depth_or_array_layers: 1,
-                },
+                size: wgpu::Extent3d { width: size.0, height: size.1, depth_or_array_layers: 1 },
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
@@ -276,36 +238,26 @@ impl Gpu {
                     bytes_per_row: Some(size.0 * bpp),
                     rows_per_image: Some(size.1),
                 },
-                wgpu::Extent3d {
-                    width: size.0,
-                    height: size.1,
-                    depth_or_array_layers: 1,
-                },
+                wgpu::Extent3d { width: size.0, height: size.1, depth_or_array_layers: 1 },
             );
             t
         };
         let luma = plane(wgpu::TextureFormat::R8Unorm, (w, h), &f.y, 1);
         let chroma = plane(wgpu::TextureFormat::Rg8Unorm, (w / 2, h / 2), &f.uv, 2);
-        let out = out
-            .filter(|t| (t.width(), t.height()) == (ow, oh))
-            .unwrap_or_else(|| {
-                device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("feed"),
-                    size: wgpu::Extent3d {
-                        width: ow,
-                        height: oh,
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING
-                        | wgpu::TextureUsages::RENDER_ATTACHMENT
-                        | wgpu::TextureUsages::COPY_SRC,
-                    view_formats: &[],
-                })
-            });
+        let out = out.filter(|t| (t.width(), t.height()) == (ow, oh)).unwrap_or_else(|| {
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("feed"),
+                size: wgpu::Extent3d { width: ow, height: oh, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            })
+        });
         let k = coefficients(f.matrix);
         let u = self.uniform(&[
             k[0],
@@ -326,22 +278,10 @@ impl Gpu {
             label: None,
             layout: &self.yuv_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: u.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&lv),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&cv),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
+                wgpu::BindGroupEntry { binding: 0, resource: u.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&lv) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&cv) },
+                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::Sampler(&self.sampler) },
             ],
         });
         let mut encoder = device.create_command_encoder(&Default::default());
@@ -408,22 +348,10 @@ impl Gpu {
             label: None,
             layout: &self.yuv_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: u.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&tv),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&tv),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
+                wgpu::BindGroupEntry { binding: 0, resource: u.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&tv) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&tv) },
+                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::Sampler(&self.sampler) },
             ],
         });
         {
@@ -456,16 +384,8 @@ impl Gpu {
         self.shared.queue.write_texture(
             t.as_image_copy(),
             rgba,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(w * 4),
-                rows_per_image: Some(h),
-            },
-            wgpu::Extent3d {
-                width: w,
-                height: h,
-                depth_or_array_layers: 1,
-            },
+            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(w * 4), rows_per_image: Some(h) },
+            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
         );
     }
 
@@ -473,11 +393,7 @@ impl Gpu {
     pub fn target(&self, size: (u32, u32), format: wgpu::TextureFormat) -> wgpu::Texture {
         self.shared.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("target"),
-            size: wgpu::Extent3d {
-                width: size.0,
-                height: size.1,
-                depth_or_array_layers: 1,
-            },
+            size: wgpu::Extent3d { width: size.0, height: size.1, depth_or_array_layers: 1 },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -496,41 +412,22 @@ impl Gpu {
 }
 
 /// An RGBA texture from bytes, on any thread.
-pub fn texture_on(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    rgba: &[u8],
-    size: (u32, u32),
-) -> wgpu::Texture {
+pub fn texture_on(device: &wgpu::Device, queue: &wgpu::Queue, rgba: &[u8], size: (u32, u32)) -> wgpu::Texture {
     let t = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("picture"),
-        size: wgpu::Extent3d {
-            width: size.0,
-            height: size.1,
-            depth_or_array_layers: 1,
-        },
+        size: wgpu::Extent3d { width: size.0, height: size.1, depth_or_array_layers: 1 },
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING
-            | wgpu::TextureUsages::COPY_DST
-            | wgpu::TextureUsages::COPY_SRC,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     });
     queue.write_texture(
         t.as_image_copy(),
         rgba,
-        wgpu::TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(size.0 * 4),
-            rows_per_image: Some(size.1),
-        },
-        wgpu::Extent3d {
-            width: size.0,
-            height: size.1,
-            depth_or_array_layers: 1,
-        },
+        wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(size.0 * 4), rows_per_image: Some(size.1) },
+        wgpu::Extent3d { width: size.0, height: size.1, depth_or_array_layers: 1 },
     );
     t
 }

@@ -15,10 +15,7 @@ pub const SLOTS: usize = 3;
 pub enum Picture {
     /// Apple: an IOSurface-backed BGRA pixel buffer, drawn as it is.
     #[cfg(any(target_os = "macos", target_os = "ios"))]
-    Buffer(
-        lightair_render::texture::PixelBuffer,
-        crate::gpu::apple::Kept,
-    ),
+    Buffer(lightair_render::texture::PixelBuffer, crate::gpu::apple::Kept),
     /// YUV 4:2:0 planes, copied (luma, then chroma interleaved U,V), converted on the GPU.
     Yuv(Yuv),
     /// RGBA bytes, tightly packed, upright (Android's screen: MediaProjection's ImageReader).
@@ -26,12 +23,7 @@ pub enum Picture {
     /// Android's camera zero-copy: its `AHardwareBuffer`, as captured (size), turned and
     /// mirrored as `push_yuv`'s.
     #[cfg(target_os = "android")]
-    Hardware {
-        held: Arc<crate::gpu::android::Held>,
-        size: (u32, u32),
-        rotation: u32,
-        mirrored: bool,
-    },
+    Hardware { held: Arc<crate::gpu::android::Held>, size: (u32, u32), rotation: u32, mirrored: bool },
 }
 
 impl Picture {
@@ -170,15 +162,13 @@ pub struct Mask {
 impl VideoFeed {
     /// The mask quality wanted now, if any.
     pub fn mask_wanted(&self, now_ns: i64) -> Option<u32> {
-        (self.mask_until_ns.load(Ordering::Acquire) > now_ns)
-            .then(|| self.mask_quality.load(Ordering::Relaxed))
+        (self.mask_until_ns.load(Ordering::Acquire) > now_ns).then(|| self.mask_quality.load(Ordering::Relaxed))
     }
 
     /// Asked for while a background effect draws this feed: for the next second.
     pub fn want_mask(&self, quality: u32, now_ns: i64) {
         self.mask_quality.store(quality.min(2), Ordering::Relaxed);
-        self.mask_until_ns
-            .store(now_ns + 1_000_000_000, Ordering::Release);
+        self.mask_until_ns.store(now_ns + 1_000_000_000, Ordering::Release);
     }
 
     /// Whether faces are wanted now (a face look draws this feed).
@@ -188,18 +178,10 @@ impl VideoFeed {
 
     /// Asked for while a face look draws this feed: for the next second.
     pub fn want_face(&self, now_ns: i64) {
-        self.face_until_ns
-            .store(now_ns + 1_000_000_000, Ordering::Release);
+        self.face_until_ns.store(now_ns + 1_000_000_000, Ordering::Release);
     }
 
-    pub fn push_face(
-        &self,
-        pts_ns: i64,
-        present: bool,
-        score: f32,
-        points: Vec<[f32; 2]>,
-        size: (u32, u32),
-    ) {
+    pub fn push_face(&self, pts_ns: i64, present: bool, score: f32, points: Vec<[f32; 2]>, size: (u32, u32)) {
         let mut faces = self.faces.lock();
         let serial = faces.back().map_or(0, |f| f.serial) + 1;
         faces.push_back(Arc::new(FacePush {
@@ -218,24 +200,13 @@ impl VideoFeed {
     pub fn push_segmentation(&self, pts_ns: i64, rgba: Vec<u8>, size: (u32, u32)) {
         let mut s = self.segmentation.lock();
         let serial = s.as_ref().map_or(0, |s| s.serial) + 1;
-        *s = Some(Arc::new(Segmentation {
-            pts_ns,
-            rgba,
-            size,
-            serial,
-        }));
+        *s = Some(Arc::new(Segmentation { pts_ns, rgba, size, serial }));
     }
 
     pub fn push_mask(&self, bytes: Vec<u8>, size: (u32, u32), rotation: u32, mirrored: bool) {
         let mut m = self.mask.lock();
         let serial = m.as_ref().map_or(0, |m| m.serial) + 1;
-        *m = Some(Arc::new(Mask {
-            bytes,
-            size,
-            rotation: rotation % 360 / 90,
-            mirrored,
-            serial,
-        }));
+        *m = Some(Arc::new(Mask { bytes, size, rotation: rotation % 360 / 90, mirrored, serial }));
     }
 }
 
@@ -263,21 +234,12 @@ impl VideoFeed {
         let serial = self.serial.fetch_add(1, Ordering::AcqRel) + 1;
         let old = {
             let mut ring = self.ring.lock();
-            let old = if ring.len() >= SLOTS {
-                ring.pop_front()
-            } else {
-                None
-            };
-            ring.push_back(Frame {
-                picture: Arc::new(picture),
-                host_ns,
-                serial,
-            });
+            let old = if ring.len() >= SLOTS { ring.pop_front() } else { None };
+            ring.push_back(Frame { picture: Arc::new(picture), host_ns, serial });
             old
         };
         // when it arrived (not when it was captured: a camera whose times lag isn't paused)
-        self.arrived_ns
-            .store(crate::clock::host_now_ns(), Ordering::Release);
+        self.arrived_ns.store(crate::clock::host_now_ns(), Ordering::Release);
         self.pushed.fetch_add(1, Ordering::Relaxed);
         // released outside the lock (a CVPixelBuffer goes back to its pool here)
         if let Some(f) = old {
@@ -307,11 +269,7 @@ impl VideoFeed {
     /// later: a frame from a feed that runs ahead is better than none).
     pub fn at(&self, host_ns: i64) -> Option<(Arc<Picture>, u64, i64)> {
         let ring = self.ring.lock();
-        let f = ring
-            .iter()
-            .rev()
-            .find(|f| f.host_ns <= host_ns)
-            .or_else(|| ring.front())?;
+        let f = ring.iter().rev().find(|f| f.host_ns <= host_ns).or_else(|| ring.front())?;
         Some((f.picture.clone(), f.serial, f.host_ns))
     }
 
@@ -401,8 +359,7 @@ impl AudioFeed {
             return false;
         };
         if p.slots() < samples.len() {
-            self.dropped
-                .fetch_add(samples.len() as u64, Ordering::Relaxed);
+            self.dropped.fetch_add(samples.len() as u64, Ordering::Relaxed);
             return false;
         }
         let Ok(mut chunk) = p.write_chunk_uninit(samples.len()) else {
@@ -421,10 +378,7 @@ impl AudioFeed {
         let frames = samples.len() as u64 / channels as u64;
         self.rate.store(rate.max(1), Ordering::Relaxed);
         self.channels.store(channels, Ordering::Relaxed);
-        self.end_ns.store(
-            host_ns + (frames as i64 * 1_000_000_000 / rate.max(1) as i64),
-            Ordering::Release,
-        );
+        self.end_ns.store(host_ns + (frames as i64 * 1_000_000_000 / rate.max(1) as i64), Ordering::Release);
         self.pushed.fetch_add(frames, Ordering::Relaxed);
         true
     }
@@ -460,23 +414,10 @@ mod tests {
         let now = crate::clock::host_now_ns();
         // the emulator's camera: frames stamped 800 ms ago, arriving steadily
         let (y, uv) = (vec![0u8; 4], vec![128u8; 2]);
-        let frame = Yuv {
-            width: 2,
-            height: 2,
-            y,
-            uv,
-            rotation: 0,
-            mirrored: false,
-            full_range: true,
-            matrix: 0,
-        };
+        let frame = Yuv { width: 2, height: 2, y, uv, rotation: 0, mirrored: false, full_range: true, matrix: 0 };
         feed.push(Picture::Yuv(frame), now - 800_000_000);
         let arrived = feed.arrived_ns.load(Ordering::Acquire);
-        assert!(
-            (arrived - now).abs() < 100_000_000,
-            "arrival, not capture: {}",
-            (arrived - now) / 1_000_000
-        );
+        assert!((arrived - now).abs() < 100_000_000, "arrival, not capture: {}", (arrived - now) / 1_000_000);
     }
 
     #[test]
@@ -486,43 +427,18 @@ mod tests {
         let y: Vec<u8> = (0..16).collect();
         // NV12: U,V interleaved in one buffer, v = u + 1
         let nv12 = [100u8, 200, 101, 201];
-        let (ly, uv) = unsafe {
-            copy_yuv(
-                &feed,
-                y.as_ptr(),
-                8,
-                nv12.as_ptr(),
-                nv12.as_ptr().add(1),
-                4,
-                2,
-                4,
-                2,
-            )
-        }
-        .unwrap();
+        let (ly, uv) =
+            unsafe { copy_yuv(&feed, y.as_ptr(), 8, nv12.as_ptr(), nv12.as_ptr().add(1), 4, 2, 4, 2) }.unwrap();
         assert_eq!(ly, [0, 1, 2, 3, 8, 9, 10, 11]);
         assert_eq!(uv, [100, 200, 101, 201]);
         // planar (I420)
         let (u, v) = ([10u8, 11], [20u8, 21]);
-        let (_, uv) =
-            unsafe { copy_yuv(&feed, y.as_ptr(), 8, u.as_ptr(), v.as_ptr(), 2, 1, 4, 2) }.unwrap();
+        let (_, uv) = unsafe { copy_yuv(&feed, y.as_ptr(), 8, u.as_ptr(), v.as_ptr(), 2, 1, 4, 2) }.unwrap();
         assert_eq!(uv, [10, 20, 11, 21]);
         // NV21: V first
         let nv21 = [200u8, 100, 201, 101];
-        let (_, uv) = unsafe {
-            copy_yuv(
-                &feed,
-                y.as_ptr(),
-                8,
-                nv21.as_ptr().add(1),
-                nv21.as_ptr(),
-                4,
-                2,
-                4,
-                2,
-            )
-        }
-        .unwrap();
+        let (_, uv) =
+            unsafe { copy_yuv(&feed, y.as_ptr(), 8, nv21.as_ptr().add(1), nv21.as_ptr(), 4, 2, 4, 2) }.unwrap();
         assert_eq!(uv, [100, 200, 101, 201]);
     }
 }

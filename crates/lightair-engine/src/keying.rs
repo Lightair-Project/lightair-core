@@ -10,12 +10,8 @@ use serde_json::{Map, Value};
 
 use crate::gpu::Gpu;
 
-pub const KINDS: [&str; 4] = [
-    "sharpness_filter_v2",
-    "chroma_key_filter_v2",
-    "color_key_filter_v2",
-    "luma_key_filter_v2",
-];
+pub const KINDS: [&str; 4] =
+    ["sharpness_filter_v2", "chroma_key_filter_v2", "color_key_filter_v2", "luma_key_filter_v2"];
 
 /// One effect's pass: (mode, key colour rgb, params).
 #[derive(Debug, Clone, PartialEq)]
@@ -41,11 +37,7 @@ fn settings(e: &lightair_model::Effect) -> Map<String, Value> {
 
 /// 0xAABBGGRR, as the desktop stores colours, as rgb 0–1.
 fn rgb(abgr: u64) -> [f32; 3] {
-    [
-        (abgr & 0xFF) as f32 / 255.0,
-        ((abgr >> 8) & 0xFF) as f32 / 255.0,
-        ((abgr >> 16) & 0xFF) as f32 / 255.0,
-    ]
+    [(abgr & 0xFF) as f32 / 255.0, ((abgr >> 8) & 0xFF) as f32 / 255.0, ((abgr >> 16) & 0xFF) as f32 / 255.0]
 }
 
 /// The source's sharpen and keyer passes, in order (the ones switched on).
@@ -57,10 +49,7 @@ pub fn steps(source: &Source) -> Vec<Step> {
         .map(|e| {
             let s = settings(e);
             let num = |k: &str, d: f64| s.get(k).and_then(Value::as_f64).unwrap_or(d) as f32;
-            let key = s
-                .get("key_color")
-                .and_then(Value::as_u64)
-                .unwrap_or(0xFF00FF00);
+            let key = s.get("key_color").and_then(Value::as_u64).unwrap_or(0xFF00FF00);
             match e.kind.as_str() {
                 "sharpness_filter_v2" => Step {
                     mode: 1,
@@ -91,21 +80,13 @@ pub fn steps(source: &Source) -> Vec<Step> {
                     more: [0.0; 12],
                     mode: 3,
                     key: rgb(key),
-                    b: [
-                        num("similarity", 80.0) / 1000.0,
-                        num("smoothness", 50.0) / 1000.0,
-                        0.0,
-                    ],
+                    b: [num("similarity", 80.0) / 1000.0, num("smoothness", 50.0) / 1000.0, 0.0],
                 },
                 _ => Step {
                     more: [0.0; 12],
                     mode: 4,
                     key: [0.0; 3],
-                    b: [
-                        num("luma_min", 0.0),
-                        num("luma_max", 1.0),
-                        num("luma_min_smooth", 0.02).max(0.002),
-                    ],
+                    b: [num("luma_min", 0.0), num("luma_max", 1.0), num("luma_min_smooth", 0.02).max(0.002)],
                 },
             }
         })
@@ -163,11 +144,7 @@ impl Masks {
                     bytes_per_row: Some(mask.size.0),
                     rows_per_image: Some(mask.size.1),
                 },
-                wgpu::Extent3d {
-                    width: mask.size.0,
-                    height: mask.size.1,
-                    depth_or_array_layers: 1,
-                },
+                wgpu::Extent3d { width: mask.size.0, height: mask.size.1, depth_or_array_layers: 1 },
             );
             self.0.insert(source, (mask.serial, t));
         }
@@ -216,10 +193,7 @@ impl Pipeline {
                         multisampled: false,
                     },
                 ),
-                entry(
-                    2,
-                    wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                ),
+                entry(2, wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering)),
                 entry(
                     3,
                     wgpu::BindingType::Texture {
@@ -269,11 +243,7 @@ impl Pipeline {
         });
         let white = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("no mask"),
-            size: wgpu::Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
+            size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -281,23 +251,14 @@ impl Pipeline {
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
-        Pipeline {
-            layout,
-            pipeline,
-            sampler,
-            white,
-        }
+        Pipeline { layout, pipeline, sampler, white }
     }
 }
 
 fn target(gpu: &Gpu, size: (u32, u32)) -> wgpu::Texture {
     gpu.device().create_texture(&wgpu::TextureDescriptor {
         label: Some("keying"),
-        size: wgpu::Extent3d {
-            width: size.0.max(1),
-            height: size.1.max(1),
-            depth_or_array_layers: 1,
-        },
+        size: wgpu::Extent3d { width: size.0.max(1), height: size.1.max(1), depth_or_array_layers: 1 },
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
@@ -325,16 +286,8 @@ pub fn draw(
     gpu.queue().write_texture(
         p.white.as_image_copy(),
         &[255],
-        wgpu::TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(1),
-            rows_per_image: Some(1),
-        },
-        wgpu::Extent3d {
-            width: 1,
-            height: 1,
-            depth_or_array_layers: 1,
-        },
+        wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(1), rows_per_image: Some(1) },
+        wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
     );
     let (mask_t, rotation, mirrored, has_mask) = match &mask {
         Some(m) => (m.texture, m.rotation, m.mirrored, true),
@@ -343,9 +296,7 @@ pub fn draw(
     let mv = mask_t.create_view(&Default::default());
     let fresh = !matches!(targets.0.get(&source), Some((a, _)) if (a.width(), a.height()) == size);
     if fresh {
-        targets
-            .0
-            .insert(source, (target(gpu, size), target(gpu, size)));
+        targets.0.insert(source, (target(gpu, size), target(gpu, size)));
     }
     let (a, b) = targets.0.get(&source).cloned().expect("just made");
     let mut encoder = gpu.device().create_command_encoder(&Default::default());
@@ -383,30 +334,15 @@ pub fn draw(
             mapped_at_creation: false,
         });
         gpu.queue().write_buffer(&buffer, 0, &bytes);
-        let (sv, dv) = (
-            from.create_view(&Default::default()),
-            to.create_view(&Default::default()),
-        );
+        let (sv, dv) = (from.create_view(&Default::default()), to.create_view(&Default::default()));
         let group = gpu.device().create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &p.layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&sv),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&p.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&mv),
-                },
+                wgpu::BindGroupEntry { binding: 0, resource: buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&sv) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&p.sampler) },
+                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&mv) },
             ],
         });
         {

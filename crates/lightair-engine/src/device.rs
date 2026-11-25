@@ -29,10 +29,8 @@ impl DeviceInfo {
         let model = self.model.as_str();
         if self.platform == "ios" {
             // "iPhone16,1" is the 15 Pro; "iPhone14,x" the 13 and 14; "iPhone15,x" the 14 Pro and 15
-            let major = model
-                .strip_prefix("iPhone")
-                .and_then(|m| m.split(',').next())
-                .and_then(|m| m.parse::<u32>().ok());
+            let major =
+                model.strip_prefix("iPhone").and_then(|m| m.split(',').next()).and_then(|m| m.parse::<u32>().ok());
             return match major {
                 Some(m) if m >= 16 => Class::A,
                 Some(m) if m >= 14 => Class::B,
@@ -44,15 +42,9 @@ impl DeviceInfo {
             };
         }
         let soc = self.soc.as_deref().unwrap_or("").to_ascii_lowercase();
-        if ["sm8650", "sm8750", "tensor g4", "tensor g5"]
-            .iter()
-            .any(|s| soc.contains(s))
-            || self.memory_mb >= 12_000
-        {
+        if ["sm8650", "sm8750", "tensor g4", "tensor g5"].iter().any(|s| soc.contains(s)) || self.memory_mb >= 12_000 {
             Class::A
-        } else if ["sm8450", "sm8475", "sm8550", "mt6985", "mt6989"]
-            .iter()
-            .any(|s| soc.contains(s))
+        } else if ["sm8450", "sm8475", "sm8550", "mt6985", "mt6989"].iter().any(|s| soc.contains(s))
             || self.memory_mb >= 8_000
         {
             Class::B
@@ -85,8 +77,7 @@ impl DeviceInfo {
             Class::B => 2,
             Class::C => 1,
         };
-        self.max_concurrent_video_encodes
-            .map_or(by_class, |m| m.min(by_class))
+        self.max_concurrent_video_encodes.map_or(by_class, |m| m.min(by_class))
     }
 }
 
@@ -96,12 +87,8 @@ mod tests {
 
     #[test]
     fn classes() {
-        let ios = |m: &str| DeviceInfo {
-            platform: "ios".into(),
-            model: m.into(),
-            memory_mb: 6000,
-            ..Default::default()
-        };
+        let ios =
+            |m: &str| DeviceInfo { platform: "ios".into(), model: m.into(), memory_mb: 6000, ..Default::default() };
         assert_eq!(ios("iPhone16,1").class(), Class::A);
         assert_eq!(ios("iPhone15,4").class(), Class::B);
         assert_eq!(ios("iPhone13,2").class(), Class::C);

@@ -58,18 +58,11 @@ impl Luma {
             cbcr.push(cb.round().clamp(0.0, 255.0) as u8);
             cbcr.push(cr.round().clamp(0.0, 255.0) as u8);
         }
-        Luma {
-            width,
-            height,
-            bytes,
-            cbcr,
-        }
+        Luma { width, height, bytes, cbcr }
     }
 
     fn usable(&self) -> bool {
-        self.width >= 2
-            && self.height >= 2
-            && self.bytes.len() >= self.width as usize * self.height as usize
+        self.width >= 2 && self.height >= 2 && self.bytes.len() >= self.width as usize * self.height as usize
     }
 
     fn has_cbcr(&self) -> bool {
@@ -110,34 +103,20 @@ impl Luma {
 // order.
 const REGION_TABLE: [&[usize]; REGION_COUNT - 1] = [
     // Contour (jaw line, temple to temple like Vision)
-    &[
-        356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172,
-        58, 132, 93, 234, 127,
-    ],
+    &[356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127],
     // LeftEye / RightEye (subject's left = image right)
-    &[
-        263, 249, 390, 373, 374, 380, 381, 382, 362, 398, 384, 385, 386, 387, 388, 466,
-    ],
-    &[
-        33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246,
-    ],
+    &[263, 249, 390, 373, 374, 380, 381, 382, 362, 398, 384, 385, 386, 387, 388, 466],
+    &[33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246],
     // brows
     &[276, 283, 282, 295, 285, 300, 293, 334, 296, 336],
     &[46, 53, 52, 65, 55, 70, 63, 105, 66, 107],
     // Nose (wings + tip + lower bridge), NoseCrest, Median
     &[98, 327, 129, 358, 64, 294, 2, 94, 19, 1, 4, 5, 195],
     &[168, 6, 197, 195, 5, 4],
-    &[
-        10, 151, 9, 8, 168, 6, 197, 195, 5, 4, 1, 19, 94, 2, 164, 0, 11, 12, 13, 14, 15, 16, 17,
-        18, 200, 199, 175, 152,
-    ],
+    &[10, 151, 9, 8, 168, 6, 197, 195, 5, 4, 1, 19, 94, 2, 164, 0, 11, 12, 13, 14, 15, 16, 17, 18, 200, 199, 175, 152],
     // lips (outer, inner incl. mouth corners 78 / 308)
-    &[
-        61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 409, 270, 269, 267, 0, 37, 39, 40, 185,
-    ],
-    &[
-        78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 415, 310, 311, 312, 13, 82, 81, 80, 191,
-    ],
+    &[61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 409, 270, 269, 267, 0, 37, 39, 40, 185],
+    &[78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 415, 310, 311, 312, 13, 82, 81, 80, 191],
     // iris centres
     &[473],
     &[468],
@@ -174,10 +153,8 @@ pub fn assemble(mesh: &[[f32; 2]]) -> Face {
 // (the strongest bright-above, dark-below step), as one smooth correction; the corners stay.
 // `mesh`: the 478 raw points in the luma's pixels.
 pub fn snap_lids(mesh: &mut [[f32; 2]], luma: &Luma) {
-    const LIDS: [[usize; 9]; 2] = [
-        [133, 173, 157, 158, 159, 160, 161, 246, 33],
-        [362, 398, 384, 385, 386, 387, 388, 466, 263],
-    ];
+    const LIDS: [[usize; 9]; 2] =
+        [[133, 173, 157, 158, 159, 160, 161, 246, 33], [362, 398, 384, 385, 386, 387, 388, 466, 263]];
     const BROW: [usize; 2] = [105, 334];
     if mesh.len() < MESH_POINTS || !luma.usable() {
         return;
@@ -215,8 +192,7 @@ pub fn snap_lids(mesh: &mut [[f32; 2]], luma: &Luma) {
                 for j in -1..=1 {
                     let x = p[0] + tx * j as f32 * half;
                     let y = p[1] + ty * j as f32 * half;
-                    g += lum(x + nx * (s + step), y + ny * (s + step))
-                        - lum(x + nx * (s - step), y + ny * (s - step));
+                    g += lum(x + nx * (s + step), y + ny * (s + step)) - lum(x + nx * (s - step), y + ny * (s - step));
                 }
                 g = g / 3.0 - 0.25 * s.abs(); // prefer the closest strong edge
                 if g > best_g {
@@ -331,10 +307,7 @@ fn sample_skin(f: &Face, luma: &Luma) -> Option<[f32; 2]> {
     if count < 8 {
         return None;
     }
-    Some([
-        (sum_cb / count as f64) as f32,
-        (sum_cr / count as f64) as f32,
-    ])
+    Some([(sum_cb / count as f64) as f32, (sum_cr / count as f64) as f32])
 }
 
 /// One-Euro filter state: the filtered value and its speed.
@@ -354,33 +327,13 @@ struct EuroCfg {
 }
 
 // Tuned for low jitter at rest and low lag in motion (analysis px, radians, IOD units).
-const CFG_CENTER: EuroCfg = EuroCfg {
-    min_cutoff: 1.5,
-    beta: 0.20,
-    d_cutoff: 1.0,
-};
-const CFG_ANGLE: EuroCfg = EuroCfg {
-    min_cutoff: 1.0,
-    beta: 1.0,
-    d_cutoff: 1.0,
-};
-const CFG_SCALE: EuroCfg = EuroCfg {
-    min_cutoff: 0.8,
-    beta: 0.05,
-    d_cutoff: 1.0,
-};
-const CFG_SHAPE: EuroCfg = EuroCfg {
-    min_cutoff: 0.6,
-    beta: 0.35,
-    d_cutoff: 1.0,
-};
+const CFG_CENTER: EuroCfg = EuroCfg { min_cutoff: 1.5, beta: 0.20, d_cutoff: 1.0 };
+const CFG_ANGLE: EuroCfg = EuroCfg { min_cutoff: 1.0, beta: 1.0, d_cutoff: 1.0 };
+const CFG_SCALE: EuroCfg = EuroCfg { min_cutoff: 0.8, beta: 0.05, d_cutoff: 1.0 };
+const CFG_SHAPE: EuroCfg = EuroCfg { min_cutoff: 0.6, beta: 0.35, d_cutoff: 1.0 };
 /// Eyelids and lips: a blink closes the lid in ~100 ms and makeup sits right on these edges, so
 /// they must follow at once; at rest they're still held at ~1.5 Hz.
-const CFG_FEATURE: EuroCfg = EuroCfg {
-    min_cutoff: 1.5,
-    beta: 6.0,
-    d_cutoff: 8.0,
-};
+const CFG_FEATURE: EuroCfg = EuroCfg { min_cutoff: 1.5, beta: 6.0, d_cutoff: 8.0 };
 
 // The smoothing factor of a low-pass at `cutoff` Hz over `dt` seconds.
 fn euro_alpha(cutoff: f32, dt: f32) -> f32 {
@@ -402,15 +355,14 @@ fn euro_step(s: &mut Euro, c: EuroCfg, x: f32, dt: f32) -> f32 {
 fn mesh_feature_point(i: usize) -> bool {
     // eyes: lid outlines, then the ring outside each
     const EYES: [usize; 64] = [
-        33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246, 263, 249, 390,
-        373, 374, 380, 381, 382, 362, 398, 384, 385, 386, 387, 388, 466, 130, 25, 110, 24, 23, 22,
-        26, 112, 243, 190, 56, 28, 27, 29, 30, 247, 359, 255, 339, 254, 253, 252, 256, 341, 463,
-        414, 286, 258, 257, 259, 260, 467,
+        33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246, 263, 249, 390, 373, 374, 380, 381,
+        382, 362, 398, 384, 385, 386, 387, 388, 466, 130, 25, 110, 24, 23, 22, 26, 112, 243, 190, 56, 28, 27, 29, 30,
+        247, 359, 255, 339, 254, 253, 252, 256, 341, 463, 414, 286, 258, 257, 259, 260, 467,
     ];
     // lips: outer and inner outlines
     const LIPS: [usize; 40] = [
-        61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 409, 270, 269, 267, 0, 37, 39, 40, 185,
-        78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 415, 310, 311, 312, 13, 82, 81, 80, 191,
+        61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 409, 270, 269, 267, 0, 37, 39, 40, 185, 78, 95, 88, 178, 87,
+        14, 317, 402, 318, 324, 308, 415, 310, 311, 312, 13, 82, 81, 80, 191,
     ];
     i < MESH_POINTS && (EYES.contains(&i) || LIPS.contains(&i))
 }
@@ -530,10 +482,7 @@ impl Tracker {
             }
         }
         let mut face = assemble(&mesh);
-        if face.pts.len() <= 10
-            || face.region(Region::LeftEye).is_empty()
-            || face.region(Region::RightEye).is_empty()
-        {
+        if face.pts.len() <= 10 || face.region(Region::LeftEye).is_empty() || face.region(Region::RightEye).is_empty() {
             return true;
         }
         let skin = luma.and_then(|l| {
@@ -564,9 +513,7 @@ impl Tracker {
             }
             self.skin_valid = true;
         }
-        face.skin_cbcr = self
-            .skin_valid
-            .then_some([self.e_cbcr[0].x, self.e_cbcr[1].x]);
+        face.skin_cbcr = self.skin_valid.then_some([self.e_cbcr[0].x, self.e_cbcr[1].x]);
         face.valid = true;
         face.pts_ns = f.pts_ns;
         if self.hist.len() == HISTORY {
@@ -623,12 +570,7 @@ impl Tracker {
             ang = euro_step(&mut self.e_ang, CFG_ANGLE, ang, dt);
             scale = euro_step(&mut self.e_scale, CFG_SCALE, scale, dt);
             let mut feature = vec![false; n];
-            for r in [
-                Region::LeftEye,
-                Region::RightEye,
-                Region::OuterLips,
-                Region::InnerLips,
-            ] {
+            for r in [Region::LeftEye, Region::RightEye, Region::OuterLips, Region::InnerLips] {
                 let s = f.region_start[r as usize];
                 for i in 0..f.region_count[r as usize] {
                     feature[s + i] = true;
@@ -702,10 +644,7 @@ impl Tracker {
             _ => Face::empty(),
         };
         out.pts_ns = pts_ns;
-        out.present = out.valid
-            && self
-                .last_seen_ns
-                .is_some_and(|t| now_ns.saturating_sub(t) < PRESENT_TIMEOUT_NS);
+        out.present = out.valid && self.last_seen_ns.is_some_and(|t| now_ns.saturating_sub(t) < PRESENT_TIMEOUT_NS);
         out
     }
 }
@@ -741,9 +680,7 @@ pub struct FaceWeight {
 impl FaceWeight {
     // `w += (target - w) * min(1, 6 dt)`, dt 0 the first time.
     pub fn update(&mut self, present: bool, now_ns: i64) -> f32 {
-        let dt = self
-            .last_ns
-            .map_or(0.0, |t| ((now_ns - t) as f64 / 1e9) as f32);
+        let dt = self.last_ns.map_or(0.0, |t| ((now_ns - t) as f64 / 1e9) as f32);
         self.last_ns = Some(now_ns);
         let target = if present { 1.0 } else { 0.0 };
         // a clock that steps back gives a negative dt: take the target at once
@@ -776,25 +713,11 @@ mod tests {
     }
 
     fn push(serial: u64, pts_ns: i64, points: Vec<[f32; 2]>) -> FacePush {
-        FacePush {
-            pts_ns,
-            present: true,
-            score: 0.9,
-            points,
-            size: (1280, 720),
-            serial,
-        }
+        FacePush { pts_ns, present: true, score: 0.9, points, size: (1280, 720), serial }
     }
 
     fn miss(serial: u64, pts_ns: i64) -> FacePush {
-        FacePush {
-            pts_ns,
-            present: false,
-            score: 0.0,
-            points: Vec::new(),
-            size: (1280, 720),
-            serial,
-        }
+        FacePush { pts_ns, present: false, score: 0.0, points: Vec::new(), size: (1280, 720), serial }
     }
 
     #[test]
@@ -802,11 +725,7 @@ mod tests {
         let f = assemble(&mesh(0.0));
         // the regions lie end to end and cover the points: what the shader indexes by
         for i in 1..f.region_start.len() {
-            assert_eq!(
-                f.region_start[i],
-                f.region_start[i - 1] + f.region_count[i - 1],
-                "region {i}"
-            );
+            assert_eq!(f.region_start[i], f.region_start[i - 1] + f.region_count[i - 1], "region {i}");
         }
         let last = f.region_start.len() - 1;
         assert_eq!(f.region_start[last] + f.region_count[last], f.pts.len());
@@ -925,11 +844,7 @@ mod tests {
         m[105] = [100.0, 110.0];
         m[334] = [300.0, 110.0];
         let edge = |x: f32| {
-            let u = if x < 200.0 {
-                (140.0 - x) / 80.0
-            } else {
-                (x - 260.0) / 80.0
-            };
+            let u = if x < 200.0 { (140.0 - x) / 80.0 } else { (x - 260.0) / 80.0 };
             let u = u.clamp(0.0, 1.0);
             lid_y - 3.0 * 4.0 * u * (1.0 - u)
         };
@@ -941,12 +856,7 @@ mod tests {
                 bytes[(y * w + x) as usize] = (130.0 - 90.0 * t).round() as u8;
             }
         }
-        let luma = Luma {
-            width: w,
-            height: h,
-            bytes,
-            cbcr: Vec::new(),
-        };
+        let luma = Luma { width: w, height: h, bytes, cbcr: Vec::new() };
         let before = m.clone();
         snap_lids(&mut m, &luma);
         for lid in [RIGHT, LEFT] {
@@ -954,21 +864,12 @@ mod tests {
             assert_eq!(m[lid[8]], before[lid[8]]);
             for &i in &lid[1..8] {
                 let want = edge(before[i][0]);
-                assert!(
-                    (m[i][1] - want).abs() < 0.6,
-                    "point {i}: {} vs edge {want}",
-                    m[i][1]
-                );
+                assert!((m[i][1] - want).abs() < 0.6, "point {i}: {} vs edge {want}", m[i][1]);
                 assert!((m[i][0] - before[i][0]).abs() < 1e-4);
             }
         }
         // a flat picture: nothing moves
-        let flat = Luma {
-            width: w,
-            height: h,
-            bytes: vec![128; (w * h) as usize],
-            cbcr: Vec::new(),
-        };
+        let flat = Luma { width: w, height: h, bytes: vec![128; (w * h) as usize], cbcr: Vec::new() };
         let mut n = before.clone();
         snap_lids(&mut n, &flat);
         assert_eq!(n, before);

@@ -40,59 +40,57 @@ fn pick(p: Pick) -> Value {
 pub fn controls_json(d: &EffectDef) -> Value {
     let mut controls: Vec<Value> = d
         .controls
-            .iter()
-            .filter(|c| !c.key().is_some_and(|k| DESKTOP_ONLY.contains(&k)))
-            .map(|c| match c {
-                Control::Heading(label) => json!({ "type": "heading", "label": label }),
-                Control::Slider(s) => json!({
-                    "type": "slider", "key": s.key, "label": s.label, "min": s.min, "max": s.max,
-                    "step": s.step, "default": s.default, "unit": format!("{:?}", s.unit).to_lowercase(), "int": s.int,
-                }),
-                Control::Choice { key, label, options, default } => json!({
-                    "type": "choice", "key": key, "label": label, "default": pick(*default),
-                    "options": options.iter().map(|(l, v)| json!({ "label": l, "value": pick(*v) })).collect::<Vec<_>>(),
-                }),
-                Control::Colour { key, label, default } => {
-                    json!({ "type": "colour", "key": key, "label": label, "default": default, "format": "0xAABBGGRR" })
-                }
-                // the grades phones draw, as a choice
-                Control::Presets { key, label, default, set: catalog::Presets::Grade } => json!({
-                    "type": "choice", "key": key, "label": label, "default": default,
-                    "options": crate::looks::grade::names().into_iter().map(|(cat, name)| json!({
-                        "label": format!("{cat} · {name}"), "value": name,
-                    })).collect::<Vec<_>>(),
-                }),
-                Control::Presets { key, label, default, set: catalog::Presets::Light } => json!({
-                    "type": "choice", "key": key, "label": label, "default": default,
-                    "options": crate::looks::render::light_names().into_iter().map(|n| json!({
-                        "label": n, "value": n,
-                    })).collect::<Vec<_>>(),
-                }),
-                // the makeup looks, as a choice: None, then each look
-                Control::Presets { key, label, default, set: catalog::Presets::Makeup } => json!({
-                    "type": "choice", "key": key, "label": label, "default": default,
-                    "options": std::iter::once("None".to_string())
-                        .chain(crate::looks::render::makeup_names())
-                        .map(|n| json!({ "label": n, "value": n }))
-                        .collect::<Vec<_>>(),
-                }),
-                Control::Presets { key, label, default, .. } => {
-                    json!({ "type": "presets", "key": key, "label": label, "default": default })
-                }
-                Control::File { key, label, extensions } => {
-                    json!({ "type": "file", "key": key, "label": label, "extensions": extensions })
-                }
-                Control::Switch { key, label, default } => json!({ "type": "switch", "key": key, "label": label, "default": default }),
-                Control::Track { key, label } => json!({ "type": "track", "key": key, "label": label }),
-            })
-            .collect();
+        .iter()
+        .filter(|c| !c.key().is_some_and(|k| DESKTOP_ONLY.contains(&k)))
+        .map(|c| match c {
+            Control::Heading(label) => json!({ "type": "heading", "label": label }),
+            Control::Slider(s) => json!({
+                "type": "slider", "key": s.key, "label": s.label, "min": s.min, "max": s.max,
+                "step": s.step, "default": s.default, "unit": format!("{:?}", s.unit).to_lowercase(), "int": s.int,
+            }),
+            Control::Choice { key, label, options, default } => json!({
+                "type": "choice", "key": key, "label": label, "default": pick(*default),
+                "options": options.iter().map(|(l, v)| json!({ "label": l, "value": pick(*v) })).collect::<Vec<_>>(),
+            }),
+            Control::Colour { key, label, default } => {
+                json!({ "type": "colour", "key": key, "label": label, "default": default, "format": "0xAABBGGRR" })
+            }
+            // the grades phones draw, as a choice
+            Control::Presets { key, label, default, set: catalog::Presets::Grade } => json!({
+                "type": "choice", "key": key, "label": label, "default": default,
+                "options": crate::looks::grade::names().into_iter().map(|(cat, name)| json!({
+                    "label": format!("{cat} · {name}"), "value": name,
+                })).collect::<Vec<_>>(),
+            }),
+            Control::Presets { key, label, default, set: catalog::Presets::Light } => json!({
+                "type": "choice", "key": key, "label": label, "default": default,
+                "options": crate::looks::render::light_names().into_iter().map(|n| json!({
+                    "label": n, "value": n,
+                })).collect::<Vec<_>>(),
+            }),
+            // the makeup looks, as a choice: None, then each look
+            Control::Presets { key, label, default, set: catalog::Presets::Makeup } => json!({
+                "type": "choice", "key": key, "label": label, "default": default,
+                "options": std::iter::once("None".to_string())
+                    .chain(crate::looks::render::makeup_names())
+                    .map(|n| json!({ "label": n, "value": n }))
+                    .collect::<Vec<_>>(),
+            }),
+            Control::Presets { key, label, default, .. } => {
+                json!({ "type": "presets", "key": key, "label": label, "default": default })
+            }
+            Control::File { key, label, extensions } => {
+                json!({ "type": "file", "key": key, "label": label, "extensions": extensions })
+            }
+            Control::Switch { key, label, default } => {
+                json!({ "type": "switch", "key": key, "label": label, "default": default })
+            }
+            Control::Track { key, label } => json!({ "type": "track", "key": key, "label": label }),
+        })
+        .collect();
     // the Looks screen's part switches, read by the looks' settings
     if d.kind == "studio.beauty" {
-        for (key, label) in [
-            ("skin_on", "Skin"),
-            ("shape_on", "Shape"),
-            ("makeup_on", "Makeup"),
-        ] {
+        for (key, label) in [("skin_on", "Skin"), ("shape_on", "Shape"), ("makeup_on", "Makeup")] {
             controls.push(json!({ "type": "switch", "key": key, "label": label, "default": true }));
         }
     }
@@ -112,10 +110,7 @@ fn file(dir: &Path) -> PathBuf {
 }
 
 pub fn presets(dir: &Path) -> Vec<Preset> {
-    std::fs::read(file(dir))
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_default()
+    std::fs::read(file(dir)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
 }
 
 /// Keeps `preset` (one of the same name and kind is replaced).
@@ -146,10 +141,7 @@ mod tests {
     #[test]
     fn the_phone_offers_only_the_effects_and_controls_it_draws() {
         let k = kinds();
-        assert!(
-            k.iter().any(|d| d.kind == "fx.vignette")
-                && k.iter().any(|d| d.kind == "color_filter_v2")
-        );
+        assert!(k.iter().any(|d| d.kind == "fx.vignette") && k.iter().any(|d| d.kind == "color_filter_v2"));
         // of the desktop's Studio effects: the background ones (the host's person masks) and
         // the looks (beauty, light, grade)
         assert!(
@@ -158,17 +150,9 @@ mod tests {
                 .all(|d| crate::background::KINDS.contains(&d.kind) || LOOKS.contains(&d.kind)),
         );
         let bg = controls_json(catalog::def("studio.bg_replace").unwrap());
-        let keys: Vec<&str> = bg
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(|c| c["key"].as_str())
-            .collect();
+        let keys: Vec<&str> = bg.as_array().unwrap().iter().filter_map(|c| c["key"].as_str()).collect();
         assert!(keys.contains(&"bg_color") && keys.contains(&"bg_quality"));
-        assert!(
-            !keys.contains(&"bg_model") && !keys.contains(&"bg_wrap"),
-            "{keys:?}"
-        );
+        assert!(!keys.contains(&"bg_model") && !keys.contains(&"bg_wrap"), "{keys:?}");
         let v = controls_json(catalog::def("fx.vignette").unwrap());
         assert!(v.as_array().unwrap().iter().any(|c| c["type"] == "slider"));
     }
@@ -176,20 +160,9 @@ mod tests {
     #[test]
     fn a_preset_is_saved_replaced_by_its_name_and_deleted() {
         let tmp = tempfile::tempdir().unwrap();
-        let p = Preset {
-            name: "Soft".into(),
-            kind: "fx.vignette".into(),
-            settings: json!({ "amount": 0.3 }),
-        };
+        let p = Preset { name: "Soft".into(), kind: "fx.vignette".into(), settings: json!({ "amount": 0.3 }) };
         save_preset(tmp.path(), p.clone()).unwrap();
-        save_preset(
-            tmp.path(),
-            Preset {
-                settings: json!({ "amount": 0.4 }),
-                ..p.clone()
-            },
-        )
-        .unwrap();
+        save_preset(tmp.path(), Preset { settings: json!({ "amount": 0.4 }), ..p.clone() }).unwrap();
         assert_eq!(presets(tmp.path()).len(), 1, "replaced, not added");
         delete_preset(tmp.path(), "fx.vignette", "Soft").unwrap();
         assert!(presets(tmp.path()).is_empty());

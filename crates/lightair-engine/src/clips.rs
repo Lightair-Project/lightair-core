@@ -44,11 +44,8 @@ impl Ring {
 
 /// NAL units of a packet, in either form.
 fn nals(p: &Packet) -> Vec<&[u8]> {
-    let format = if p.length_prefixed {
-        lightair_feed::NalFormat::LengthPrefixed
-    } else {
-        lightair_feed::NalFormat::AnnexB
-    };
+    let format =
+        if p.length_prefixed { lightair_feed::NalFormat::LengthPrefixed } else { lightair_feed::NalFormat::AnnexB };
     lightair_feed::ts::split_nals(&p.data, format)
 }
 
@@ -76,8 +73,8 @@ pub fn write(
     audio: &[Packet],
 ) -> Result<(), String> {
     use mp4::{
-        AacConfig, AudioObjectType, AvcConfig, ChannelConfig, MediaConfig, Mp4Config, Mp4Sample,
-        Mp4Writer, SampleFreqIndex, TrackConfig, TrackType,
+        AacConfig, AudioObjectType, AvcConfig, ChannelConfig, MediaConfig, Mp4Config, Mp4Sample, Mp4Writer,
+        SampleFreqIndex, TrackConfig, TrackType,
     };
     let newest = video.last().ok_or("nothing streamed yet")?.pts_ns;
     let from = newest - seconds as i64 * 1_000_000_000;
@@ -92,23 +89,13 @@ pub fn write(
         .iter()
         .find(|n| n.first().map(|b| b & 0x1F) == Some(7))
         .cloned()
-        .or_else(|| {
-            nals(&video[0])
-                .into_iter()
-                .find(|n| n[0] & 0x1F == 7)
-                .map(<[u8]>::to_vec)
-        })
+        .or_else(|| nals(&video[0]).into_iter().find(|n| n[0] & 0x1F == 7).map(<[u8]>::to_vec))
         .ok_or("no SPS")?;
     let pps = sets
         .iter()
         .find(|n| n.first().map(|b| b & 0x1F) == Some(8))
         .cloned()
-        .or_else(|| {
-            nals(&video[0])
-                .into_iter()
-                .find(|n| n[0] & 0x1F == 8)
-                .map(<[u8]>::to_vec)
-        })
+        .or_else(|| nals(&video[0]).into_iter().find(|n| n[0] & 0x1F == 8).map(<[u8]>::to_vec))
         .ok_or("no PPS")?;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
@@ -142,10 +129,7 @@ pub fn write(
         }),
     })
     .map_err(e)?;
-    let audio: Vec<&Packet> = audio
-        .iter()
-        .filter(|p| p.pts_ns >= t0 && p.pts_ns <= newest)
-        .collect();
+    let audio: Vec<&Packet> = audio.iter().filter(|p| p.pts_ns >= t0 && p.pts_ns <= newest).collect();
     if !audio.is_empty() {
         w.add_track(&TrackConfig {
             track_type: TrackType::Audio,
@@ -160,8 +144,7 @@ pub fn write(
         })
         .map_err(e)?;
     }
-    let ticks =
-        |ns: i64, rate: i64| ((ns - t0).max(0) as i128 * rate as i128 / 1_000_000_000) as u64;
+    let ticks = |ns: i64, rate: i64| ((ns - t0).max(0) as i128 * rate as i128 / 1_000_000_000) as u64;
     for (i, p) in video.iter().enumerate() {
         let next = video.get(i + 1).map_or(p.pts_ns + 33_333_333, |n| n.pts_ns);
         w.write_sample(
@@ -217,11 +200,7 @@ mod tests {
             });
         }
         let video = ring.snapshot();
-        assert!(
-            video.len() <= 1801 && video.len() > 1700,
-            "a minute: {}",
-            video.len()
-        );
+        assert!(video.len() <= 1801 && video.len() > 1700, "a minute: {}", video.len());
         let audio: Vec<Packet> = (0..4300)
             .map(|i| Packet {
                 pts_ns: i * 21_333_333,
@@ -232,19 +211,11 @@ mod tests {
             .collect();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("clip.mp4");
-        let sets = [
-            vec![0x67, 0x42, 0xe0, 0x1f, 0xda],
-            vec![0x68, 0xce, 0x3c, 0x80],
-        ];
+        let sets = [vec![0x67, 0x42, 0xe0, 0x1f, 0xda], vec![0x68, 0xce, 0x3c, 0x80]];
         write(&path, 10, &video, &sets, (640, 360), &audio).unwrap();
         let bytes = std::fs::read(&path).unwrap();
-        let mp4 =
-            mp4::Mp4Reader::read_header(std::io::Cursor::new(&bytes), bytes.len() as u64).unwrap();
-        let v = mp4
-            .tracks()
-            .values()
-            .find(|t| t.track_type().unwrap() == mp4::TrackType::Video)
-            .unwrap();
+        let mp4 = mp4::Mp4Reader::read_header(std::io::Cursor::new(&bytes), bytes.len() as u64).unwrap();
+        let v = mp4.tracks().values().find(|t| t.track_type().unwrap() == mp4::TrackType::Video).unwrap();
         // from the keyframe at or before 10 s back: 10–12 s of pictures
         let n = v.sample_count();
         assert!((300..=361).contains(&n), "{n} pictures");

@@ -11,8 +11,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use lightair_audio as la;
 use lightair_model::{
-    Canvas, Command, Document, Effect, Fit, Id, Layout, Object, Scene, Shape,
-    ShapeKind as ModelShape, Source, Track, TransitionKind, TransitionSettings, Workspace,
+    Canvas, Command, Document, Effect, Fit, Id, Layout, Object, Scene, Shape, ShapeKind as ModelShape, Source, Track,
+    TransitionKind, TransitionSettings, Workspace,
 };
 use parking_lot::{Mutex, RwLock};
 use serde_json::{Value, json};
@@ -214,15 +214,12 @@ pub fn unsupported(ws: &Workspace, o: &Object) -> Option<String> {
 
 /// A LUT effect's file is a .cube (the kind phones draw).
 fn is_cube(settings: &Value) -> bool {
-    settings["image_path"]
-        .as_str()
-        .is_some_and(|p| p.to_ascii_lowercase().ends_with(".cube"))
+    settings["image_path"].as_str().is_some_and(|p| p.to_ascii_lowercase().ends_with(".cube"))
 }
 
 /// A .cube LUT that can be read: a 3D table (`LUT_3D_SIZE` 2–256) with all its rows.
 pub fn check_cube(path: &Path) -> Result<(), String> {
-    let text =
-        std::fs::read_to_string(path).map_err(|_| "The file couldn't be read.".to_string())?;
+    let text = std::fs::read_to_string(path).map_err(|_| "The file couldn't be read.".to_string())?;
     let mut size = None;
     let mut rows = 0usize;
     for line in text.lines().map(str::trim) {
@@ -241,14 +238,9 @@ pub fn check_cube(path: &Path) -> Result<(), String> {
             rows += 1;
         }
     }
-    let n = size
-        .filter(|n| (2..=256).contains(n))
-        .ok_or("That isn't a 3D .cube LUT (no LUT_3D_SIZE).")?;
+    let n = size.filter(|n| (2..=256).contains(n)).ok_or("That isn't a 3D .cube LUT (no LUT_3D_SIZE).")?;
     if rows != n * n * n {
-        return Err(format!(
-            "The LUT is incomplete ({rows} of {} entries).",
-            n * n * n
-        ));
+        return Err(format!("The LUT is incomplete ({rows} of {} entries).", n * n * n));
     }
     Ok(())
 }
@@ -257,11 +249,7 @@ pub fn check_cube(path: &Path) -> Result<(), String> {
 /// project.
 fn copy_asset(folder: &Path, from: &Path) -> Option<String> {
     let name = from.file_name()?.to_string_lossy().to_string();
-    let rel = format!(
-        "assets/{}-{}",
-        &uuid::Uuid::new_v4().to_string()[..8],
-        lightair_model::file_safe(&name)
-    );
+    let rel = format!("assets/{}-{}", &uuid::Uuid::new_v4().to_string()[..8], lightair_model::file_safe(&name));
     let to = folder.join(&rel);
     std::fs::create_dir_all(to.parent()?).ok()?;
     std::fs::copy(from, &to).ok()?;
@@ -312,12 +300,7 @@ enum Msg {
     SkipDestination(String),
     /// The destinations with their servers and keys found (off the control thread), what
     /// couldn't be (id, why), and whether to record.
-    Resolved(
-        Vec<crate::outputs::Destination>,
-        Vec<(String, String)>,
-        Vec<String>,
-        Start,
-    ),
+    Resolved(Vec<crate::outputs::Destination>, Vec<(String, String)>, Vec<String>, Start),
     /// Something to say that came from another thread (a chat message not sent).
     Said(String),
     /// A command made from the document as it is when it's applied (not the interface's
@@ -388,14 +371,10 @@ impl Projects {
         events: Arc<dyn Events>,
     ) -> Result<Arc<Session>, crate::project::ProjectError> {
         let dir = self.dir(id)?;
-        let opened =
-            lightair_store::Package::open(&dir, || templates::project("My studio", 1080, 30))?;
+        let opened = lightair_store::Package::open(&dir, || templates::project("My studio", 1080, 30))?;
         let doc = Document::new(opened.workspace);
         let ws = doc.workspace().clone();
-        let program = ws
-            .program
-            .or_else(|| ws.scenes.first().map(|s| s.id))
-            .unwrap_or_default();
+        let program = ws.program.or_else(|| ws.scenes.first().map(|s| s.id)).unwrap_or_default();
         let canvas = ws.canvases.first().map(|c| c.id).unwrap_or_default();
         let now = crate::clock::host_now_ns();
         let hot = Arc::new(Hot::new(
@@ -436,9 +415,7 @@ impl Projects {
             Ok(t) => t,
             Err(e) => {
                 hot::unregister(handle);
-                return Err(crate::project::ProjectError::Store(format!(
-                    "no graphics: {e}"
-                )));
+                return Err(crate::project::ProjectError::Store(format!("no graphics: {e}")));
             }
         };
         let (engine, renderer) = la::Engine::new(la::GraphSpec::default(), crate::clock::RATE);
@@ -505,20 +482,17 @@ impl Projects {
         // a GPU error (out of memory, a lost device) doesn't panic the render thread: it's said
         let gpu_hot = Arc::downgrade(&hot);
         if let Ok(g) = lightair_render::shared_gpu() {
-            g.device
-                .on_uncaptured_error(Arc::new(move |e: wgpu::Error| {
-                    if let Some(h) = gpu_hot.upgrade() {
-                        h.fail(format!("The graphics stopped: {e}"));
-                    }
-                }));
+            g.device.on_uncaptured_error(Arc::new(move |e: wgpu::Error| {
+                if let Some(h) = gpu_hot.upgrade() {
+                    h.fail(format!("The graphics stopped: {e}"));
+                }
+            }));
         }
         let control_events = control.events.clone();
         let control_thread = std::thread::Builder::new()
             .name("lightair-studio".into())
             .spawn(move || {
-                if let Err(e) =
-                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| control.run(rx)))
-                {
+                if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| control.run(rx))) {
                     let reason = format!("Studio stopped: {}", hot::panic_text(&e));
                     control_events.event(Event::Failed { reason });
                 }
@@ -530,10 +504,7 @@ impl Projects {
             tx,
             render: render_tx,
             state,
-            view: Mutex::new(View {
-                view: (1.0, 1.0),
-                canvas: (1.0, 1.0),
-            }),
+            view: Mutex::new(View { view: (1.0, 1.0), canvas: (1.0, 1.0) }),
             gesture: Mutex::new(None),
             threads: Mutex::new(vec![render_thread, mix_thread, control_thread]),
             chat,
@@ -565,28 +536,19 @@ impl Session {
     /// than the active one if an encoder draws it, at most `max_width` wide. (jpeg, width, height)
     pub fn program_jpeg(&self, max_width: u32, canvas: Option<Id>) -> Option<(Vec<u8>, u32, u32)> {
         let (tx, rx) = mpsc::channel();
-        self.render
-            .send(render::Msg::Snapshot { canvas, reply: tx })
-            .ok()?;
+        self.render.send(render::Msg::Snapshot { canvas, reply: tx }).ok()?;
         let (rgba, (w, h)) = rx.recv_timeout(Duration::from_millis(500)).ok()??;
         let img = image::RgbaImage::from_raw(w, h, rgba)?;
         let img = if w > max_width.max(16) {
             let nh = (h as u64 * max_width.max(16) as u64 / w.max(1) as u64).max(1) as u32;
-            image::imageops::resize(
-                &img,
-                max_width.max(16),
-                nh,
-                image::imageops::FilterType::Triangle,
-            )
+            image::imageops::resize(&img, max_width.max(16), nh, image::imageops::FilterType::Triangle)
         } else {
             img
         };
         let (w, h) = img.dimensions();
         let rgb = image::DynamicImage::ImageRgba8(img).to_rgb8();
         let mut out = Vec::new();
-        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 70)
-            .encode_image(&rgb)
-            .ok()?;
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 70).encode_image(&rgb).ok()?;
         Some((out, w, h))
     }
 
@@ -594,30 +556,18 @@ impl Session {
     /// the desktop's frames). (png, width, height)
     pub fn program_png(&self, max_width: u32) -> Option<(Vec<u8>, u32, u32)> {
         let (tx, rx) = mpsc::channel();
-        self.render
-            .send(render::Msg::Snapshot {
-                canvas: None,
-                reply: tx,
-            })
-            .ok()?;
+        self.render.send(render::Msg::Snapshot { canvas: None, reply: tx }).ok()?;
         let (rgba, (w, h)) = rx.recv_timeout(Duration::from_millis(1000)).ok()??;
         let img = image::RgbaImage::from_raw(w, h, rgba)?;
         let img = if w > max_width.max(16) {
             let nh = (h as u64 * max_width.max(16) as u64 / w.max(1) as u64).max(1) as u32;
-            image::imageops::resize(
-                &img,
-                max_width.max(16),
-                nh,
-                image::imageops::FilterType::Lanczos3,
-            )
+            image::imageops::resize(&img, max_width.max(16), nh, image::imageops::FilterType::Lanczos3)
         } else {
             img
         };
         let (w, h) = img.dimensions();
         let mut out = std::io::Cursor::new(Vec::new());
-        image::DynamicImage::ImageRgba8(img)
-            .write_to(&mut out, image::ImageFormat::Png)
-            .ok()?;
+        image::DynamicImage::ImageRgba8(img).write_to(&mut out, image::ImageFormat::Png).ok()?;
         Some((out.into_inner(), w, h))
     }
 
@@ -633,16 +583,9 @@ impl Session {
     pub fn face_status(&self, layer: Id) -> crate::looks::FaceStatus {
         use crate::looks::{FaceState, FaceStatus};
         let lighter = self.hot.governor_step.load(Ordering::Relaxed) >= crate::looks::LIGHTER_STEP;
-        let stopped = FaceStatus {
-            state: FaceState::Stopped,
-            face_box: None,
-            lighter,
-        };
+        let stopped = FaceStatus { state: FaceState::Stopped, face_box: None, lighter };
         let st = self.state();
-        let Some(source) = st
-            .scene()
-            .and_then(|s| s.objects.iter().find(|o| o.id == layer))
-            .and_then(|o| o.source)
+        let Some(source) = st.scene().and_then(|s| s.objects.iter().find(|o| o.id == layer)).and_then(|o| o.source)
         else {
             return stopped;
         };
@@ -669,11 +612,7 @@ impl Session {
         } else {
             FaceState::None
         };
-        FaceStatus {
-            state,
-            face_box: seen.face_box.filter(|_| seen.present),
-            lighter,
-        }
+        FaceStatus { state, face_box: seen.face_box.filter(|_| seen.present), lighter }
     }
 
     /// A camera layer alone, cropped square around the face its looks see (the picture's middle
@@ -688,15 +627,7 @@ impl Session {
     ) -> Option<render::Still> {
         let (tx, rx) = mpsc::channel();
         self.render
-            .send(render::Msg::Still {
-                request: render::StillRequest {
-                    layer,
-                    size,
-                    looks,
-                    beauty,
-                },
-                reply: tx,
-            })
+            .send(render::Msg::Still { request: render::StillRequest { layer, size, looks, beauty }, reply: tx })
             .ok()?;
         rx.recv_timeout(Duration::from_millis(1500)).ok()?
     }
@@ -715,10 +646,7 @@ impl Session {
 
     /// Which looks this phone can draw now, by its class and heat (the Looks screen's parts).
     pub fn look_support(&self) -> crate::looks::LookSupport {
-        crate::looks::LookSupport::of(
-            self.device.class(),
-            self.hot.governor_step.load(Ordering::Relaxed),
-        )
+        crate::looks::LookSupport::of(self.device.class(), self.hot.governor_step.load(Ordering::Relaxed))
     }
 
     pub fn hot(&self) -> &Arc<Hot> {
@@ -748,9 +676,7 @@ impl Session {
         self.send(Msg::Close(done));
         // the control thread's answer: up to 8 s while it's going round (it may be finishing a
         // recording), but not past 1 s of silence from it (stuck in a host call: it can't answer)
-        while let Err(mpsc::RecvTimeoutError::Timeout) =
-            wait.recv_timeout(Duration::from_millis(50))
-        {
+        while let Err(mpsc::RecvTimeoutError::Timeout) = wait.recv_timeout(Duration::from_millis(50)) {
             let beat = self.hot.control_beat_ns.load(Ordering::Acquire);
             let silent = crate::clock::host_now_ns().saturating_sub(beat) > 1_000_000_000;
             if start.elapsed() >= Duration::from_secs(8) || silent {
@@ -800,10 +726,7 @@ impl Session {
         }
         // iOS 27+ with the screen captured in the background: the program goes on as it is
         // (no cover, nothing paused, a recording carries on)
-        if !foreground
-            && self.background_capture.load(Ordering::Acquire)
-            && self.state().screen.is_some()
-        {
+        if !foreground && self.background_capture.load(Ordering::Acquire) && self.state().screen.is_some() {
             return;
         }
         // with an extension attached (iOS 17–26's broadcast extension): it takes over while the
@@ -842,16 +765,11 @@ impl Session {
         self.away_paused.store(true, Ordering::Release);
         let live: Vec<Arc<VideoEncoder>> = {
             let outputs = self.hot.outputs.read();
-            outputs
-                .iter()
-                .filter_map(|o| self.hot.video_encoder(o.video_encoder()))
-                .collect()
+            outputs.iter().filter_map(|o| self.hot.video_encoder(o.video_encoder())).collect()
         };
         if !live.is_empty() && self.render.send(render::Msg::Away(true)).is_ok() {
             let start = Instant::now();
-            while start.elapsed() < Duration::from_secs(1)
-                && !live.iter().all(|e| e.held.lock().packet.is_some())
-            {
+            while start.elapsed() < Duration::from_secs(1) && !live.iter().all(|e| e.held.lock().packet.is_some()) {
                 std::thread::sleep(Duration::from_millis(5));
             }
         }
@@ -866,26 +784,17 @@ impl Session {
 
     pub fn attach_preview(&self, handle: u64, width: u32, height: u32, scale: f32) {
         self.set_view(width, height, scale);
-        let _ = self.render.send(render::Msg::AttachPreview {
-            handle,
-            size: (width, height),
-        });
+        let _ = self.render.send(render::Msg::AttachPreview { handle, size: (width, height) });
     }
 
     pub fn resize_preview(&self, width: u32, height: u32, scale: f32) {
         self.set_view(width, height, scale);
-        let _ = self.render.send(render::Msg::ResizePreview {
-            size: (width, height),
-        });
+        let _ = self.render.send(render::Msg::ResizePreview { size: (width, height) });
     }
 
     pub fn detach_preview(&self) {
         let (done, wait) = mpsc::channel();
-        if self
-            .render
-            .send(render::Msg::DetachPreview { done })
-            .is_ok()
-        {
+        if self.render.send(render::Msg::DetachPreview { done }).is_ok() {
             let _ = wait.recv_timeout(Duration::from_secs(2));
         }
     }
@@ -920,13 +829,7 @@ impl Session {
     /// (odd, under 16 or over 4096 on a side) or a session that's closing.
     pub fn add_sized_format(&self, width: u32, height: u32) -> Option<Id> {
         let (tx, rx) = mpsc::channel();
-        self.tx
-            .send(Msg::AddSizedFormat {
-                width,
-                height,
-                reply: tx,
-            })
-            .ok()?;
+        self.tx.send(Msg::AddSizedFormat { width, height, reply: tx }).ok()?;
         rx.recv_timeout(Duration::from_secs(5)).ok()?
     }
 
@@ -959,10 +862,7 @@ impl Session {
     }
 
     pub fn rename_scene(&self, scene: Id, name: &str) {
-        self.apply(Command::RenameScene {
-            scene,
-            name: name.trim().into(),
-        });
+        self.apply(Command::RenameScene { scene, name: name.trim().into() });
     }
 
     pub fn remove_scene(&self, scene: Id) {
@@ -974,15 +874,8 @@ impl Session {
     }
 
     pub fn set_transition(&self, scene: Id, kind: TransitionKind, duration_ms: u32) {
-        let transition = TransitionSettings {
-            kind,
-            duration_ms,
-            ..Default::default()
-        };
-        self.apply(Command::SetSceneTransition {
-            scene,
-            transition: Some(transition),
-        });
+        let transition = TransitionSettings { kind, duration_ms, ..Default::default() };
+        self.apply(Command::SetSceneTransition { scene, transition: Some(transition) });
     }
 
     // ── Layers ────────────────────────────────────────────────────────────────────────────
@@ -1001,26 +894,16 @@ impl Session {
 
     pub fn remove_layer(&self, layer: Id) {
         if let Some((_, scene, _)) = self.object(layer) {
-            self.apply(Command::RemoveObject {
-                scene,
-                object: layer,
-            });
+            self.apply(Command::RemoveObject { scene, object: layer });
         }
     }
 
     pub fn duplicate_layer(&self, layer: Id) {
         if let Some((st, scene, mut o)) = self.object(layer) {
-            let index = st
-                .scene()
-                .and_then(|s| s.object_index(layer))
-                .map(|i| i + 1);
+            let index = st.scene().and_then(|s| s.object_index(layer)).map(|i| i + 1);
             o.id = Id::new();
             o.name = format!("{} copy", o.name);
-            self.apply(Command::AddObject {
-                scene,
-                object: o,
-                index,
-            });
+            self.apply(Command::AddObject { scene, object: o, index });
         }
     }
 
@@ -1030,48 +913,28 @@ impl Session {
                 .workspace
                 .canvases
                 .iter()
-                .map(|c| Command::SetObjectVisible {
-                    scene,
-                    object: layer,
-                    canvas: c.id,
-                    visible,
-                })
+                .map(|c| Command::SetObjectVisible { scene, object: layer, canvas: c.id, visible })
                 .collect();
             let label = if visible { "Show layer" } else { "Hide layer" };
-            self.apply(Command::Batch {
-                label: label.into(),
-                commands,
-            });
+            self.apply(Command::Batch { label: label.into(), commands });
         }
     }
 
     pub fn set_layer_locked(&self, layer: Id, locked: bool) {
         if let Some((_, scene, _)) = self.object(layer) {
-            self.apply(Command::SetObjectLocked {
-                scene,
-                object: layer,
-                locked,
-            });
+            self.apply(Command::SetObjectLocked { scene, object: layer, locked });
         }
     }
 
     pub fn move_layer(&self, layer: Id, to: usize) {
         if let Some((_, scene, _)) = self.object(layer) {
-            self.apply(Command::MoveObject {
-                scene,
-                object: layer,
-                to,
-            });
+            self.apply(Command::MoveObject { scene, object: layer, to });
         }
     }
 
     pub fn rename_layer(&self, layer: Id, name: &str) {
         if let Some((_, scene, _)) = self.object(layer) {
-            self.apply(Command::RenameObject {
-                scene,
-                object: layer,
-                name: name.trim().into(),
-            });
+            self.apply(Command::RenameObject { scene, object: layer, name: name.trim().into() });
         }
     }
 
@@ -1105,14 +968,10 @@ impl Session {
             if shape.kind == ModelShape::Rounded {
                 shape.radius = r.clamp(0.0, 1.0);
             }
-            l.shape = (r > 0.0 || shape.kind != ModelShape::Rounded || shape.border > 0.0)
-                .then_some(shape);
+            l.shape = (r > 0.0 || shape.kind != ModelShape::Rounded || shape.border > 0.0).then_some(shape);
         }
         let c = &mut l.crop;
-        for (slot, v) in [&mut c.left, &mut c.top, &mut c.right, &mut c.bottom]
-            .into_iter()
-            .zip(p.crop)
-        {
+        for (slot, v) in [&mut c.left, &mut c.top, &mut c.right, &mut c.bottom].into_iter().zip(p.crop) {
             if let Some(v) = v {
                 *slot = v;
             }
@@ -1123,12 +982,7 @@ impl Session {
         if let Some(v) = p.flip_v {
             l.flip_v = v;
         }
-        self.apply(Command::SetLayout {
-            scene,
-            object: layer,
-            canvas: st.canvas,
-            layout: l,
-        });
+        self.apply(Command::SetLayout { scene, object: layer, canvas: st.canvas, layout: l });
     }
 
     fn source_of(&self, layer: Id) -> Option<(Arc<State>, Arc<Source>)> {
@@ -1142,10 +996,7 @@ impl Session {
             let s = source_in(ws, layer)?;
             let mut settings = s.settings.clone();
             merge(&mut settings, patch);
-            Some(Command::SetSourceSettings {
-                source: s.id,
-                settings,
-            })
+            Some(Command::SetSourceSettings { source: s.id, settings })
         })));
     }
 
@@ -1156,17 +1007,8 @@ impl Session {
             let mut after = (*s).clone();
             merge(&mut after.settings, patch);
             let mut commands = follow_text(ws, &s, &after);
-            commands.insert(
-                0,
-                Command::SetSourceSettings {
-                    source: s.id,
-                    settings: after.settings,
-                },
-            );
-            Some(Command::Batch {
-                label: "Change text".into(),
-                commands,
-            })
+            commands.insert(0, Command::SetSourceSettings { source: s.id, settings: after.settings });
+            Some(Command::Batch { label: "Change text".into(), commands })
         })));
     }
 
@@ -1189,10 +1031,7 @@ impl Session {
             let mut f = w.get("fields").cloned().unwrap_or_else(|| json!({}));
             merge(&mut f, fields);
             w["fields"] = f;
-            Some(Command::SetSourceSettings {
-                source: s.id,
-                settings,
-            })
+            Some(Command::SetSourceSettings { source: s.id, settings })
         })));
     }
 
@@ -1209,11 +1048,7 @@ impl Session {
         if let Some(p) = settings {
             merge(&mut v, p);
         }
-        self.apply(Command::AddSourceEffect {
-            source: s.id,
-            effect: Effect::new(def.name, kind, v),
-            index: None,
-        });
+        self.apply(Command::AddSourceEffect { source: s.id, effect: Effect::new(def.name, kind, v), index: None });
     }
 
     /// An effect's settings changed (only the keys given).
@@ -1222,52 +1057,30 @@ impl Session {
             let s = source_in(ws, layer)?;
             let mut v = s.effects.iter().find(|e| e.id == effect)?.settings.clone();
             merge(&mut v, settings);
-            Some(Command::SetSourceEffectSettings {
-                source: s.id,
-                effect,
-                settings: v,
-            })
+            Some(Command::SetSourceEffectSettings { source: s.id, effect, settings: v })
         })));
     }
 
     /// A file for an effect's file control (a LUT picked in Files): checked, copied into
     /// the project's assets and set on the effect. Returns the path it's kept at (relative to the
     /// project), or why it can't be used, in plain words.
-    pub fn set_effect_file(
-        &self,
-        layer: Id,
-        effect: Id,
-        key: &str,
-        path: &Path,
-    ) -> Result<String, String> {
+    pub fn set_effect_file(&self, layer: Id, effect: Id, key: &str, path: &Path) -> Result<String, String> {
         use lightair_model::catalog::{self, Control};
         let (_, s) = self.source_of(layer).ok_or("That layer is gone.")?;
-        let e = s
-            .effects
-            .iter()
-            .find(|e| e.id == effect)
-            .ok_or("That effect is gone.")?;
+        let e = s.effects.iter().find(|e| e.id == effect).ok_or("That effect is gone.")?;
         let def = catalog::def(&e.kind).ok_or("That effect isn't known.")?;
         let extensions = def
             .controls
             .iter()
             .find_map(|c| match c {
-                Control::File {
-                    key: k, extensions, ..
-                } if *k == key => Some(*extensions),
+                Control::File { key: k, extensions, .. } if *k == key => Some(*extensions),
                 _ => None,
             })
             .ok_or("That effect takes no file.")?;
-        let ext = path
-            .extension()
-            .map(|e| e.to_string_lossy().to_lowercase())
-            .unwrap_or_default();
+        let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
         // phones draw LUTs from .cube files only (lightair-render's)
-        let usable: Vec<&str> = extensions
-            .iter()
-            .copied()
-            .filter(|x| e.kind != "clut_filter" || *x == "cube")
-            .collect();
+        let usable: Vec<&str> =
+            extensions.iter().copied().filter(|x| e.kind != "clut_filter" || *x == "cube").collect();
         if !usable.contains(&ext.as_str()) {
             return Err(format!("Pick a .{} file.", usable.join(" or .")));
         }
@@ -1275,8 +1088,7 @@ impl Session {
             check_cube(path)?;
         }
         let folder = self.hot.program().folder.clone();
-        let rel =
-            copy_asset(&folder, path).ok_or("The file couldn't be copied into the project.")?;
+        let rel = copy_asset(&folder, path).ok_or("The file couldn't be copied into the project.")?;
         self.set_effect(layer, effect, json!({ key: rel }));
         Ok(rel)
     }
@@ -1297,20 +1109,13 @@ impl Session {
 
     pub fn set_effect_enabled(&self, layer: Id, effect: Id, enabled: bool) {
         if let Some((_, s)) = self.source_of(layer) {
-            self.apply(Command::SetSourceEffectEnabled {
-                source: s.id,
-                effect,
-                enabled,
-            });
+            self.apply(Command::SetSourceEffectEnabled { source: s.id, effect, enabled });
         }
     }
 
     pub fn remove_effect(&self, layer: Id, effect: Id) {
         if let Some((_, s)) = self.source_of(layer) {
-            self.apply(Command::RemoveSourceEffect {
-                source: s.id,
-                effect,
-            });
+            self.apply(Command::RemoveSourceEffect { source: s.id, effect });
         }
     }
 
@@ -1320,20 +1125,10 @@ impl Session {
             let s = source_in(ws, layer)?;
             let e = s.effects.iter().find(|e| e.id == effect)?.clone();
             let commands = vec![
-                Command::RemoveSourceEffect {
-                    source: s.id,
-                    effect,
-                },
-                Command::AddSourceEffect {
-                    source: s.id,
-                    effect: e,
-                    index: Some(to.min(s.effects.len() - 1)),
-                },
+                Command::RemoveSourceEffect { source: s.id, effect },
+                Command::AddSourceEffect { source: s.id, effect: e, index: Some(to.min(s.effects.len() - 1)) },
             ];
-            Some(Command::Batch {
-                label: "Move effect".into(),
-                commands,
-            })
+            Some(Command::Batch { label: "Move effect".into(), commands })
         })));
     }
 
@@ -1356,27 +1151,17 @@ impl Session {
             return;
         };
         let mut settings = s.settings.clone();
-        let (w, h) = (
-            s.settings["width"].as_u64().unwrap_or(512) as u32,
-            s.settings["height"].as_u64().unwrap_or(512) as u32,
-        );
+        let (w, h) =
+            (s.settings["width"].as_u64().unwrap_or(512) as u32, s.settings["height"].as_u64().unwrap_or(512) as u32);
         merge(&mut settings, templates::colour_settings(shape.fill, w, h));
         merge(&mut settings, json!({ "shape": shape_name(shape.kind) }));
         let mut commands = vec![Command::SetSourceSettings { source, settings }];
         for (canvas, l) in &o.layouts {
             let mut l = *l;
             l.shape = shape_of(shape);
-            commands.push(Command::SetLayout {
-                scene,
-                object: o.id,
-                canvas: *canvas,
-                layout: l,
-            });
+            commands.push(Command::SetLayout { scene, object: o.id, canvas: *canvas, layout: l });
         }
-        self.apply(Command::Batch {
-            label: "Change shape".into(),
-            commands,
-        });
+        self.apply(Command::Batch { label: "Change shape".into(), commands });
     }
 
     // ── Canvas editing ────────────────────────────────────────────────────────────────────
@@ -1392,11 +1177,7 @@ impl Session {
         let Some(scene) = st.scene() else {
             return vec![];
         };
-        scene
-            .objects
-            .iter()
-            .filter_map(|o| Some(view.frame(o.id, o.layouts.get(&st.canvas)?)))
-            .collect()
+        scene.objects.iter().filter_map(|o| Some(view.frame(o.id, o.layouts.get(&st.canvas)?))).collect()
     }
 
     pub fn begin_gesture(&self, layer: Id) {
@@ -1406,10 +1187,7 @@ impl Session {
         let Some(start) = o.layouts.get(&st.canvas).copied() else {
             return;
         };
-        let others = st
-            .scene()
-            .map(|s| gesture::others(s, st.canvas, layer))
-            .unwrap_or_default();
+        let others = st.scene().map(|s| gesture::others(s, st.canvas, layer)).unwrap_or_default();
         *self.gesture.lock() = Some(Gesture {
             scene,
             object: layer,
@@ -1457,12 +1235,7 @@ impl Session {
         if let Some(g) = self.gesture.lock().take()
             && g.now != g.start
         {
-            self.apply(Command::SetLayout {
-                scene: g.scene,
-                object: g.object,
-                canvas: g.canvas,
-                layout: g.now,
-            });
+            self.apply(Command::SetLayout { scene: g.scene, object: g.object, canvas: g.canvas, layout: g.now });
         }
     }
 
@@ -1486,10 +1259,7 @@ impl Session {
     }
 
     pub fn set_track_gain(&self, track: Id, db: f32) {
-        self.apply(Command::SetTrackVolume {
-            track,
-            volume_db: db.clamp(-100.0, 20.0),
-        });
+        self.apply(Command::SetTrackVolume { track, volume_db: db.clamp(-100.0, 20.0) });
     }
 
     pub fn set_track_muted(&self, track: Id, muted: bool) {
@@ -1505,25 +1275,14 @@ impl Session {
         let have = t.effects.iter().find(|e| e.kind == kind);
         let c = match (have, amount) {
             (None, None) => return,
-            (Some(e), None) => Command::RemoveEffect {
-                track,
-                effect: e.id,
-            },
+            (Some(e), None) => Command::RemoveEffect { track, effect: e.id },
             (Some(e), Some(a)) => {
                 let mut settings = e.settings.clone();
                 merge(&mut settings, json!({ key: a.clamp(0.0, 1.0) }));
-                Command::SetEffectSettings {
-                    track,
-                    effect: e.id,
-                    settings,
-                }
+                Command::SetEffectSettings { track, effect: e.id, settings }
             }
             (None, Some(a)) => {
-                let name = if kind == "audio.voice" {
-                    "Voice Clarity"
-                } else {
-                    "Noise suppression"
-                };
+                let name = if kind == "audio.voice" { "Voice Clarity" } else { "Noise suppression" };
                 Command::AddEffect {
                     track,
                     effect: Effect::new(name, kind, json!({ key: a.clamp(0.0, 1.0) })),
@@ -1547,14 +1306,7 @@ impl Session {
     /// Live on `destinations` (the Test destination streams nowhere), recording
     /// too if asked. How it goes comes as `Event::Live` and `Event::Health`.
     pub fn go_live(&self, destinations: Vec<crate::outputs::Destination>, record: bool) {
-        self.send(Msg::GoLive(
-            destinations,
-            Start {
-                record,
-                ordered: false,
-                adding: false,
-            },
-        ));
+        self.send(Msg::GoLive(destinations, Start { record, ordered: false, adding: false }));
     }
 
     pub fn end_live(&self) {
@@ -1565,27 +1317,13 @@ impl Session {
     /// that doesn't start waits for `skip_destination` (continue without it) or
     /// `end_live` (stop all).
     pub fn go_live_ordered(&self, destinations: Vec<crate::outputs::Destination>, record: bool) {
-        self.send(Msg::GoLive(
-            destinations,
-            Start {
-                record,
-                ordered: true,
-                adding: false,
-            },
-        ));
+        self.send(Msg::GoLive(destinations, Start { record, ordered: true, adding: false }));
     }
 
     /// Another destination on the stream that's on: its encode shared if its settings
     /// match one that's on, else opened (if the phone can run one more).
     pub fn add_destination(&self, destination: crate::outputs::Destination) {
-        self.send(Msg::GoLive(
-            vec![destination],
-            Start {
-                record: false,
-                ordered: false,
-                adding: true,
-            },
-        ));
+        self.send(Msg::GoLive(vec![destination], Start { record: false, ordered: false, adding: true }));
     }
 
     /// Stops one destination while the rest go on; `start_destination` starts it again.
@@ -1630,21 +1368,13 @@ impl Session {
         }
         if r.is_none() {
             let port = self.remote_port.load(Ordering::Relaxed) as u16;
-            *r = Some(crate::remote::Remote::start(
-                self,
-                &self.app_dir,
-                name,
-                port,
-            )?);
+            *r = Some(crate::remote::Remote::start(self, &self.app_dir, name, port)?);
         }
         Ok(r.as_ref().map(|r| r.offer(addresses)))
     }
 
     pub fn remote_status(&self) -> crate::remote::RemoteStatus {
-        self.remote
-            .lock()
-            .as_ref()
-            .map_or_else(Default::default, |r| r.status())
+        self.remote.lock().as_ref().map_or_else(Default::default, |r| r.status())
     }
 
     /// The person's answer to a device asking to pair (`remote_status().pending`).
@@ -1728,23 +1458,13 @@ impl Session {
             .max_by_key(|(_, e)| e.config.width * e.config.height)
             .ok_or("Clips are made while live.")?;
         let (o, e) = pick;
-        let audio = self
-            .hot
-            .audio_encoder(o.audio_encoder)
-            .map(|a| a.clip.snapshot())
-            .unwrap_or_default();
+        let audio = self.hot.audio_encoder(o.audio_encoder).map(|a| a.clip.snapshot()).unwrap_or_default();
         let sets = e.sent.lock().parameter_sets.clone();
         let st = self.state();
-        let unix = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs() as i64);
+        let unix = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
         let dir = crate::clips::folder(&self.shared);
-        let named = crate::record::file_name(
-            &dir,
-            &format!("{} clip", st.workspace.name),
-            unix,
-            self.device.utc_offset_min,
-        );
+        let named =
+            crate::record::file_name(&dir, &format!("{} clip", st.workspace.name), unix, self.device.utc_offset_min);
         crate::clips::write(
             &named,
             seconds.clamp(1, 60),
@@ -1903,10 +1623,7 @@ impl Drop for Session {
 
 /// `layer`'s source in the program scene of `ws`.
 fn source_in(ws: &Workspace, layer: Id) -> Option<Arc<Source>> {
-    let scene = ws
-        .program
-        .and_then(|p| ws.scene(p))
-        .or_else(|| ws.scenes.first())?;
+    let scene = ws.program.and_then(|p| ws.scene(p)).or_else(|| ws.scenes.first())?;
     ws.sources.get(&scene.object(layer)?.source?).cloned()
 }
 
@@ -1926,15 +1643,13 @@ fn end_broadcasts(ids: Vec<String>) {
     if ids.is_empty() {
         return;
     }
-    let _ = std::thread::Builder::new()
-        .name("lightair-endlive".into())
-        .spawn(move || {
-            for id in ids {
-                if let Err(e) = lightair_live::official::youtube_end_broadcast(&id) {
-                    tracing::warn!("the YouTube broadcast didn't end: {e}");
-                }
+    let _ = std::thread::Builder::new().name("lightair-endlive".into()).spawn(move || {
+        for id in ids {
+            if let Err(e) = lightair_live::official::youtube_end_broadcast(&id) {
+                tracing::warn!("the YouTube broadcast didn't end: {e}");
             }
-        });
+        }
+    });
 }
 
 /// The size a text or timer source draws at (its picture's pixels; a timer at zero).
@@ -1972,12 +1687,7 @@ fn follow_text(ws: &Workspace, before: &Source, after: &Source) -> Vec<Command> 
                 };
                 l.width = w.max(1.0);
                 l.height = (l.height / bh * ah).max(1.0);
-                commands.push(Command::SetLayout {
-                    scene: scene.id,
-                    object: o.id,
-                    canvas: *canvas,
-                    layout: l,
-                });
+                commands.push(Command::SetLayout { scene: scene.id, object: o.id, canvas: *canvas, layout: l });
             }
         }
     }
@@ -2011,10 +1721,7 @@ fn argb_of(abgr: u32) -> u32 {
 
 /// A text (or timer) source's style as the interface edits it.
 pub fn text_spec_of(s: &Source) -> TextSpec {
-    let t = crate::pictures::text_style(
-        &s.settings,
-        s.settings["text"].as_str().unwrap_or("").to_string(),
-    );
+    let t = crate::pictures::text_style(&s.settings, s.settings["text"].as_str().unwrap_or("").to_string());
     TextSpec {
         text: t.text,
         font_family: t.font.map(|f| f.family),
@@ -2033,11 +1740,7 @@ pub fn timer_spec_of(s: &Source) -> TimerSpec {
         Some("clock") => TimerMode::Clock,
         _ => TimerMode::CountDown,
     };
-    TimerSpec {
-        mode,
-        seconds: s.settings["seconds"].as_u64().unwrap_or(300) as u32,
-        text: text_spec_of(s),
-    }
+    TimerSpec { mode, seconds: s.settings["seconds"].as_u64().unwrap_or(300) as u32, text: text_spec_of(s) }
 }
 
 /// A colour source's colour (0xAARRGGBB).
@@ -2071,11 +1774,7 @@ fn formats(ws: &Workspace, active: Id) -> Vec<crate::outputs::Format> {
     let mut out: Vec<_> = ws.canvas(active).map(of).into_iter().collect();
     out.extend(ws.canvases.iter().filter(|c| c.id != active).map(of));
     if out.is_empty() {
-        out.push(crate::outputs::Format {
-            id: String::new(),
-            size: (1080, 1920),
-            fps: 30,
-        });
+        out.push(crate::outputs::Format { id: String::new(), size: (1080, 1920), fps: 30 });
     }
     out
 }
@@ -2087,10 +1786,7 @@ fn format_id(s: &str) -> Option<Id> {
 /// Which camera a camera source shows: its facing, and its external device (`device` in
 /// its settings, as the desktop's camera source keeps it), if any.
 pub fn device_of(s: &Source) -> Option<String> {
-    s.settings["device"]
-        .as_str()
-        .filter(|d| !d.is_empty())
-        .map(String::from)
+    s.settings["device"].as_str().filter(|d| !d.is_empty()).map(String::from)
 }
 
 /// A camera's identity for comparing which is running: its facing and its device's hash.
@@ -2107,11 +1803,7 @@ fn cam_key(s: &Source) -> CamKey {
 }
 
 pub fn facing_of(s: &Source) -> Facing {
-    if s.settings["facing"].as_str() == Some("front") {
-        Facing::Front
-    } else {
-        Facing::Back
-    }
+    if s.settings["facing"].as_str() == Some("front") { Facing::Front } else { Facing::Back }
 }
 
 fn text_settings(t: &TextSpec) -> Value {
@@ -2156,8 +1848,7 @@ fn shape_of(s: &ShapeSpec) -> Option<Shape> {
     if let Some(c) = s.stroke {
         shape.border = s.stroke_width.max(0.0);
         let (a, rgb) = (c >> 24, c & 0xFF_FFFF);
-        shape.border_color =
-            (a << 24) | ((rgb & 0xFF) << 16) | (rgb & 0xFF00) | ((rgb >> 16) & 0xFF);
+        shape.border_color = (a << 24) | ((rgb & 0xFF) << 16) | (rgb & 0xFF00) | ((rgb >> 16) & 0xFF);
     }
     (s.kind == ShapeKind::Ellipse || s.stroke.is_some()).then_some(shape)
 }
@@ -2208,9 +1899,7 @@ impl Group {
     /// The short sides it may stream at: the chosen one, then 720 and 540 below it.
     fn rungs(&self) -> Vec<u32> {
         let short = self.chosen.0.min(self.chosen.1);
-        std::iter::once(short)
-            .chain([720, 540].into_iter().filter(|r| *r < short))
-            .collect()
+        std::iter::once(short).chain([720, 540].into_iter().filter(|r| *r < short)).collect()
     }
 
     /// Rung `rung`'s picture for its destinations' bitrate floor: its share of the chosen
@@ -2353,9 +2042,7 @@ impl Control {
         let until = Instant::now() + limit;
         while self.recording.is_some() {
             self.beat();
-            let left = until
-                .saturating_duration_since(Instant::now())
-                .min(Duration::from_millis(100));
+            let left = until.saturating_duration_since(Instant::now()).min(Duration::from_millis(100));
             if left.is_zero() {
                 break;
             }
@@ -2371,9 +2058,7 @@ impl Control {
 
     /// Says the control thread is going round (`Hot::control_beat_ns`).
     fn beat(&self) {
-        self.hot
-            .control_beat_ns
-            .store(crate::clock::host_now_ns(), Ordering::Release);
+        self.hot.control_beat_ns.store(crate::clock::host_now_ns(), Ordering::Release);
     }
 
     fn id(&mut self) -> u32 {
@@ -2410,17 +2095,11 @@ impl Control {
                     self.canvas = c;
                     self.refresh();
                 } else if self.recording.is_some() {
-                    self.event(Event::Failed {
-                        reason: "The format can't change while recording.".into(),
-                    });
+                    self.event(Event::Failed { reason: "The format can't change while recording.".into() });
                 }
             }
             Msg::AddFormat(vertical) => self.add_format(vertical),
-            Msg::AddSizedFormat {
-                width,
-                height,
-                reply,
-            } => {
+            Msg::AddSizedFormat { width, height, reply } => {
                 let _ = reply.send(self.add_sized_format(width, height));
             }
             Msg::AddLayer(l) => self.add_layer(l),
@@ -2445,23 +2124,13 @@ impl Control {
             }
             Msg::RecordingFinished(id, r) => self.recording_finished(id, r),
             Msg::EncoderFailed(e, reason) => {
-                if self
-                    .recording
-                    .as_ref()
-                    .is_some_and(|r| r.parts.iter().any(|p| p.video == e || p.audio == Some(e)))
-                {
+                if self.recording.as_ref().is_some_and(|r| r.parts.iter().any(|p| p.video == e || p.audio == Some(e))) {
                     self.stop_recording(Some(format!("Recording stopped: {reason}")));
                 }
             }
             Msg::GoLive(dests, start) => self.begin_live(dests, start),
             Msg::HandOver => {
-                let ids: Vec<String> = self
-                    .hot
-                    .outputs
-                    .read()
-                    .iter()
-                    .map(|o| o.dest.id.clone())
-                    .collect();
+                let ids: Vec<String> = self.hot.outputs.read().iter().map(|o| o.dest.id.clone()).collect();
                 for id in ids {
                     if let Some(d) = self.stop_one(&id) {
                         self.handed.push(d);
@@ -2530,11 +2199,7 @@ impl Control {
                 }
             }
             Msg::SkipDestination(id) => {
-                if self
-                    .live
-                    .as_ref()
-                    .is_some_and(|l| l.blocked.as_deref() == Some(&id))
-                {
+                if self.live.as_ref().is_some_and(|l| l.blocked.as_deref() == Some(&id)) {
                     if let Some(d) = self.stop_one(&id)
                         && let Some(l) = self.live.as_mut()
                     {
@@ -2582,9 +2247,7 @@ impl Control {
             }
             Msg::AlertSettings(s) => {
                 if let Err(e) = s.save(&self.folder) {
-                    self.event(Event::Failed {
-                        reason: format!("The alert settings weren't saved: {e}"),
-                    });
+                    self.event(Event::Failed { reason: format!("The alert settings weren't saved: {e}") });
                 }
                 self.alert_settings = s;
             }
@@ -2611,14 +2274,7 @@ impl Control {
                 let networks_changed = d.networks != self.phone.networks;
                 self.phone = d;
                 if networks_changed {
-                    let bonded: Vec<_> = self
-                        .hot
-                        .outputs
-                        .read()
-                        .iter()
-                        .filter(|o| o.bonded())
-                        .cloned()
-                        .collect();
+                    let bonded: Vec<_> = self.hot.outputs.read().iter().filter(|o| o.bonded()).cloned().collect();
                     if !bonded.is_empty() {
                         let links = self.bonding_links();
                         for o in bonded {
@@ -2640,9 +2296,7 @@ impl Control {
             Msg::Background => {
                 self.away = true;
                 if self.recording.is_some() {
-                    self.stop_recording(Some(
-                        "Recording stopped: Lightair left the screen.".into(),
-                    ));
+                    self.stop_recording(Some("Recording stopped: Lightair left the screen.".into()));
                 }
             }
             Msg::Close(_) => {}
@@ -2670,26 +2324,19 @@ impl Control {
                 }
                 self.refresh();
             }
-            Err(e) => self.event(Event::Failed {
-                reason: e.to_string(),
-            }),
+            Err(e) => self.event(Event::Failed { reason: e.to_string() }),
         }
     }
 
     fn program_scene(&self) -> Id {
         let ws = self.doc.workspace();
-        ws.program
-            .filter(|p| ws.scene(*p).is_some())
-            .or_else(|| ws.scenes.first().map(|s| s.id))
-            .unwrap_or_default()
+        ws.program.filter(|p| ws.scene(*p).is_some()).or_else(|| ws.scenes.first().map(|s| s.id)).unwrap_or_default()
     }
 
     fn switch(&mut self, scene: Id) {
         // what's on screen now (a switch still waiting for its camera counts as not made)
         let from = self.hold.unwrap_or_else(|| self.program_scene());
-        if self.program_scene() == scene && self.hold.is_none()
-            || self.doc.workspace().scene(scene).is_none()
-        {
+        if self.program_scene() == scene && self.hold.is_none() || self.doc.workspace().scene(scene).is_none() {
             return;
         }
         if from == scene {
@@ -2704,15 +2351,10 @@ impl Control {
             return;
         }
         let ws = self.doc.workspace().clone();
-        let settings = ws
-            .scene(scene)
-            .and_then(|s| s.transition)
-            .unwrap_or(ws.transition);
+        let settings = ws.scene(scene).and_then(|s| s.transition).unwrap_or(ws.transition);
         let c = Command::SetProgram { scene: Some(scene) };
         if let Err(e) = self.doc.apply(&c) {
-            self.event(Event::Failed {
-                reason: e.to_string(),
-            });
+            self.event(Event::Failed { reason: e.to_string() });
             return;
         }
         let _ = self.package.record(&c);
@@ -2721,19 +2363,10 @@ impl Control {
         let before: Vec<u32> = self.cameras.iter().map(|c| c.1).collect();
         self.hold = Some(from);
         self.refresh();
-        let new_feed = self
-            .cameras
-            .iter()
-            .map(|c| c.1)
-            .find(|f| !before.contains(f) && !self.feed_arrived(*f));
+        let new_feed = self.cameras.iter().map(|c| c.1).find(|f| !before.contains(f) && !self.feed_arrived(*f));
         let cold = new_feed.is_some_and(|f| !self.feed_arrived(f));
         if cold {
-            self.pending = Some(Pending {
-                from,
-                settings,
-                since: Instant::now(),
-                feed: new_feed.unwrap_or(0),
-            });
+            self.pending = Some(Pending { from, settings, since: Instant::now(), feed: new_feed.unwrap_or(0) });
         } else {
             self.pending = None;
             self.go(from, settings);
@@ -2743,10 +2376,7 @@ impl Control {
     fn feed_arrived(&self, feed: u32) -> bool {
         self.hot
             .feed(feed)
-            .and_then(|f| {
-                f.video()
-                    .map(|v| v.arrived_ns.load(Ordering::Acquire) != i64::MIN)
-            })
+            .and_then(|f| f.video().map(|v| v.arrived_ns.load(Ordering::Acquire) != i64::MIN))
             .unwrap_or(true)
     }
 
@@ -2757,12 +2387,11 @@ impl Control {
     fn go(&mut self, from: Id, settings: TransitionSettings) {
         self.hold = None;
         let start = self.hot.clock.drawn_ns() + 16_000_000;
-        let switch =
-            (settings.kind != TransitionKind::Cut && settings.duration_ms > 0).then_some(Switch {
-                from,
-                settings,
-                start_ns: start,
-            });
+        let switch = (settings.kind != TransitionKind::Cut && settings.duration_ms > 0).then_some(Switch {
+            from,
+            settings,
+            start_ns: start,
+        });
         self.refresh_with(Some((switch, start)));
     }
 
@@ -2786,15 +2415,10 @@ impl Control {
         let (switch, on_air) = match switched {
             Some((s, start)) => (s, start),
             None => (
-                old.switch.clone().filter(|s| {
-                    s.from != scene
-                        && drawn < s.start_ns + s.settings.duration_ms as i64 * 1_000_000
-                }),
-                if old.scene == scene {
-                    old.on_air_ns
-                } else {
-                    drawn
-                },
+                old.switch
+                    .clone()
+                    .filter(|s| s.from != scene && drawn < s.start_ns + s.settings.duration_ms as i64 * 1_000_000),
+                if old.scene == scene { old.on_air_ns } else { drawn },
             ),
         };
         self.hot.set_program(Program {
@@ -2840,9 +2464,7 @@ impl Control {
             screen: self.screen,
             web: self.web.values().cloned().collect(),
         });
-        self.event(Event::Changed {
-            version: self.version,
-        });
+        self.event(Event::Changed { version: self.version });
     }
 
     fn set_recording(&mut self, r: RecordingState) {
@@ -2852,19 +2474,13 @@ impl Control {
         st.version = self.version;
         *self.state.write() = Arc::new(st);
         self.event(Event::Recording { state: r });
-        self.event(Event::Changed {
-            version: self.version,
-        });
+        self.event(Event::Changed { version: self.version });
     }
 
     fn issue(&mut self, id: &str, text: String) {
         if self.issues.get(id) != Some(&text) {
             self.issues.insert(id.into(), text.clone());
-            self.event(Event::Issue {
-                id: id.into(),
-                text,
-                fix: None,
-            });
+            self.event(Event::Issue { id: id.into(), text, fix: None });
         }
     }
 
@@ -2878,12 +2494,8 @@ impl Control {
     fn ensure_feeds(&mut self, ws: &Workspace, scene: Id) -> HashMap<Id, u32> {
         let mut map = HashMap::new();
         let Some(s) = ws.scene(scene) else { return map };
-        let sources: Vec<Arc<Source>> = s
-            .flatten()
-            .objects
-            .iter()
-            .filter_map(|o| ws.sources.get(&o.source?).cloned())
-            .collect();
+        let sources: Vec<Arc<Source>> =
+            s.flatten().objects.iter().filter_map(|o| ws.sources.get(&o.source?).cloned()).collect();
         // the cameras: the scene's camera layers' cameras, two at once where the phone
         // can, else the first
         let limit = if self.device.multi_camera { 2 } else { 1 };
@@ -2896,9 +2508,8 @@ impl Control {
         }
         // the ones no longer wanted stop first (a phone running one at a time needs it free);
         // their last frames stay for the scene going out
-        let (keep, stop): (Vec<_>, Vec<_>) = std::mem::take(&mut self.cameras)
-            .into_iter()
-            .partition(|c| wanted.iter().any(|w| w.0 == c.0));
+        let (keep, stop): (Vec<_>, Vec<_>) =
+            std::mem::take(&mut self.cameras).into_iter().partition(|c| wanted.iter().any(|w| w.0 == c.0));
         self.cameras = keep;
         for (key, f) in stop {
             self.host.stop_camera(f);
@@ -2914,14 +2525,8 @@ impl Control {
                 continue;
             }
             let id = self.id();
-            self.hot
-                .feeds
-                .write()
-                .insert(id, Arc::new(Feed::Video(VideoFeed::default())));
-            let canvas = ws
-                .canvas(self.canvas)
-                .cloned()
-                .unwrap_or_else(Canvas::vertical);
+            self.hot.feeds.write().insert(id, Arc::new(Feed::Video(VideoFeed::default())));
+            let canvas = ws.canvas(self.canvas).cloned().unwrap_or_else(Canvas::vertical);
             let mut short = canvas.width.min(canvas.height);
             let mut fps = canvas.fps_num / canvas.fps_den.max(1);
             if two {
@@ -2929,13 +2534,7 @@ impl Control {
                 short = short.min(1080);
                 fps = fps.min(30);
             }
-            let request = CameraRequest {
-                facing,
-                width: short * 16 / 9,
-                height: short,
-                fps,
-                device,
-            };
+            let request = CameraRequest { facing, width: short * 16 / 9, height: short, fps, device };
             match self.host.start_camera(id, request) {
                 Ok(()) => self.clear_issue("camera"),
                 Err(e) => self.issue("camera", format!("The camera didn't start: {e}")),
@@ -2956,15 +2555,8 @@ impl Control {
         // a scene switch)
         // (a layer deleted leaves its source in the project for undo: a screen nobody's layer
         // shows has no feeds, so Add > Screen adds a layer again and its sharing reaches it)
-        let shown = |id: Id| {
-            ws.scenes
-                .iter()
-                .any(|sc| sc.flatten().objects.iter().any(|o| o.source == Some(id)))
-        };
-        let screen = ws
-            .sources
-            .values()
-            .find(|s| s.kind == templates::SCREEN && shown(s.id));
+        let shown = |id: Id| ws.scenes.iter().any(|sc| sc.flatten().objects.iter().any(|o| o.source == Some(id)));
+        let screen = ws.sources.values().find(|s| s.kind == templates::SCREEN && shown(s.id));
         let wanted = screen.map(|s| (s.id, ws.tracks.iter().any(|t| t.source == s.id)));
         let have = self.screen.map(|s| (s.source, s.audio.is_some()));
         if wanted != have {
@@ -2983,11 +2575,7 @@ impl Control {
                 if let Some(a) = audio {
                     feeds.insert(a, Arc::new(Feed::Audio(AudioFeed::default())));
                 }
-                self.screen = Some(ScreenFeeds {
-                    source,
-                    video,
-                    audio,
-                });
+                self.screen = Some(ScreenFeeds { source, video, audio });
             }
         }
         if let Some(s) = self.screen {
@@ -2999,12 +2587,7 @@ impl Control {
             .filter(|s| s.kind == crate::widgets::KIND)
             .filter_map(|s| crate::web::page(&s.settings, &self.shared).map(|p| (s.id, p)))
             .collect();
-        let gone: Vec<Id> = self
-            .web
-            .keys()
-            .filter(|id| !pages.iter().any(|(s, _)| s == *id))
-            .copied()
-            .collect();
+        let gone: Vec<Id> = self.web.keys().filter(|id| !pages.iter().any(|(s, _)| s == *id)).copied().collect();
         for id in gone {
             if let Some(w) = self.web.remove(&id) {
                 self.drop_feed(w.feed);
@@ -3015,53 +2598,25 @@ impl Control {
                 Some(w) => w.feed,
                 None => {
                     let id = self.id();
-                    self.hot
-                        .feeds
-                        .write()
-                        .insert(id, Arc::new(Feed::Video(VideoFeed::default())));
+                    self.hot.feeds.write().insert(id, Arc::new(Feed::Video(VideoFeed::default())));
                     id
                 }
             };
-            self.web.insert(
-                source,
-                crate::web::WebFeed {
-                    source,
-                    feed,
-                    url,
-                    width,
-                    height,
-                    fps,
-                },
-            );
+            self.web.insert(source, crate::web::WebFeed { source, feed, url, width, height, fps });
             map.insert(source, feed);
         }
         // the widget server knows every widget's settings (an open page gets changes at once; a
         // subathon timer counts there, on screen or not)
-        let timers = ws
-            .sources
-            .values()
-            .any(|s| crate::widgets::instance(&s.settings).is_some_and(|i| i.kind == "subathon"));
+        let timers =
+            ws.sources.values().any(|s| crate::widgets::instance(&s.settings).is_some_and(|i| i.kind == "subathon"));
         if (!self.web.is_empty() || timers)
             && let Some(server) = crate::web::server(&self.shared)
         {
-            server.set_instances(
-                ws.sources
-                    .values()
-                    .filter_map(|s| crate::widgets::instance(&s.settings))
-                    .collect(),
-            );
+            server.set_instances(ws.sources.values().filter_map(|s| crate::widgets::instance(&s.settings)).collect());
         }
         // media files
-        let media: Vec<&Arc<Source>> = sources
-            .iter()
-            .filter(|s| s.kind == templates::MEDIA)
-            .collect();
-        let gone: Vec<Id> = self
-            .media
-            .keys()
-            .filter(|id| !media.iter().any(|s| s.id == **id))
-            .copied()
-            .collect();
+        let media: Vec<&Arc<Source>> = sources.iter().filter(|s| s.kind == templates::MEDIA).collect();
+        let gone: Vec<Id> = self.media.keys().filter(|id| !media.iter().any(|s| s.id == **id)).copied().collect();
         for id in gone {
             if let Some((v, a)) = self.media.remove(&id) {
                 self.host.close_media(v);
@@ -3076,22 +2631,12 @@ impl Control {
                 let v = self.id();
                 let sound = ws.tracks.iter().any(|t| t.source == s.id);
                 let a = sound.then(|| self.id());
-                self.hot
-                    .feeds
-                    .write()
-                    .insert(v, Arc::new(Feed::Video(VideoFeed::default())));
+                self.hot.feeds.write().insert(v, Arc::new(Feed::Video(VideoFeed::default())));
                 if let Some(a) = a {
-                    self.hot
-                        .feeds
-                        .write()
-                        .insert(a, Arc::new(Feed::Audio(AudioFeed::default())));
+                    self.hot.feeds.write().insert(a, Arc::new(Feed::Audio(AudioFeed::default())));
                 }
                 let file = s.settings["local_file"].as_str().unwrap_or("");
-                let path = if Path::new(file).is_absolute() {
-                    PathBuf::from(file)
-                } else {
-                    self.folder.join(file)
-                };
+                let path = if Path::new(file).is_absolute() { PathBuf::from(file) } else { self.folder.join(file) };
                 let request = MediaRequest {
                     path: path.to_string_lossy().into(),
                     looped: s.settings["looping"].as_bool().unwrap_or(true),
@@ -3099,10 +2644,7 @@ impl Control {
                     audio_feed: a,
                 };
                 if let Err(e) = self.host.open_media(v, request) {
-                    self.issue(
-                        &format!("media-{}", s.id),
-                        format!("{} can't be played: {e}", s.name),
-                    );
+                    self.issue(&format!("media-{}", s.id), format!("{} can't be played: {e}", s.name));
                 }
                 self.media.insert(s.id, (v, a));
             }
@@ -3117,10 +2659,7 @@ impl Control {
         match (&mic, self.mic) {
             (Some(_), None) => {
                 let id = self.id();
-                self.hot
-                    .feeds
-                    .write()
-                    .insert(id, Arc::new(Feed::Audio(AudioFeed::default())));
+                self.hot.feeds.write().insert(id, Arc::new(Feed::Audio(AudioFeed::default())));
                 match self.host.start_microphone(id, self.active_input.clone()) {
                     Ok(()) => self.clear_issue("microphone"),
                     Err(e) => self.issue("microphone", format!("The microphone didn't start: {e}")),
@@ -3141,15 +2680,10 @@ impl Control {
         // the alerts' sound, opened once, always in the mix
         if self.alerts_feed == 0 {
             let id = self.id();
-            self.hot
-                .feeds
-                .write()
-                .insert(id, Arc::new(Feed::Audio(AudioFeed::default())));
+            self.hot.feeds.write().insert(id, Arc::new(Feed::Audio(AudioFeed::default())));
             self.alerts_feed = id;
         }
-        routing
-            .feeds
-            .push((self.alerts_feed, audio::ALERTS_INPUT, false));
+        routing.feeds.push((self.alerts_feed, audio::ALERTS_INPUT, false));
         let mut inputs: HashMap<Id, u32> = HashMap::new();
         if let (Some(m), Some(f)) = (&mic, self.mic) {
             routing.feeds.push((f, audio::node(m.id), true));
@@ -3162,12 +2696,7 @@ impl Control {
             }
         }
         // the screen's sound, its own track, on the program clock as a video's
-        if let Some(ScreenFeeds {
-            source,
-            audio: Some(a),
-            ..
-        }) = self.screen
-        {
+        if let Some(ScreenFeeds { source, audio: Some(a), .. }) = self.screen {
             routing.feeds.push((a, audio::node(source), false));
             inputs.insert(source, a);
         }
@@ -3176,11 +2705,7 @@ impl Control {
         if *self.audio.spec() != spec {
             self.audio.set(spec);
         }
-        self.meters = ws
-            .tracks
-            .iter()
-            .map(|t| (t.id, self.audio.meter(audio::node(t.id))))
-            .collect();
+        self.meters = ws.tracks.iter().map(|t| (t.id, self.audio.meter(audio::node(t.id)))).collect();
         map
     }
 
@@ -3192,11 +2717,7 @@ impl Control {
             self.refresh();
             return;
         }
-        let first = ws
-            .canvases
-            .first()
-            .cloned()
-            .unwrap_or_else(Canvas::vertical);
+        let first = ws.canvases.first().cloned().unwrap_or_else(Canvas::vertical);
         let short = first.width.min(first.height);
         let c = templates::canvas(vertical, short, first.fps_num / first.fps_den.max(1));
         self.canvas = c.id;
@@ -3210,18 +2731,10 @@ impl Control {
             return None;
         }
         let ws = self.doc.workspace();
-        let id = match ws
-            .canvases
-            .iter()
-            .find(|c| c.width == width && c.height == height)
-        {
+        let id = match ws.canvases.iter().find(|c| c.width == width && c.height == height) {
             Some(c) => c.id,
             None => {
-                let first = ws
-                    .canvases
-                    .first()
-                    .cloned()
-                    .unwrap_or_else(Canvas::vertical);
+                let first = ws.canvases.first().cloned().unwrap_or_else(Canvas::vertical);
                 let c = Canvas {
                     id: Id::new(),
                     name: format!("{width}×{height}"),
@@ -3245,15 +2758,8 @@ impl Control {
     /// Adds `c` to the project with every layer laid out in it as in the first format, scaled.
     fn add_canvas(&mut self, c: Canvas) {
         let ws = self.doc.workspace().clone();
-        let first = ws
-            .canvases
-            .first()
-            .cloned()
-            .unwrap_or_else(Canvas::vertical);
-        let (kx, ky) = (
-            c.width as f32 / first.width.max(1) as f32,
-            c.height as f32 / first.height.max(1) as f32,
-        );
+        let first = ws.canvases.first().cloned().unwrap_or_else(Canvas::vertical);
+        let (kx, ky) = (c.width as f32 / first.width.max(1) as f32, c.height as f32 / first.height.max(1) as f32);
         let label = format!("Add {}", c.name);
         let mut commands = vec![Command::AddCanvas { canvas: c.clone() }];
         // every object laid out in the new format as in the first, scaled
@@ -3265,12 +2771,7 @@ impl Control {
                     l.y *= ky;
                     l.width *= kx;
                     l.height *= ky;
-                    commands.push(Command::SetLayout {
-                        scene: s.id,
-                        object: o.id,
-                        canvas: c.id,
-                        layout: l,
-                    });
+                    commands.push(Command::SetLayout { scene: s.id, object: o.id, canvas: c.id, layout: l });
                 }
             }
         }
@@ -3289,21 +2790,13 @@ impl Control {
         let (source, object, label) = match layer {
             NewLayer::Screen { with_sound } => {
                 // one screen a project: a second layer shows the same source
-                let s = ws
-                    .sources
-                    .values()
-                    .find(|s| s.kind == templates::SCREEN)
-                    .map(|s| (**s).clone());
+                let s = ws.sources.values().find(|s| s.kind == templates::SCREEN).map(|s| (**s).clone());
                 let fresh = s.is_none();
-                let s =
-                    s.unwrap_or_else(|| templates::source("Screen", templates::SCREEN, json!({})));
+                let s = s.unwrap_or_else(|| templates::source("Screen", templates::SCREEN, json!({})));
                 if fresh && with_sound {
                     let mut t = Track::new("Screen", s.id);
                     t.named = true;
-                    extra.push(Command::AddTrack {
-                        track: t,
-                        index: None,
-                    });
+                    extra.push(Command::AddTrack { track: t, index: None });
                 }
                 let o = templates::object_filling(&ws, &s, Fit::Fit);
                 (s, o, "Add screen")
@@ -3318,43 +2811,27 @@ impl Control {
                 (s, o, "Add camera")
             }
             NewLayer::Camera { facing } => {
-                let s = templates::source(
-                    "Camera",
-                    templates::CAMERA,
-                    json!({ "facing": facing_name(facing) }),
-                );
+                let s = templates::source("Camera", templates::CAMERA, json!({ "facing": facing_name(facing) }));
                 let o = templates::object_filling(&ws, &s, Fit::Fill);
                 (s, o, "Add camera")
             }
             NewLayer::Image { path } | NewLayer::Gif { path } => {
                 let Some(rel) = self.take_file(&path) else {
-                    self.event(Event::Failed {
-                        reason: "That picture couldn't be added.".into(),
-                    });
+                    self.event(Event::Failed { reason: "That picture couldn't be added.".into() });
                     return;
                 };
                 let (w, h) = image::image_dimensions(self.folder.join(&rel)).unwrap_or((16, 9));
-                let name = Path::new(&path)
-                    .file_stem()
-                    .map_or("Image".into(), |n| n.to_string_lossy().to_string());
+                let name = Path::new(&path).file_stem().map_or("Image".into(), |n| n.to_string_lossy().to_string());
                 let s = templates::source(&name, templates::IMAGE, json!({ "file": rel }));
                 let o = templates::object_centred(&ws, &s, 0.6, w as f32 / h.max(1) as f32);
                 (s, o, "Add image")
             }
-            NewLayer::Video {
-                path,
-                looped,
-                with_sound,
-            } => {
+            NewLayer::Video { path, looped, with_sound } => {
                 let Some(rel) = self.take_file(&path) else {
-                    self.event(Event::Failed {
-                        reason: "That video couldn't be added.".into(),
-                    });
+                    self.event(Event::Failed { reason: "That video couldn't be added.".into() });
                     return;
                 };
-                let name = Path::new(&path)
-                    .file_stem()
-                    .map_or("Video".into(), |n| n.to_string_lossy().to_string());
+                let name = Path::new(&path).file_stem().map_or("Video".into(), |n| n.to_string_lossy().to_string());
                 let s = templates::source(
                     &name,
                     templates::MEDIA,
@@ -3363,10 +2840,7 @@ impl Control {
                 if with_sound {
                     let mut t = Track::new(&name, s.id);
                     t.named = true;
-                    extra.push(Command::AddTrack {
-                        track: t,
-                        index: None,
-                    });
+                    extra.push(Command::AddTrack { track: t, index: None });
                 }
                 let o = templates::object_centred(&ws, &s, 0.8, 16.0 / 9.0);
                 (s, o, "Add video")
@@ -3393,11 +2867,7 @@ impl Control {
                 let mut settings = templates::colour_settings(shape.fill, 512, 512);
                 merge(&mut settings, json!({ "shape": shape_name(shape.kind) }));
                 let s = templates::source("Shape", templates::COLOUR, settings);
-                let aspect = if shape.kind == ShapeKind::Line {
-                    40.0
-                } else {
-                    1.0
-                };
+                let aspect = if shape.kind == ShapeKind::Line { 40.0 } else { 1.0 };
                 let mut o = templates::object_centred(&ws, &s, 0.4, aspect);
                 for l in o.layouts.values_mut() {
                     l.shape = shape_of(&shape);
@@ -3406,9 +2876,7 @@ impl Control {
             }
             NewLayer::Widget { kind } => {
                 let Some((settings, (w, h))) = crate::widgets::new_settings(&kind) else {
-                    self.event(Event::Failed {
-                        reason: format!("There's no {kind} widget."),
-                    });
+                    self.event(Event::Failed { reason: format!("There's no {kind} widget.") });
                     return;
                 };
                 let name = lightair_widgets::catalog::by_kind(&kind).map_or("Widget", |b| b.name);
@@ -3422,15 +2890,11 @@ impl Control {
                 let custom = match lightair_widgets::import(Path::new(&path)) {
                     Ok(c) => c,
                     Err(e) => {
-                        self.event(Event::Failed {
-                            reason: format!("That widget couldn't be imported: {e}"),
-                        });
+                        self.event(Event::Failed { reason: format!("That widget couldn't be imported: {e}") });
                         return;
                     }
                 };
-                let name = Path::new(&path)
-                    .file_stem()
-                    .map_or("Widget".into(), |n| n.to_string_lossy().to_string());
+                let name = Path::new(&path).file_stem().map_or("Widget".into(), |n| n.to_string_lossy().to_string());
                 let instance = lightair_widgets::Instance::new("custom", Some(custom));
                 let (w, h) = (800u32, 600u32);
                 let s = templates::source(
@@ -3442,33 +2906,19 @@ impl Control {
                 (s, o, "Add widget")
             }
             NewLayer::Colour { argb } => {
-                let s = templates::source(
-                    "Colour",
-                    templates::COLOUR,
-                    templates::colour_settings(argb, 64, 64),
-                );
+                let s = templates::source("Colour", templates::COLOUR, templates::colour_settings(argb, 64, 64));
                 let o = templates::object_filling(&ws, &s, Fit::Stretch);
                 (s, o, "Add colour")
             }
         };
         let object_id = object.id;
         // a source the project has already (the screen) isn't added again
-        let mut commands = if ws.sources.contains_key(&source.id) {
-            Vec::new()
-        } else {
-            vec![Command::AddSource { source }]
-        };
+        let mut commands =
+            if ws.sources.contains_key(&source.id) { Vec::new() } else { vec![Command::AddSource { source }] };
         commands.extend(extra);
-        commands.push(Command::AddObject {
-            scene,
-            object,
-            index: None,
-        });
+        commands.push(Command::AddObject { scene, object, index: None });
         let before = self.doc.workspace().clone();
-        self.apply(Command::Batch {
-            label: label.into(),
-            commands,
-        });
+        self.apply(Command::Batch { label: label.into(), commands });
         if !Arc::ptr_eq(&before, self.doc.workspace()) {
             self.event(Event::LayerAdded { layer: object_id });
         }
@@ -3483,10 +2933,9 @@ impl Control {
         if self.screen.is_some_and(|s| s.video == feed) {
             match s {
                 FeedState::Running => self.clear_issue("screen"),
-                FeedState::Stopped => self.issue(
-                    "screen",
-                    "Screen sharing stopped. Share the screen again from its layer.".into(),
-                ),
+                FeedState::Stopped => {
+                    self.issue("screen", "Screen sharing stopped. Share the screen again from its layer.".into())
+                }
                 FeedState::Interrupted { reason } | FeedState::Failed { reason } => {
                     self.issue("screen", format!("Screen sharing paused: {reason}"))
                 }
@@ -3544,9 +2993,7 @@ impl Control {
         let dir = crate::record::folder(&self.shared);
         let _ = std::fs::create_dir_all(&dir);
         let now = SystemTime::now();
-        let unix = now
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs() as i64);
+        let unix = now.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
         let file = crate::record::file_name(&dir, &ws.name, unix, self.device.utc_offset_min);
         let main = match self.open_part(&config, false, file) {
             Ok(p) => p,
@@ -3561,38 +3008,24 @@ impl Control {
         // the camera alone, in a file of its own, where the phone can run a second encode
         if camera_clean {
             if self.device.video_encodes() < 2 {
-                self.issue(
-                    "camera-clean",
-                    "This phone can't record the camera clean as well as the program.".into(),
-                );
+                self.issue("camera-clean", "This phone can't record the camera clean as well as the program.".into());
             } else if self.cameras.is_empty() {
-                self.issue(
-                    "camera-clean",
-                    "No camera in this scene to record clean.".into(),
-                );
+                self.issue("camera-clean", "No camera in this scene to record clean.".into());
             } else {
-                let stem = main_file
-                    .file_stem()
-                    .map_or(String::new(), |s| s.to_string_lossy().to_string());
+                let stem = main_file.file_stem().map_or(String::new(), |s| s.to_string_lossy().to_string());
                 let file = dir.join(format!("{stem} (camera).mp4"));
                 match self.open_part(&config, true, file) {
                     Ok(p) => {
                         self.clear_issue("camera-clean");
                         parts.push(p);
                     }
-                    Err(e) => {
-                        self.issue("camera-clean", format!("Recording only the program: {e}"))
-                    }
+                    Err(e) => self.issue("camera-clean", format!("Recording only the program: {e}")),
                 }
             }
         }
         self.clear_issue("recording");
         self.host.keep_screen_on(true);
-        self.recording = Some(Rec {
-            parts,
-            started: now,
-            size: (c.width, c.height),
-        });
+        self.recording = Some(Rec { parts, started: now, size: (c.width, c.height) });
         self.set_recording(RecordingState::Recording {
             since_ms: unix as u64 * 1000,
             file: main_file.to_string_lossy().into(),
@@ -3600,12 +3033,7 @@ impl Control {
     }
 
     /// Opens a video and an audio encoder and starts their file.
-    fn open_part(
-        &mut self,
-        config: &VideoEncoderConfig,
-        clean: bool,
-        file: PathBuf,
-    ) -> Result<Part, HostError> {
+    fn open_part(&mut self, config: &VideoEncoderConfig, clean: bool, file: PathBuf) -> Result<Part, HostError> {
         // registered before the host opens them: its pull loops may start inside the open call
         let video = self.id();
         self.hot.opening.lock().insert(video);
@@ -3626,16 +3054,8 @@ impl Control {
         self.hot.opening.lock().remove(&video);
         let _ = self.render.send(render::Msg::AddEncoder(enc));
         let audio = self.id();
-        let sound = AudioEncoderConfig {
-            sample_rate: 48_000,
-            channels: 2,
-            bitrate_kbps: 160,
-            codec: AudioCodec::Aac,
-        };
-        self.hot
-            .audio_encoders
-            .write()
-            .insert(audio, Arc::new(AudioEncoder::new(audio)));
+        let sound = AudioEncoderConfig { sample_rate: 48_000, channels: 2, bitrate_kbps: 160, codec: AudioCodec::Aac };
+        self.hot.audio_encoders.write().insert(audio, Arc::new(AudioEncoder::new(audio)));
         let audio = match self.host.open_audio_encoder(audio, sound) {
             Ok(()) => Some(audio),
             Err(e) => {
@@ -3655,13 +3075,7 @@ impl Control {
             self.close_encoders(video, audio);
             return Err(e);
         }
-        Ok(Part {
-            id,
-            video,
-            audio,
-            file,
-            done: false,
-        })
+        Ok(Part { id, video, audio, file, done: false })
     }
 
     fn close_encoders(&mut self, video: u32, audio: Option<u32>) {
@@ -3680,12 +3094,8 @@ impl Control {
 
     fn stop_recording(&mut self, why: Option<String>) {
         let Some(r) = &self.recording else { return };
-        let parts: Vec<(u32, u32, Option<u32>)> = r
-            .parts
-            .iter()
-            .filter(|p| !p.done)
-            .map(|p| (p.id, p.video, p.audio))
-            .collect();
+        let parts: Vec<(u32, u32, Option<u32>)> =
+            r.parts.iter().filter(|p| !p.done).map(|p| (p.id, p.video, p.audio)).collect();
         for (id, video, audio) in parts {
             // no more frames or sound: the host's pulls end once what's queued is taken
             if let Some(e) = self.hot.video_encoder(video) {
@@ -3716,28 +3126,16 @@ impl Control {
         self.close_encoders(video, audio);
         match result {
             RecordingResult::Finished { duration_ms, .. } => {
-                let name = file
-                    .file_stem()
-                    .map_or(String::new(), |s| s.to_string_lossy().to_string());
-                let created_ms = started
-                    .duration_since(UNIX_EPOCH)
-                    .map_or(0, |d| d.as_millis() as u64);
-                let item = crate::record::Item {
-                    name,
-                    created_ms,
-                    duration_ms,
-                    width: size.0,
-                    height: size.1,
-                    file,
-                };
+                let name = file.file_stem().map_or(String::new(), |s| s.to_string_lossy().to_string());
+                let created_ms = started.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+                let item = crate::record::Item { name, created_ms, duration_ms, width: size.0, height: size.1, file };
                 if let Err(e) = crate::record::add_to_index(&self.shared, &item) {
                     tracing::warn!(%e, "the Studio index");
                 }
             }
-            RecordingResult::Failed { reason } => self.issue(
-                "recording",
-                format!("The recording couldn't be finished: {reason}"),
-            ),
+            RecordingResult::Failed { reason } => {
+                self.issue("recording", format!("The recording couldn't be finished: {reason}"))
+            }
         }
         if all_done {
             self.recording = None;
@@ -3757,10 +3155,7 @@ impl Control {
         {
             self.alert_until = Some(Instant::now() + Duration::from_millis(a.duration_ms as u64));
             *self.hot.alert.write() = Some((a.clone(), self.hot.clock.drawn_ns()));
-            self.event(Event::Alert {
-                alert: a,
-                sound_feed: self.alerts_feed,
-            });
+            self.event(Event::Alert { alert: a, sound_feed: self.alerts_feed });
         }
     }
 
@@ -3781,9 +3176,10 @@ impl Control {
         if !self.retired.is_empty() && self.pending.is_none() {
             let prog = self.hot.program();
             let drawn = self.hot.clock.drawn_ns();
-            let switching = prog.switch.as_ref().is_some_and(|s| {
-                drawn < s.start_ns + s.settings.duration_ms as i64 * 1_000_000 + 100_000_000
-            });
+            let switching = prog
+                .switch
+                .as_ref()
+                .is_some_and(|s| drawn < s.start_ns + s.settings.duration_ms as i64 * 1_000_000 + 100_000_000);
             if !switching {
                 for (_, f) in std::mem::take(&mut self.retired) {
                     self.drop_feed(f);
@@ -3800,25 +3196,18 @@ impl Control {
         st.version = self.version;
         *self.state.write() = Arc::new(st);
         self.event(Event::Live { state: l });
-        self.event(Event::Changed {
-            version: self.version,
-        });
+        self.event(Event::Changed { version: self.version });
     }
 
     /// Going live: platform destinations' servers and keys are found first on a helper thread
     /// (Twitch's nearest ingest, sign-in), then `go_live`.
     fn begin_live(&mut self, dests: Vec<crate::outputs::Destination>, record: Start) {
-        let allowed = if record.adding {
-            self.live.is_some()
-        } else {
-            self.live.is_none() && !self.resolving
-        };
+        let allowed = if record.adding { self.live.is_some() } else { self.live.is_none() && !self.resolving };
         if !allowed || dests.is_empty() {
             return;
         }
-        let platform = |d: &crate::outputs::Destination| {
-            matches!(d.kind, crate::outputs::DestinationKind::Platform { .. })
-        };
+        let platform =
+            |d: &crate::outputs::Destination| matches!(d.kind, crate::outputs::DestinationKind::Platform { .. });
         if !dests.iter().any(platform) {
             self.go_live(dests, record);
             return;
@@ -3830,24 +3219,22 @@ impl Control {
         let me = self.me.clone();
         // a YouTube broadcast made through sign-in is called the title kept for the next YouTube
         // stream, else the project's name
-        let title = lightair_live::oauth::kept("youtube-next-title")
-            .unwrap_or_else(|| self.doc.workspace().name.clone());
-        let spawned = std::thread::Builder::new()
-            .name("lightair-golive".into())
-            .spawn(move || {
-                let (mut ok, mut failed, mut broadcasts) = (Vec::new(), Vec::new(), Vec::new());
-                for d in dests {
-                    let id = d.id.clone();
-                    match d.resolve(&title) {
-                        Ok((r, broadcast)) => {
-                            ok.push(r);
-                            broadcasts.extend(broadcast);
-                        }
-                        Err(e) => failed.push((id, e)),
+        let title =
+            lightair_live::oauth::kept("youtube-next-title").unwrap_or_else(|| self.doc.workspace().name.clone());
+        let spawned = std::thread::Builder::new().name("lightair-golive".into()).spawn(move || {
+            let (mut ok, mut failed, mut broadcasts) = (Vec::new(), Vec::new(), Vec::new());
+            for d in dests {
+                let id = d.id.clone();
+                match d.resolve(&title) {
+                    Ok((r, broadcast)) => {
+                        ok.push(r);
+                        broadcasts.extend(broadcast);
                     }
+                    Err(e) => failed.push((id, e)),
                 }
-                let _ = me.send(Msg::Resolved(ok, failed, broadcasts, record));
-            });
+            }
+            let _ = me.send(Msg::Resolved(ok, failed, broadcasts, record));
+        });
         if spawned.is_err() && !record.adding {
             self.resolving = false;
             self.set_live(LiveState::Off);
@@ -3877,9 +3264,7 @@ impl Control {
         }
         self.set_live(LiveState::Starting);
         self.dropped_at_start = self.hot.stats.dropped.load(Ordering::Relaxed);
-        let since_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_millis() as u64);
+        let since_ms = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
         self.live = Some(Live {
             groups: Vec::new(),
             audios: Vec::new(),
@@ -3903,10 +3288,7 @@ impl Control {
                 }
             }
             if self.hot.outputs.read().is_empty() {
-                self.issue(
-                    "live",
-                    "Going live didn't start: no destination could be reached.".into(),
-                );
+                self.issue("live", "Going live didn't start: no destination could be reached.".into());
                 self.end_live(None);
                 return;
             }
@@ -3948,10 +3330,7 @@ impl Control {
             l.blocked = Some(id.into());
             l.starting = None;
         }
-        self.issue(
-            "start",
-            format!("{name} didn't start: {why}. Continue without it, or stop everything."),
-        );
+        self.issue("start", format!("{name} didn't start: {why}. Continue without it, or stop everything."));
     }
 
     /// Destinations away longer than their own limit are stopped, to start again.
@@ -3974,16 +3353,10 @@ impl Control {
             {
                 l.stopped.push(d);
             }
-            let after = if limit >= 120 {
-                format!("{} min", limit / 60)
-            } else {
-                format!("{limit} s")
-            };
+            let after = if limit >= 120 { format!("{} min", limit / 60) } else { format!("{limit} s") };
             self.issue(
                 &format!("output-{id}"),
-                format!(
-                    "{name} couldn't be reached for {after}: stopped. Start it again from the list."
-                ),
+                format!("{name} couldn't be reached for {after}: stopped. Start it again from the list."),
             );
         }
     }
@@ -3993,14 +3366,7 @@ impl Control {
         let Some((id, since)) = self.live.as_ref().and_then(|l| l.starting.clone()) else {
             return;
         };
-        let Some(o) = self
-            .hot
-            .outputs
-            .read()
-            .iter()
-            .find(|o| o.dest.id == id)
-            .cloned()
-        else {
+        let Some(o) = self.hot.outputs.read().iter().find(|o| o.dest.id == id).cloned() else {
             return;
         };
         match o.health().state {
@@ -4026,15 +3392,9 @@ impl Control {
     /// one that's on, else opened if the phone can run one more) and its sound encode.
     fn start_one(&mut self, d: crate::outputs::Destination) -> Result<(), String> {
         let ws = self.doc.workspace().clone();
-        let e = crate::outputs::plan_in(
-            std::slice::from_ref(&d),
-            &formats(&ws, self.canvas),
-            u32::MAX,
-            0,
-            u32::MAX,
-        )
-        .encodes
-        .remove(0);
+        let e = crate::outputs::plan_in(std::slice::from_ref(&d), &formats(&ws, self.canvas), u32::MAX, 0, u32::MAX)
+            .encodes
+            .remove(0);
         let format = format_id(&e.format).unwrap_or(self.canvas);
         let Some(l) = self.live.as_ref() else {
             return Err("nothing is live".into());
@@ -4043,8 +3403,7 @@ impl Control {
             .groups
             .iter()
             .find(|g| {
-                (g.format, g.chosen, g.config.fps, g.chosen_kbps)
-                    == (format, (e.width, e.height), e.fps, e.video_kbps)
+                (g.format, g.chosen, g.config.fps, g.chosen_kbps) == (format, (e.width, e.height), e.fps, e.video_kbps)
             })
             .map(|g| g.video);
         // a second format where the phone draws one
@@ -4054,18 +3413,21 @@ impl Control {
             drawn.sort();
             drawn.dedup();
             if drawn.len() as u32 > self.device.formats_at_once() {
-                return Err("this phone streams one format at a time: give it the same format as the ones that are on".into());
+                return Err(
+                    "this phone streams one format at a time: give it the same format as the ones that are on".into()
+                );
             }
         }
         let video = match existing {
             Some(v) => v,
             None => {
-                let recording = self
-                    .recording
-                    .as_ref()
-                    .map_or(0, |r| r.parts.iter().filter(|p| !p.done).count() as u32);
+                let recording =
+                    self.recording.as_ref().map_or(0, |r| r.parts.iter().filter(|p| !p.done).count() as u32);
                 if l.groups.len() as u32 + recording >= self.device.video_encodes() {
-                    return Err("this phone can't run another stream encode now; give it the same quality as one that's on".into());
+                    return Err(
+                        "this phone can't run another stream encode now; give it the same quality as one that's on"
+                            .into(),
+                    );
                 }
                 let config = VideoEncoderConfig {
                     codec: Codec::H264,
@@ -4102,24 +3464,12 @@ impl Control {
             },
             d.audio_kbps.max(64),
         );
-        let audio = match self
-            .live
-            .as_ref()
-            .and_then(|l| l.audios.iter().find(|(k, _)| *k == key).map(|(_, a)| *a))
-        {
+        let audio = match self.live.as_ref().and_then(|l| l.audios.iter().find(|(k, _)| *k == key).map(|(_, a)| *a)) {
             Some(a) => a,
             None => {
                 let audio = self.id();
-                self.hot
-                    .audio_encoders
-                    .write()
-                    .insert(audio, Arc::new(AudioEncoder::new(audio)));
-                let sound = AudioEncoderConfig {
-                    sample_rate: 48_000,
-                    channels: 2,
-                    bitrate_kbps: key.1,
-                    codec: key.0,
-                };
+                self.hot.audio_encoders.write().insert(audio, Arc::new(AudioEncoder::new(audio)));
+                let sound = AudioEncoderConfig { sample_rate: 48_000, channels: 2, bitrate_kbps: key.1, codec: key.0 };
                 if let Err(e) = self.host.open_audio_encoder(audio, sound) {
                     self.hot.audio_encoders.write().remove(&audio);
                     self.issue("live-sound", format!("Live without sound: {e}"));
@@ -4164,11 +3514,7 @@ impl Control {
                 return Err(e);
             }
         };
-        if let Some(g) = self
-            .live
-            .as_mut()
-            .and_then(|l| l.groups.iter_mut().find(|g| g.video == video))
-        {
+        if let Some(g) = self.live.as_mut().and_then(|l| l.groups.iter_mut().find(|g| g.video == video)) {
             g.destinations.push(id);
             // a shared encode may be at a smaller size already; the smallest has no floor
             o.set_size(g.size_at(g.rung));
@@ -4274,11 +3620,7 @@ impl Control {
     }
 
     /// A stream's video encoder, opened through the host and drawn into.
-    fn open_stream_encoder(
-        &mut self,
-        config: VideoEncoderConfig,
-        format: Id,
-    ) -> Result<u32, String> {
+    fn open_stream_encoder(&mut self, config: VideoEncoderConfig, format: Id) -> Result<u32, String> {
         let video = self.id();
         self.hot.opening.lock().insert(video);
         let target = match self.host.open_video_encoder(video, config.clone()) {
@@ -4377,9 +3719,7 @@ impl Control {
             self.apply_bitrate();
         }
         self.resolution_floor(now);
-        let on_air = outputs
-            .iter()
-            .any(|o| o.health().state != crate::outputs::OutputState::Connecting);
+        let on_air = outputs.iter().any(|o| o.health().state != crate::outputs::OutputState::Connecting);
         if let Some(l) = self.live.as_mut()
             && on_air
             && !l.on_air
@@ -4400,10 +3740,7 @@ impl Control {
             if now.duration_since(g.changed_at) < Duration::from_secs(10) {
                 continue;
             }
-            let mine: Vec<_> = outputs
-                .iter()
-                .filter(|o| o.video_encoder() == g.video)
-                .collect();
+            let mine: Vec<_> = outputs.iter().filter(|o| o.video_encoder() == g.video).collect();
             if mine.is_empty() {
                 continue;
             }
@@ -4427,27 +3764,11 @@ impl Control {
         let (size, down) = (g.size_at(rung), rung > g.rung);
         let mut config = g.config.clone();
         (config.width, config.height) = stream_size(chosen, Some(short));
-        let outputs: Vec<_> = self
-            .hot
-            .outputs
-            .read()
-            .iter()
-            .filter(|o| o.video_encoder() == old)
-            .cloned()
-            .collect();
+        let outputs: Vec<_> = self.hot.outputs.read().iter().filter(|o| o.video_encoder() == old).cloned().collect();
         // smaller: it starts at what its destinations' networks carry, not above the bitrate
         // they've stepped to (the floor is lower for the smaller picture: often under the old
         // one); larger: at the bitrate they've stepped to
-        let kbps = outputs
-            .iter()
-            .map(|o| {
-                if down {
-                    o.kbps_at(size)
-                } else {
-                    o.target_kbps()
-                }
-            })
-            .min();
+        let kbps = outputs.iter().map(|o| if down { o.kbps_at(size) } else { o.target_kbps() }).min();
         if let Some(kbps) = kbps {
             config.bitrate_kbps = kbps.max(300);
         }
@@ -4495,11 +3816,7 @@ impl Control {
             .groups
             .iter()
             .filter_map(|g| {
-                let min = outputs
-                    .iter()
-                    .filter(|o| o.video_encoder() == g.video)
-                    .map(|o| o.target_kbps())
-                    .min()?;
+                let min = outputs.iter().filter(|o| o.video_encoder() == g.video).map(|o| o.target_kbps()).min()?;
                 Some((g.video, min.min(g.chosen_kbps * cap / 100).max(300)))
             })
             .collect();
@@ -4514,15 +3831,9 @@ impl Control {
         let d = self.phone.clone();
         let msg = self.governor.update(d.thermal, d.battery, d.charging, now);
         let fx = self.governor.effects(now);
-        self.hot
-            .preview_every
-            .store(fx.preview_every, Ordering::Relaxed);
-        self.hot
-            .encode_every
-            .store(fx.encode_every, Ordering::Relaxed);
-        self.hot
-            .governor_step
-            .store(self.governor.step as u32, Ordering::Relaxed);
+        self.hot.preview_every.store(fx.preview_every, Ordering::Relaxed);
+        self.hot.encode_every.store(fx.encode_every, Ordering::Relaxed);
+        self.hot.governor_step.store(self.governor.step as u32, Ordering::Relaxed);
         if let Some(m) = msg {
             self.governor_message = Some(m.to_string());
             if self.governor.step == 0 {
@@ -4533,9 +3844,7 @@ impl Control {
             self.apply_bitrate();
         }
         if fx.stop_recording && self.recording.is_some() && self.live.is_some() {
-            self.stop_recording(Some(
-                "Recording stopped: the phone is too hot. The stream goes on.".into(),
-            ));
+            self.stop_recording(Some("Recording stopped: the phone is too hot. The stream goes on.".into()));
         }
         if fx.end_stream && self.live.is_some() {
             self.end_live(Some(
@@ -4548,12 +3857,10 @@ impl Control {
         if self.live.is_none() && self.recording.is_none() {
             return;
         }
-        let groups: Vec<(u32, u32, u32)> = self.live.as_ref().map_or(Vec::new(), |l| {
-            l.groups
-                .iter()
-                .map(|g| (g.video, g.config.width, g.config.height))
-                .collect()
-        });
+        let groups: Vec<(u32, u32, u32)> = self
+            .live
+            .as_ref()
+            .map_or(Vec::new(), |l| l.groups.iter().map(|g| (g.video, g.config.width, g.config.height)).collect());
         let outputs: Vec<crate::outputs::OutputHealth> = self
             .hot
             .outputs
@@ -4564,10 +3871,8 @@ impl Control {
                 if let Some(i) = groups.iter().position(|g| g.0 == o.video_encoder()) {
                     (h.encode, h.width, h.height) = (i as u32, groups[i].1, groups[i].2);
                 }
-                h.encoder_dropped = self
-                    .hot
-                    .video_encoder(o.video_encoder())
-                    .map_or(0, |e| e.dropped.load(Ordering::Relaxed));
+                h.encoder_dropped =
+                    self.hot.video_encoder(o.video_encoder()).map_or(0, |e| e.dropped.load(Ordering::Relaxed));
                 h
             })
             .collect();
@@ -4577,25 +3882,16 @@ impl Control {
             device: self.phone.clone(),
             governor_step: self.governor.step,
             governor_message: self.governor_message.clone(),
-            queued: self.live.as_ref().map_or(Vec::new(), |l| {
-                l.queue.iter().map(|d| d.id.clone()).collect()
-            }),
+            queued: self.live.as_ref().map_or(Vec::new(), |l| l.queue.iter().map(|d| d.id.clone()).collect()),
             blocked: self.live.as_ref().and_then(|l| l.blocked.clone()),
-            stopped: self.live.as_ref().map_or(Vec::new(), |l| {
-                l.stopped.iter().map(|d| d.id.clone()).collect()
-            }),
+            stopped: self.live.as_ref().map_or(Vec::new(), |l| l.stopped.iter().map(|d| d.id.clone()).collect()),
             dropped_network,
             dropped_encoder: groups
                 .iter()
                 .filter_map(|g| self.hot.video_encoder(g.0))
                 .map(|e| e.dropped.load(Ordering::Relaxed))
                 .sum(),
-            dropped_render: self
-                .hot
-                .stats
-                .dropped
-                .load(Ordering::Relaxed)
-                .saturating_sub(self.dropped_at_start),
+            dropped_render: self.hot.stats.dropped.load(Ordering::Relaxed).saturating_sub(self.dropped_at_start),
         };
         self.event(Event::Health { report });
     }
@@ -4626,10 +3922,7 @@ impl Control {
     }
 
     fn tick(&mut self) {
-        if self
-            .coalescing
-            .is_some_and(|(_, at)| at.elapsed() >= COALESCE)
-        {
+        if self.coalescing.is_some_and(|(_, at)| at.elapsed() >= COALESCE) {
             self.end_coalescing();
         }
         self.switches();
@@ -4649,12 +3942,7 @@ impl Control {
             self.chat_at = Instant::now();
             // chat safety (App Store 1.2): hidden people left out, filtered words masked, before
             // the chat panel, the chat box overlay and the alerts (spoken ones included) see it
-            let messages: Vec<_> = self
-                .chat
-                .take_new()
-                .into_iter()
-                .filter_map(crate::moderation::apply)
-                .collect();
+            let messages: Vec<_> = self.chat.take_new().into_iter().filter_map(crate::moderation::apply).collect();
             if !messages.is_empty() {
                 let mut c = self.hot.chat.write();
                 c.0.extend(messages.iter().cloned());
@@ -4681,10 +3969,7 @@ impl Control {
         // an engine thread's trouble: once, in plain words
         let failed = self.hot.failed.lock().take();
         if let Some(why) = failed {
-            self.issue(
-                "engine",
-                format!("{why}. Close the project and open it again."),
-            );
+            self.issue("engine", format!("{why}. Close the project and open it again."));
             self.event(Event::Failed { reason: why });
         }
         self.audio.collect();
@@ -4695,19 +3980,12 @@ impl Control {
                 .iter()
                 .map(|(t, m)| {
                     let r = m.read();
-                    Level {
-                        track: *t,
-                        peak_db: r.peak_db[0].max(r.peak_db[1]),
-                        rms_db: r.rms_db[0].max(r.rms_db[1]),
-                    }
+                    Level { track: *t, peak_db: r.peak_db[0].max(r.peak_db[1]), rms_db: r.rms_db[0].max(r.rms_db[1]) }
                 })
                 .collect();
             let program_lufs = self.audio.meter(la::PROGRAM).loudness().momentary_lufs;
             *self.hot.levels.write() = levels.clone();
-            self.event(Event::Meters {
-                levels,
-                program_lufs,
-            });
+            self.event(Event::Meters { levels, program_lufs });
         }
         if self.stats_at.elapsed() >= Duration::from_secs(1) {
             let secs = self.stats_at.elapsed().as_secs_f32();
@@ -4718,11 +3996,7 @@ impl Control {
             let n = frames - self.frames_seen;
             self.event(Event::Stats {
                 fps: n as f32 / secs,
-                render_ms: if n > 0 {
-                    us as f32 / n as f32 / 1000.0
-                } else {
-                    0.0
-                },
+                render_ms: if n > 0 { us as f32 / n as f32 / 1000.0 } else { 0.0 },
                 dropped: (dropped - self.dropped_seen) as u32,
             });
             self.frames_seen = frames;
@@ -4744,10 +4018,7 @@ impl Control {
                 }
             }
             match quiet {
-                Some(true) => self.issue(
-                    "camera-paused",
-                    "Camera paused: no pictures from the camera.".into(),
-                ),
+                Some(true) => self.issue("camera-paused", "Camera paused: no pictures from the camera.".into()),
                 Some(false) => self.clear_issue("camera-paused"),
                 None => {}
             }
@@ -4793,24 +4064,13 @@ mod tests {
         let src = templates::source("T", templates::TEXT, text_settings(&text));
         assert_eq!(text_spec_of(&src), text);
 
-        let timer = TimerSpec {
-            mode: TimerMode::CountUp,
-            seconds: 90,
-            text: text.clone(),
-        };
+        let timer = TimerSpec { mode: TimerMode::CountUp, seconds: 90, text: text.clone() };
         let mut settings = text_settings(&timer.text);
         merge(&mut settings, timer_settings(&timer));
-        assert_eq!(
-            timer_spec_of(&templates::source("Timer", templates::TIMER, settings)),
-            timer
-        );
+        assert_eq!(timer_spec_of(&templates::source("Timer", templates::TIMER, settings)), timer);
 
-        let shape = ShapeSpec {
-            kind: ShapeKind::Ellipse,
-            fill: 0x80_FF_00_00,
-            stroke: Some(0xFF_00_FF_00),
-            stroke_width: 6.0,
-        };
+        let shape =
+            ShapeSpec { kind: ShapeKind::Ellipse, fill: 0x80_FF_00_00, stroke: Some(0xFF_00_FF_00), stroke_width: 6.0 };
         let mut settings = templates::colour_settings(shape.fill, 512, 512);
         merge(&mut settings, json!({ "shape": shape_name(shape.kind) }));
         let src = templates::source("Shape", templates::COLOUR, settings);
@@ -4819,16 +4079,9 @@ mod tests {
         assert_eq!(shape_spec_of(&src, Some(&layout)), Some(shape));
         assert_eq!(colour_of(&src), 0x80_FF_00_00);
         // a plain colour isn't a shape
-        let plain = templates::source(
-            "C",
-            templates::COLOUR,
-            templates::colour_settings(0xFF_11_22_33, 64, 64),
-        );
+        let plain = templates::source("C", templates::COLOUR, templates::colour_settings(0xFF_11_22_33, 64, 64));
         assert_eq!(shape_spec_of(&plain, None), None);
         assert_eq!(colour_of(&plain), 0xFF_11_22_33);
-        assert_eq!(
-            templates::colour_settings(0xFF_11_22_33, 0, 0)["color"],
-            json!(0xFF_33_22_11u32)
-        );
+        assert_eq!(templates::colour_settings(0xFF_11_22_33, 0, 0)["color"], json!(0xFF_33_22_11u32));
     }
 }

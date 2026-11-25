@@ -75,32 +75,21 @@ impl Destination {
     /// control thread.
     pub fn resolve(self, title: &str) -> Result<(Destination, Option<String>), String> {
         let d = self.within_limits();
-        let DestinationKind::Platform {
-            platform,
-            server,
-            key,
-        } = &d.kind
-        else {
+        let DestinationKind::Platform { platform, server, key } = &d.kind else {
             return Ok((d, None));
         };
-        let p = crate::platforms::by_id(platform)
-            .ok_or_else(|| format!("{} isn't a platform Lightair knows.", d.name))?;
+        let p =
+            crate::platforms::by_id(platform).ok_or_else(|| format!("{} isn't a platform Lightair knows.", d.name))?;
         let pasted = key.as_deref().map(str::trim).filter(|k| !k.is_empty());
         let given = server.as_deref().map(str::trim).filter(|s| !s.is_empty());
-        let signed_in = crate::platforms::key_by_sign_in(p)
-            .filter(|provider| lightair_live::official::signed_in(provider));
+        let signed_in =
+            crate::platforms::key_by_sign_in(p).filter(|provider| lightair_live::official::signed_in(provider));
         // YouTube through sign-in: a broadcast made now, on the channel's reusable stream
         if pasted.is_none() && signed_in == Some("youtube") {
             let privacy = d.visibility.as_deref().unwrap_or("public");
             let made = lightair_live::official::youtube_create_broadcast(title, privacy)
                 .map_err(|e| format!("{}: YouTube didn't make the broadcast: {e}", d.name))?;
-            let rtmp = Destination {
-                kind: DestinationKind::Rtmp {
-                    url: made.url,
-                    key: made.key,
-                },
-                ..d
-            };
+            let rtmp = Destination { kind: DestinationKind::Rtmp { url: made.url, key: made.key }, ..d };
             return Ok((rtmp, made.broadcast));
         }
         let url = match given {
@@ -108,30 +97,24 @@ impl Destination {
             None => crate::platforms::automatic_server(p)?,
         };
         if url.starts_with("srt://") {
-            let srt = Destination {
-                kind: DestinationKind::Srt { url },
-                ..d
-            };
+            let srt = Destination { kind: DestinationKind::Srt { url }, ..d };
             return Ok((srt, None));
         }
         let key = match (pasted, signed_in) {
             (Some(k), _) => k.to_string(),
-            (None, Some(provider)) => lightair_live::official::stream_key(provider)
-                .map_err(|e| format!("{}: {e}", d.name))?,
+            (None, Some(provider)) => {
+                lightair_live::official::stream_key(provider).map_err(|e| format!("{}: {e}", d.name))?
+            }
             (None, None) => {
                 return Err(match crate::platforms::key_by_sign_in(p) {
-                    Some(_) => format!(
-                        "{}: paste the stream key, or sign in to {} so Lightair can get it.",
-                        d.name, p.name
-                    ),
+                    Some(_) => {
+                        format!("{}: paste the stream key, or sign in to {} so Lightair can get it.", d.name, p.name)
+                    }
                     None => format!("{}: paste the stream key.", d.name),
                 });
             }
         };
-        let rtmp = Destination {
-            kind: DestinationKind::Rtmp { url, key },
-            ..d
-        };
+        let rtmp = Destination { kind: DestinationKind::Rtmp { url, key }, ..d };
         Ok((rtmp, None))
     }
 }
@@ -203,18 +186,8 @@ pub struct StreamPlan {
 /// The encodes for `dests` on a format of `size` at `fps`: one per distinct (size, frame rate,
 /// bitrate), in the destinations' order; `max` encodes at once, `recording` of them taken by a
 /// recording's own.
-pub fn plan(
-    dests: &[Destination],
-    size: (u32, u32),
-    fps: u32,
-    max: u32,
-    recording: u32,
-) -> StreamPlan {
-    let one = Format {
-        id: String::new(),
-        size,
-        fps,
-    };
+pub fn plan(dests: &[Destination], size: (u32, u32), fps: u32, max: u32, recording: u32) -> StreamPlan {
+    let one = Format { id: String::new(), size, fps };
     plan_in(dests, std::slice::from_ref(&one), max, recording, 1)
 }
 
@@ -228,22 +201,11 @@ pub struct Format {
 
 /// [`plan`] over the project's formats (the active one first): each destination in its own
 /// (`Destination.format`), `at_once` formats at most.
-pub fn plan_in(
-    dests: &[Destination],
-    formats: &[Format],
-    max: u32,
-    recording: u32,
-    at_once: u32,
-) -> StreamPlan {
+pub fn plan_in(dests: &[Destination], formats: &[Format], max: u32, recording: u32, at_once: u32) -> StreamPlan {
     let mut encodes: Vec<Encode> = Vec::new();
     for d in dests.iter().cloned().map(Destination::within_limits) {
         let d = &d;
-        let Some(f) = d
-            .format
-            .as_ref()
-            .and_then(|id| formats.iter().find(|f| f.id == *id))
-            .or(formats.first())
-        else {
+        let Some(f) = d.format.as_ref().and_then(|id| formats.iter().find(|f| f.id == *id)).or(formats.first()) else {
             continue;
         };
         let (size, fps) = (f.size, f.fps);
@@ -253,10 +215,10 @@ pub fn plan_in(
             _ => fps,
         };
         let video_kbps = d.video_kbps.max(300);
-        match encodes.iter_mut().find(|e| {
-            (&e.format, e.width, e.height, e.fps, e.video_kbps)
-                == (&f.id, width, height, fps, video_kbps)
-        }) {
+        match encodes
+            .iter_mut()
+            .find(|e| (&e.format, e.width, e.height, e.fps, e.video_kbps) == (&f.id, width, height, fps, video_kbps))
+        {
             Some(e) => e.destinations.push(d.id.clone()),
             None => encodes.push(Encode {
                 format: f.id.clone(),
@@ -274,11 +236,10 @@ pub fn plan_in(
     in_formats.dedup();
     in_formats.sort();
     in_formats.dedup();
-    let too_many_formats = (in_formats.len() as u32 > at_once.max(1)).then(|| {
-        "This phone streams one format at a time: give every destination the same format."
-            .to_string()
-    });
-    let message = too_many_formats.or_else(|| (n > room).then(|| {
+    let too_many_formats = (in_formats.len() as u32 > at_once.max(1))
+        .then(|| "This phone streams one format at a time: give every destination the same format.".to_string());
+    let message = too_many_formats.or_else(|| {
+        (n > room).then(|| {
         let what = if n == 1 { "one stream".to_string() } else { format!("{n} different stream settings") };
         let can = match room {
             0 => "no stream while it records".to_string(),
@@ -289,12 +250,9 @@ pub fn plan_in(
         format!(
             "This phone can't encode {what}{beside}: it can do {can}. Give destinations the same quality to share one."
         )
-    }));
-    StreamPlan {
-        allowed: message.is_none(),
-        encodes,
-        message,
-    }
+    })
+    });
+    StreamPlan { allowed: message.is_none(), encodes, message }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -376,8 +334,7 @@ impl Sink for Whip {
         self.0.parameter_sets(nals);
     }
     fn video(&mut self, data: &[u8], format: NalFormat, pts_us: u64, keyframe: bool) {
-        self.0
-            .video(data, format == NalFormat::AnnexB, pts_us, keyframe);
+        self.0.video(data, format == NalFormat::AnnexB, pts_us, keyframe);
     }
     fn audio(&mut self, data: &[u8], pts_us: u64) {
         self.0.audio(data, pts_us);
@@ -473,11 +430,7 @@ impl Sink for Srt {
         self.relay.as_ref().map_or_else(Vec::new, |r| {
             r.links()
                 .into_iter()
-                .map(|l| BondedLink {
-                    name: l.name,
-                    up: l.registered,
-                    sent_kbps: l.sent_kbps,
-                })
+                .map(|l| BondedLink { name: l.name, up: l.registered, sent_kbps: l.sent_kbps })
                 .collect()
         })
     }
@@ -604,9 +557,7 @@ const LEAST_KBPS: u32 = 300;
 /// The rate a stream really runs at: what its encode gives it (once known), at most `target`,
 /// at least the least bitrate.
 fn stream_rate(target: u32, produced: Option<u32>) -> u32 {
-    produced
-        .map_or(target, |p| p.clamp(LEAST_KBPS, target.max(LEAST_KBPS)))
-        .max(1)
+    produced.map_or(target, |p| p.clamp(LEAST_KBPS, target.max(LEAST_KBPS))).max(1)
 }
 
 /// More than this waiting is congestion (1.5 s); less than `CALM` is a short queue.
@@ -642,11 +593,7 @@ impl Output {
                 started: Instant::now(),
             }),
             DestinationKind::Rtmp { url, key } => {
-                let s = RtmpSender::start(RtmpTarget {
-                    url: url.clone(),
-                    key: key.clone(),
-                    bind: bind.clone(),
-                })?;
+                let s = RtmpSender::start(RtmpTarget { url: url.clone(), key: key.clone(), bind: bind.clone() })?;
                 s.audio_config(48_000, 2);
                 s.set_bitrate(dest.video_kbps + dest.audio_kbps);
                 Box::new(Rtmp(s))
@@ -655,18 +602,8 @@ impl Output {
                 let mut target = parse_srt(url)?;
                 target.bind = bind.clone();
                 let sender = SrtSender::start(target).map_err(|e| e.to_string())?;
-                let mux = Muxer::new(
-                    VideoCodec::H264,
-                    Some(AudioConfig {
-                        sample_rate: 48_000,
-                        channels: 2,
-                    }),
-                );
-                Box::new(Srt {
-                    sender,
-                    mux,
-                    relay: None,
-                })
+                let mux = Muxer::new(VideoCodec::H264, Some(AudioConfig { sample_rate: 48_000, channels: 2 }));
+                Box::new(Srt { sender, mux, relay: None })
             }
             DestinationKind::Srtla { url } => {
                 let srt = url
@@ -679,23 +616,12 @@ impl Output {
                     .map_err(|e| format!("Bonding couldn't start: {e}"))?;
                 target.address = relay.local();
                 let sender = SrtSender::start(target).map_err(|e| e.to_string())?;
-                let mux = Muxer::new(
-                    VideoCodec::H264,
-                    Some(AudioConfig {
-                        sample_rate: 48_000,
-                        channels: 2,
-                    }),
-                );
-                Box::new(Srt {
-                    sender,
-                    mux,
-                    relay: Some(relay),
-                })
+                let mux = Muxer::new(VideoCodec::H264, Some(AudioConfig { sample_rate: 48_000, channels: 2 }));
+                Box::new(Srt { sender, mux, relay: Some(relay) })
             }
-            DestinationKind::Whip { url, token } => Box::new(Whip(crate::whip::WhipSender::start(
-                url.clone(),
-                token.clone(),
-            )?)),
+            DestinationKind::Whip { url, token } => {
+                Box::new(Whip(crate::whip::WhipSender::start(url.clone(), token.clone())?))
+            }
             DestinationKind::Platform { .. } => {
                 return Err("its server and key weren't found".into());
             }
@@ -727,10 +653,7 @@ impl Output {
                 buffered_kbps,
                 clear_since: None,
             }),
-            delay: Mutex::new(Delay {
-                delay: Duration::from_secs(dest_delay.min(120) as u64),
-                ..Default::default()
-            }),
+            delay: Mutex::new(Delay { delay: Duration::from_secs(dest_delay.min(120) as u64), ..Default::default() }),
         })
     }
 
@@ -741,11 +664,7 @@ impl Output {
     }
 
     pub fn video(&self, data: &[u8], length_prefixed: bool, pts_ns: i64, keyframe: bool) {
-        let format = if length_prefixed {
-            NalFormat::LengthPrefixed
-        } else {
-            NalFormat::AnnexB
-        };
+        let format = if length_prefixed { NalFormat::LengthPrefixed } else { NalFormat::AnnexB };
         let us = (pts_ns.max(0) / 1000) as u64;
         if !self.hold(Held::Video(data.to_vec(), format, us, keyframe)) {
             self.sink.lock().video(data, format, us, keyframe);
@@ -849,17 +768,11 @@ impl Output {
             let lost = *w.lost_at.get_or_insert(now);
             if w.ever_connected {
                 // the sender's backoff (0.5, 1, 2, 4, 8 s, then every 8 s): when it tries again
-                let in_s = st
-                    .retry_in
-                    .map_or(1, |d| d.as_secs_f32().ceil() as u32)
-                    .max(1);
+                let in_s = st.retry_in.map_or(1, |d| d.as_secs_f32().ceil() as u32).max(1);
                 w.state = OutputState::Reconnecting { in_s };
             } else if now.duration_since(lost) > Duration::from_secs(20) {
                 w.state = OutputState::Failed {
-                    reason: st
-                        .error
-                        .clone()
-                        .unwrap_or_else(|| format!("{name} didn't answer.")),
+                    reason: st.error.clone().unwrap_or_else(|| format!("{name} didn't answer.")),
                 };
             }
         } else {
@@ -871,9 +784,7 @@ impl Output {
                 w.lost_at = None;
             }
             let congested = queue_ms > CONGESTED_MS || dropped_more;
-            let may_step = w
-                .last_step
-                .is_none_or(|t| now.duration_since(t) >= Duration::from_secs(2));
+            let may_step = w.last_step.is_none_or(|t| now.duration_since(t) >= Duration::from_secs(2));
             let floor = floor(chosen, w.size);
             // at the floor, or the network carries less than it (the 20 % steps would take
             // many seconds to get there): only a smaller picture helps
@@ -882,8 +793,7 @@ impl Output {
             // While it's short the floor's clock keeps running: dropping a whole GOP empties
             // the queue for a second or two, which used to reset it every time, so a throttled
             // stream dropped pictures for the whole throttle and never went a size down
-            let short = (w.sent_kbps as u64) * 5
-                < stream_rate(w.target + self.dest.audio_kbps, w.produced) as u64 * 4;
+            let short = (w.sent_kbps as u64) * 5 < stream_rate(w.target + self.dest.audio_kbps, w.produced) as u64 * 4;
             if congested || short {
                 w.clear_since = None;
             } else {
@@ -891,10 +801,7 @@ impl Output {
             }
             if congested && (w.target <= floor || carried < floor) {
                 w.floor_since.get_or_insert(now);
-            } else if w
-                .clear_since
-                .is_some_and(|t| now.duration_since(t) >= Duration::from_secs(3))
-            {
+            } else if w.clear_since.is_some_and(|t| now.duration_since(t) >= Duration::from_secs(3)) {
                 w.floor_since = None;
             }
             if congested {
@@ -919,46 +826,29 @@ impl Output {
             }
         }
         let message = match (&before, &w.state) {
-            (a, b)
-                if std::mem::discriminant(a) == std::mem::discriminant(b)
-                    && new_target.is_none() =>
-            {
-                None
+            (a, b) if std::mem::discriminant(a) == std::mem::discriminant(b) && new_target.is_none() => None,
+            (_, OutputState::Live) if new_target.is_some() => {
+                Some(format!("The network is better: streaming to {name} at {} kbps.", w.target))
             }
-            (_, OutputState::Live) if new_target.is_some() => Some(format!(
-                "The network is better: streaming to {name} at {} kbps.",
-                w.target
-            )),
-            (_, OutputState::Live)
-                if w.reconnects > 0 && matches!(before, OutputState::Reconnecting { .. }) =>
-            {
+            (_, OutputState::Live) if w.reconnects > 0 && matches!(before, OutputState::Reconnecting { .. }) => {
                 Some(format!("Back on {name}. Nothing ended."))
             }
             (_, OutputState::Live) => Some(format!("Live on {name}.")),
-            (_, OutputState::Congested) => Some(format!(
-                "Your network slowed down: streaming to {name} at {} kbps.",
-                w.target
-            )),
-            (_, OutputState::Reconnecting { in_s }) => {
-                Some(format!("Reconnecting to {name}… {in_s} s"))
+            (_, OutputState::Congested) => {
+                Some(format!("Your network slowed down: streaming to {name} at {} kbps.", w.target))
             }
-            (_, OutputState::Failed { reason }) => {
-                Some(format!("{name} couldn't be reached: {reason}"))
-            }
+            (_, OutputState::Reconnecting { in_s }) => Some(format!("Reconnecting to {name}… {in_s} s")),
+            (_, OutputState::Failed { reason }) => Some(format!("{name} couldn't be reached: {reason}")),
             (_, OutputState::Connecting) => None,
         };
         if message.is_some() {
             w.message = message.clone();
         }
         let keyframe = keyframe
-            || (st.connected
-                && before != OutputState::Live
-                && w.state == OutputState::Live
-                && w.reconnects > 0);
+            || (st.connected && before != OutputState::Live && w.state == OutputState::Live && w.reconnects > 0);
         // the sender's buffers hold about a second of what the stream really sends
         let buffer_kbps = stream_rate(w.target + self.dest.audio_kbps, w.produced);
-        let resize =
-            new_target.is_some() || buffer_kbps.abs_diff(w.buffered_kbps) > w.buffered_kbps / 4;
+        let resize = new_target.is_some() || buffer_kbps.abs_diff(w.buffered_kbps) > w.buffered_kbps / 4;
         if resize {
             w.buffered_kbps = buffer_kbps;
         }
@@ -1006,10 +896,7 @@ impl Output {
     /// Congested at the floor (30 % of the chosen bitrate, for the picture's size), or carrying
     /// less than it, for 4 s: only a smaller picture helps now.
     pub fn at_floor(&self, now: Instant) -> bool {
-        self.watch
-            .lock()
-            .floor_since
-            .is_some_and(|t| now.duration_since(t) >= Duration::from_secs(4))
+        self.watch.lock().floor_since.is_some_and(|t| now.duration_since(t) >= Duration::from_secs(4))
     }
 
     /// Live at its full chosen bitrate with a short queue for a minute: the picture may grow.
@@ -1017,16 +904,13 @@ impl Output {
         let w = self.watch.lock();
         w.state == OutputState::Live
             && w.target >= self.dest.video_kbps.max(300)
-            && w.calm_since
-                .is_some_and(|t| now.duration_since(t) >= Duration::from_secs(60))
+            && w.calm_since.is_some_and(|t| now.duration_since(t) >= Duration::from_secs(60))
     }
 
     /// How long it's been away since it was last connected (reconnecting), if it is.
     pub fn away_for(&self, now: Instant) -> Option<Duration> {
         let w = self.watch.lock();
-        w.lost_at
-            .filter(|_| w.ever_connected)
-            .map(|t| now.duration_since(t))
+        w.lost_at.filter(|_| w.ever_connected).map(|t| now.duration_since(t))
     }
 
     /// The bitrate it would start at with its encode at `size` (a share of the chosen
@@ -1035,8 +919,7 @@ impl Output {
     pub fn kbps_at(&self, size: (f32, bool)) -> u32 {
         let w = self.watch.lock();
         let carried = w.sent_kbps.saturating_sub(self.dest.audio_kbps);
-        w.target
-            .min(carried.max(floor(self.dest.video_kbps.max(1), size)))
+        w.target.min(carried.max(floor(self.dest.video_kbps.max(1), size)))
     }
 
     /// Its encode's picture (see [`Self::kbps_at`]), for the floor.
@@ -1082,10 +965,7 @@ pub(crate) fn stream_size((w, h): (u32, u32), target: Option<u32>) -> (u32, u32)
         Some(t) if t > short && t < long => t as f32 / long as f32,
         _ => return (w, h),
     };
-    (
-        ((w as f32 * k).round() as u32) & !1,
-        ((h as f32 * k).round() as u32) & !1,
-    )
+    (((w as f32 * k).round() as u32) & !1, ((h as f32 * k).round() as u32) & !1)
 }
 
 #[cfg(test)]
@@ -1144,13 +1024,7 @@ mod tests {
     /// `secs` seconds of an encode giving `fed_kbps` into a network carrying `net_kbps`
     /// (`drop_every`: the sender drops what's waiting, a GOP, every that many seconds): the
     /// second the stream asked for a smaller picture, if it did.
-    fn throttled(
-        video_kbps: u32,
-        fed_kbps: u64,
-        net_kbps: u64,
-        drop_every: Option<u64>,
-        secs: u64,
-    ) -> Option<u64> {
+    fn throttled(video_kbps: u32, fed_kbps: u64, net_kbps: u64, drop_every: Option<u64>, secs: u64) -> Option<u64> {
         let mut d = dest(None);
         (d.video_kbps, d.audio_kbps) = (video_kbps, 128);
         let o = Output::start(d, 1, 2, None, Vec::new()).unwrap();
@@ -1212,25 +1086,14 @@ mod tests {
             format: format.map(String::from),
         };
         let formats = [
-            Format {
-                id: "tall".into(),
-                size: (1080, 1920),
-                fps: 30,
-            },
-            Format {
-                id: "wide".into(),
-                size: (1920, 1080),
-                fps: 30,
-            },
+            Format { id: "tall".into(), size: (1080, 1920), fps: 30 },
+            Format { id: "wide".into(), size: (1920, 1080), fps: 30 },
         ];
         let dests = [d("a", None), d("b", Some("wide")), d("c", Some("gone"))];
         let p = plan_in(&dests, &formats, 3, 0, 2);
         assert!(p.allowed);
         assert_eq!(
-            p.encodes
-                .iter()
-                .map(|e| (e.format.as_str(), e.width, e.height, e.destinations.len()))
-                .collect::<Vec<_>>(),
+            p.encodes.iter().map(|e| (e.format.as_str(), e.width, e.height, e.destinations.len())).collect::<Vec<_>>(),
             [("tall", 1080, 1920, 2), ("wide", 1920, 1080, 1)],
             "a format that's gone is the active one"
         );
@@ -1272,16 +1135,8 @@ mod tests {
     /// smaller size the floor follows the picture, and it starts at what the network carried.
     #[test]
     fn the_bitrate_floor_follows_the_picture_size() {
-        assert_eq!(
-            floor(3500, (0.5625, false)),
-            590,
-            "the floor follows the picture"
-        );
-        assert_eq!(
-            floor(3500, (0.5625, true)),
-            LEAST_KBPS,
-            "none at the smallest"
-        );
+        assert_eq!(floor(3500, (0.5625, false)), 590, "the floor follows the picture");
+        assert_eq!(floor(3500, (0.5625, true)), LEAST_KBPS, "none at the smallest");
     }
 
     #[test]
@@ -1318,19 +1173,11 @@ mod tests {
             d("e", 6000, None, Some(25)),
         ];
         let p = plan(&dests, (1080, 1920), 60, 3, 0);
-        let groups: Vec<_> = p
-            .encodes
-            .iter()
-            .map(|e| (e.width, e.height, e.fps, e.destinations.join("")))
-            .collect();
+        let groups: Vec<_> = p.encodes.iter().map(|e| (e.width, e.height, e.fps, e.destinations.join(""))).collect();
         // 1080 is the format's; 25 isn't a divisor of 60: the format's rate
         assert_eq!(
             groups,
-            [
-                (1080, 1920, 60, "abe".to_string()),
-                (720, 1280, 60, "c".to_string()),
-                (1080, 1920, 30, "d".to_string()),
-            ]
+            [(1080, 1920, 60, "abe".to_string()), (720, 1280, 60, "c".to_string()), (1080, 1920, 30, "d".to_string()),]
         );
         assert!(p.allowed);
         // a recording takes one of the three
@@ -1360,58 +1207,30 @@ mod tests {
             give_up_after_s: None,
             format: None,
         };
-        let t = d(
-            "twitch",
-            Some("rtmp://fra05.contribute.live-video.net/app/"),
-            Some("k"),
-        )
-        .resolve("")
-        .unwrap()
-        .0;
+        let t = d("twitch", Some("rtmp://fra05.contribute.live-video.net/app/"), Some("k")).resolve("").unwrap().0;
         assert_eq!(
             t.kind,
-            DestinationKind::Rtmp {
-                url: "rtmp://fra05.contribute.live-video.net/app/".into(),
-                key: "k".into()
-            }
+            DestinationKind::Rtmp { url: "rtmp://fra05.contribute.live-video.net/app/".into(), key: "k".into() }
         );
         // Twitch takes 6 Mbps at 1080p60 at most
-        assert_eq!(
-            (t.video_kbps, t.height, t.fps),
-            (6000, Some(1080), Some(60))
-        );
+        assert_eq!((t.video_kbps, t.height, t.fps), (6000, Some(1080), Some(60)));
         // YouTube's first server when none is chosen
         let y = d("youtube", None, Some("k")).resolve("").unwrap().0;
-        assert!(
-            matches!(&y.kind, DestinationKind::Rtmp { url, .. } if url == "rtmps://a.rtmps.youtube.com:443/live2")
-        );
+        assert!(matches!(&y.kind, DestinationKind::Rtmp { url, .. } if url == "rtmps://a.rtmps.youtube.com:443/live2"));
         // Kick's server is every account's own; no key, no stream
+        assert!(d("kick", None, Some("k")).resolve("").unwrap_err().contains("paste it"));
         assert!(
-            d("kick", None, Some("k"))
+            d("kick", Some("rtmps://x.global-contribute.live-video.net/app/"), None)
                 .resolve("")
                 .unwrap_err()
-                .contains("paste it")
-        );
-        assert!(
-            d(
-                "kick",
-                Some("rtmps://x.global-contribute.live-video.net/app/"),
-                None
-            )
-            .resolve("")
-            .unwrap_err()
-            .contains("paste the stream key")
+                .contains("paste the stream key")
         );
         // Twitch's key can come through sign-in: not signed in here, so it says how
         assert!(
-            d(
-                "twitch",
-                Some("rtmp://fra05.contribute.live-video.net/app/"),
-                None
-            )
-            .resolve("")
-            .unwrap_err()
-            .contains("sign in to Twitch")
+            d("twitch", Some("rtmp://fra05.contribute.live-video.net/app/"), None)
+                .resolve("")
+                .unwrap_err()
+                .contains("sign in to Twitch")
         );
         // the plan sees the limits too: an 8 Mbps Twitch destination shares a 6 Mbps encode
         let p = plan(
@@ -1463,23 +1282,10 @@ mod tests {
 
     #[test]
     fn srt_addresses_are_read() {
-        let t = parse_srt(
-            "srt://127.0.0.1:9000?streamid=live%2Fme&passphrase=secret123456&latency=200",
-        )
-        .unwrap();
+        let t = parse_srt("srt://127.0.0.1:9000?streamid=live%2Fme&passphrase=secret123456&latency=200").unwrap();
         assert_eq!(
-            (
-                t.address.port(),
-                t.stream_id(),
-                t.passphrase.as_str(),
-                t.latency
-            ),
-            (
-                9000,
-                "live/me".to_string(),
-                "secret123456",
-                Duration::from_millis(200)
-            )
+            (t.address.port(), t.stream_id(), t.passphrase.as_str(), t.latency),
+            (9000, "live/me".to_string(), "secret123456", Duration::from_millis(200))
         );
         assert!(parse_srt("rtmp://x").is_err());
     }

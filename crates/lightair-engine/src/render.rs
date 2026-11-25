@@ -58,9 +58,7 @@ pub struct StillRequest {
 
 /// The source id a still's camera is drawn under: the looks' per-source state (its smoothed
 /// pose, its targets) stays the program's own; the one slot goes when the project changes.
-const STILL_SOURCE: Id = Id(uuid::Uuid::from_u128(
-    0x5714_1100_0000_4000_8000_0000_0000_0001,
-));
+const STILL_SOURCE: Id = Id(uuid::Uuid::from_u128(0x5714_1100_0000_4000_8000_0000_0000_0001));
 
 impl Captured {
     /// As a lossless PNG of its own size.
@@ -68,12 +66,7 @@ impl Captured {
         use image::ImageEncoder;
         let mut out = Vec::new();
         image::codecs::png::PngEncoder::new(&mut out)
-            .write_image(
-                &self.rgba,
-                self.width,
-                self.height,
-                image::ExtendedColorType::Rgba8,
-            )
+            .write_image(&self.rgba, self.width, self.height, image::ExtendedColorType::Rgba8)
             .ok()?;
         Some(out)
     }
@@ -191,10 +184,7 @@ pub fn spawn(hot: Arc<Hot>, rx: Receiver<Msg>) -> Result<std::thread::JoinHandle
             };
             let hot = r.hot.clone();
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| r.run(rx))) {
-                hot.fail(format!(
-                    "The picture stopped: {}",
-                    crate::hot::panic_text(&e)
-                ));
+                hot.fail(format!("The picture stopped: {}", crate::hot::panic_text(&e)));
             }
         })
         .map_err(|e| e.to_string())
@@ -239,22 +229,13 @@ impl Renderer {
             let n = match next {
                 Some((f, n)) if f == fps => n,
                 // a new rate: the next frame after now
-                _ => {
-                    (self.hot.clock.now_ns().max(0) as i128 * fps as i128 / 1_000_000_000) as u64
-                        + 1
-                }
+                _ => (self.hot.clock.now_ns().max(0) as i128 * fps as i128 / 1_000_000_000) as u64 + 1,
             };
             let pts = frame_ns(n, fps);
-            let due = self
-                .hot
-                .clock
-                .host_at((pts as i128 * clock::RATE as i128 / 1_000_000_000) as u64);
+            let due = self.hot.clock.host_at((pts as i128 * clock::RATE as i128 / 1_000_000_000) as u64);
             let now = clock::host_now_ns();
-            let wait = if self.paused {
-                Duration::from_millis(500)
-            } else {
-                Duration::from_nanos((due - now).max(0) as u64)
-            };
+            let wait =
+                if self.paused { Duration::from_millis(500) } else { Duration::from_nanos((due - now).max(0) as u64) };
             if self.paused || wait > Duration::ZERO {
                 match rx.recv_timeout(wait.min(Duration::from_millis(50))) {
                     Ok(m) => {
@@ -279,21 +260,15 @@ impl Renderer {
             if now - due > period {
                 let behind = ((now - due) / period) as u64;
                 n += behind;
-                self.hot
-                    .stats
-                    .dropped
-                    .fetch_add(behind, std::sync::atomic::Ordering::Relaxed);
+                self.hot.stats.dropped.fetch_add(behind, std::sync::atomic::Ordering::Relaxed);
             }
             let started = Instant::now();
             self.frame(&program, &canvas, n, fps);
-            self.hot.stats.render_us.fetch_add(
-                started.elapsed().as_micros() as u64,
-                std::sync::atomic::Ordering::Relaxed,
-            );
             self.hot
                 .stats
-                .frames
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                .render_us
+                .fetch_add(started.elapsed().as_micros() as u64, std::sync::atomic::Ordering::Relaxed);
+            self.hot.stats.frames.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             next = Some((fps, n + 1));
         }
     }
@@ -302,8 +277,7 @@ impl Renderer {
     fn handle(&mut self, m: Msg) -> bool {
         match m {
             Msg::AttachPreview { handle, size } => {
-                self.preview =
-                    unsafe { WindowSurface::new(&self.gpu, handle, size, Kind::Preview) };
+                self.preview = unsafe { WindowSurface::new(&self.gpu, handle, size, Kind::Preview) };
             }
             Msg::ResizePreview { size } => {
                 if let Some(p) = &mut self.preview {
@@ -319,26 +293,21 @@ impl Renderer {
                 let out = match e.target {
                     #[cfg(any(target_os = "macos", target_os = "ios"))]
                     EncoderTarget::PixelBufferPool(raw) => {
-                        unsafe { crate::gpu::apple::PoolTarget::from_raw(raw) }
-                            .map_or(Out::None, Out::Pool)
+                        unsafe { crate::gpu::apple::PoolTarget::from_raw(raw) }.map_or(Out::None, Out::Pool)
                     }
                     EncoderTarget::NativeWindow(raw) => {
                         let size = (e.config.width, e.config.height);
                         unsafe { WindowSurface::new(&self.gpu, raw, size, Kind::Encoder) }
                             .map_or(Out::None, Out::Window)
                     }
-                    EncoderTarget::Texture => Out::Texture(self.gpu.target(
-                        (e.config.width, e.config.height),
-                        wgpu::TextureFormat::Bgra8Unorm,
-                    )),
+                    EncoderTarget::Texture => Out::Texture(
+                        self.gpu.target((e.config.width, e.config.height), wgpu::TextureFormat::Bgra8Unorm),
+                    ),
                     #[allow(unreachable_patterns)]
                     _ => Out::None,
                 };
                 if matches!(out, Out::None) {
-                    tracing::warn!(
-                        encoder = e.id,
-                        "no target to draw the encoder's frames into"
-                    );
+                    tracing::warn!(encoder = e.id, "no target to draw the encoder's frames into");
                 }
                 self.encoders.push(EncoderOut { encoder: e, out });
             }
@@ -358,25 +327,15 @@ impl Renderer {
                 let other = canvas.and_then(|c| self.formats.iter().find(|f| f.0 == c));
                 let target = match other {
                     Some((_, size, r)) => Some((r.target().clone(), *size)),
-                    None => self
-                        .scene
-                        .as_ref()
-                        .map(|(_, size, r)| (r.target().clone(), *size)),
+                    None => self.scene.as_ref().map(|(_, size, r)| (r.target().clone(), *size)),
                 };
-                let _ = reply.send(target.and_then(|(t, size)| {
-                    lightair_render::compose::read_texture(&t).map(|px| (px, size))
-                }));
+                let _ = reply
+                    .send(target.and_then(|(t, size)| lightair_render::compose::read_texture(&t).map(|px| (px, size))));
             }
             Msg::Capture { reply } => {
                 let captured = self.scene.as_ref().and_then(|(_, (w, h), r)| {
                     let rgba = lightair_render::compose::read_texture(r.target())?;
-                    Some(Captured {
-                        rgba,
-                        width: *w,
-                        height: *h,
-                        pts_ns: self.drawn.0,
-                        sources: self.drawn.1.clone(),
-                    })
+                    Some(Captured { rgba, width: *w, height: *h, pts_ns: self.drawn.0, sources: self.drawn.1.clone() })
                 });
                 let _ = reply.send(captured);
             }
@@ -409,29 +368,18 @@ impl Renderer {
 
     fn frame(&mut self, program: &Program, canvas: &Canvas, n: u64, fps: u32) {
         let pts = frame_ns(n, fps);
-        let due = self
-            .hot
-            .clock
-            .host_at((pts as i128 * clock::RATE as i128 / 1_000_000_000) as u64);
+        let due = self.hot.clock.host_at((pts as i128 * clock::RATE as i128 / 1_000_000_000) as u64);
         let time_s = pts as f32 / 1e9;
         // the privacy cover, by program time (the sound is cut from the same sample): the
         // project's own scene, else a plain card
-        let covered = self.away.is_some()
-            || self
-                .hot
-                .privacy_at((pts as i128 * clock::RATE as i128 / 1_000_000_000) as u64);
+        let covered =
+            self.away.is_some() || self.hot.privacy_at((pts as i128 * clock::RATE as i128 / 1_000_000_000) as u64);
         if self.away == Some(false) {
             // this frame is the first covered one: each encoder makes it a keyframe, and keeps it
             self.away = Some(true);
             for e in &self.encoders {
-                *e.encoder.held.lock() = crate::encode::Held {
-                    catching: true,
-                    from_ns: pts,
-                    packet: None,
-                };
-                e.encoder
-                    .keyframe_wanted
-                    .store(true, std::sync::atomic::Ordering::Release);
+                *e.encoder.held.lock() = crate::encode::Held { catching: true, from_ns: pts, packet: None };
+                e.encoder.keyframe_wanted.store(true, std::sync::atomic::Ordering::Release);
             }
         }
         let privacy = covered.then(|| self.cover(program, canvas));
@@ -454,16 +402,7 @@ impl Renderer {
             pts_ns: pts,
             used: Vec::new(),
         };
-        draw(
-            r,
-            ws,
-            program,
-            &privacy,
-            canvas.id,
-            &mut pictures,
-            pts,
-            time_s,
-        );
+        draw(r, ws, program, &privacy, canvas.id, &mut pictures, pts, time_s);
         self.drawn = (pts, std::mem::take(&mut pictures.used));
         let target = r.target().clone();
         let others = self.other_formats(program, canvas, ws, covered, due, pts, time_s);
@@ -471,16 +410,7 @@ impl Renderer {
         let bypassed = self.bypass_frame(program, canvas, ws, &privacy, due, pts, time_s);
         self.cache.end_frame();
         self.cache.keep_sources(&program.workspace);
-        self.present(
-            &target,
-            bypassed.as_ref(),
-            canvas.id,
-            &others,
-            clean.as_ref(),
-            pts,
-            n,
-            fps,
-        );
+        self.present(&target, bypassed.as_ref(), canvas.id, &others, clean.as_ref(), pts, n, fps);
         if self.thumb_at.is_none_or(|t| t.elapsed() >= THUMB_EVERY) {
             self.thumbnail();
         }
@@ -509,9 +439,7 @@ impl Renderer {
             let (picture, _, _) = v.at(now)?;
             let (pw, ph) = picture.upright_size();
             let seen = *v.looks_seen.lock();
-            let face = seen
-                .filter(|s| s.present && now - s.at_ns < 1_000_000_000)
-                .and_then(|s| s.face_box);
+            let face = seen.filter(|s| s.present && now - s.at_ns < 1_000_000_000).and_then(|s| s.face_box);
             (pw as f32, ph as f32, face)
         };
         if pw < 2.0 || ph < 2.0 {
@@ -520,11 +448,7 @@ impl Renderer {
         // the square, in the picture's pixels: 1.6 times the face's larger side around its
         // middle, else the largest square in the middle; kept inside the picture
         let (cx, cy, side) = match face {
-            Some([x, y, w, h]) => (
-                (x + w / 2.0) * pw,
-                (y + h / 2.0) * ph,
-                (w * pw).max(h * ph) * 1.6,
-            ),
+            Some([x, y, w, h]) => ((x + w / 2.0) * pw, (y + h / 2.0) * ph, (w * pw).max(h * ph) * 1.6),
             None => (pw / 2.0, ph / 2.0, pw.min(ph)),
         };
         let side = side.clamp(16.0, pw.min(ph));
@@ -555,14 +479,8 @@ impl Renderer {
                 )),
             }
         }
-        let canvas = Canvas {
-            id: STILL_SOURCE,
-            name: "Still".into(),
-            width: size,
-            height: size,
-            fps_num: 30,
-            fps_den: 1,
-        };
+        let canvas =
+            Canvas { id: STILL_SOURCE, name: "Still".into(), width: size, height: size, fps_num: 30, fps_den: 1 };
         let mut ws = Workspace::new("Still");
         ws.canvases = vec![canvas.clone()];
         let layout = lightair_model::Layout::boxed(-left * k, -top * k, pw * k, ph * k);
@@ -587,19 +505,9 @@ impl Renderer {
             pts_ns: self.drawn.0,
             used: Vec::new(),
         };
-        r.frame(
-            &ws,
-            scene_id,
-            canvas.id,
-            &mut pictures,
-            self.drawn.0 as f32 / 1e9,
-        );
+        r.frame(&ws, scene_id, canvas.id, &mut pictures, self.drawn.0 as f32 / 1e9);
         let rgba = lightair_render::compose::read_texture(r.target())?;
-        Some(Still {
-            rgba,
-            width: size,
-            height: size,
-        })
+        Some(Still { rgba, width: size, height: size })
     }
 
     /// The program again with one layer's looks off, for the preview alone, while the Looks
@@ -624,12 +532,7 @@ impl Renderer {
         let at = Arc::as_ptr(ws) as usize;
         if !matches!(&self.bypass_ws, Some((p, l, _)) if *p == at && *l == layer) {
             let mut w = (**ws).clone();
-            let source = w
-                .scenes
-                .iter()
-                .flat_map(|s| s.objects.iter())
-                .find(|o| o.id == layer)
-                .and_then(|o| o.source);
+            let source = w.scenes.iter().flat_map(|s| s.objects.iter()).find(|o| o.id == layer).and_then(|o| o.source);
             if let Some(src) = source.and_then(|s| w.sources.get_mut(&s)) {
                 for e in &mut Arc::make_mut(src).effects {
                     if crate::effects::LOOKS.contains(&e.kind.as_str()) {
@@ -658,16 +561,7 @@ impl Renderer {
             pts_ns: pts,
             used: Vec::new(),
         };
-        draw(
-            r,
-            &bypass_ws,
-            program,
-            privacy,
-            canvas.id,
-            &mut pictures,
-            pts,
-            time_s,
-        );
+        draw(r, &bypass_ws, program, privacy, canvas.id, &mut pictures, pts, time_s);
         Some(r.target().clone())
     }
 
@@ -755,13 +649,11 @@ impl Renderer {
         };
         let path = self.hot.program().folder.join(crate::thumb::FILE);
         let size = *size;
-        let _ = std::thread::Builder::new()
-            .name("lightair-thumbnail".into())
-            .spawn(move || {
-                if let Err(e) = crate::thumb::save(rgba, size, &path) {
-                    tracing::warn!(%e, "the project's thumbnail");
-                }
-            });
+        let _ = std::thread::Builder::new().name("lightair-thumbnail".into()).spawn(move || {
+            if let Err(e) = crate::thumb::save(rgba, size, &path) {
+                tracing::warn!(%e, "the project's thumbnail");
+            }
+        });
     }
 
     /// The camera alone, as the format shows it filled (or the privacy cover while that's on),
@@ -775,11 +667,7 @@ impl Renderer {
         pts: i64,
         time_s: f32,
     ) -> Option<wgpu::Texture> {
-        if !self
-            .encoders
-            .iter()
-            .any(|e| e.encoder.clean && !e.encoder.is_closed())
-        {
+        if !self.encoders.iter().any(|e| e.encoder.clean && !e.encoder.is_closed()) {
             self.clean = None;
             return None;
         }
@@ -800,8 +688,7 @@ impl Renderer {
         let (ws, scene) = if let Some(cover) = covered {
             cover
         } else if let Some(cam) = camera {
-            let fresh =
-                !matches!(&self.clean_ws, Some((s, c, _, _)) if *s == cam.id && *c == canvas.id);
+            let fresh = !matches!(&self.clean_ws, Some((s, c, _, _)) if *s == cam.id && *c == canvas.id);
             if fresh {
                 let mut ws = Workspace::new("Camera");
                 ws.canvases = vec![canvas.clone()];
@@ -856,20 +743,14 @@ impl Renderer {
         n: u64,
         fps: u32,
     ) {
-        let mut encoder = self
-            .gpu
-            .device()
-            .create_command_encoder(&Default::default());
+        let mut encoder = self.gpu.device().create_command_encoder(&Default::default());
         let mut presents = Vec::new();
         let mut preview_tex = None;
         // the thermal governor's steps: the preview and the encoders every nth frame
         let every = |a: &std::sync::atomic::AtomicU32| {
             n.is_multiple_of(a.load(std::sync::atomic::Ordering::Relaxed).max(1) as u64)
         };
-        let (draw_preview, draw_encoders) = (
-            every(&self.hot.preview_every),
-            every(&self.hot.encode_every),
-        );
+        let (draw_preview, draw_encoders) = (every(&self.hot.preview_every), every(&self.hot.encode_every));
         if draw_preview
             && let Some(p) = &self.preview
             && let Some(t) = p.texture(&self.gpu)
@@ -879,15 +760,11 @@ impl Renderer {
             preview_tex = Some((t, view, format));
         }
         if let Some((_, view, format)) = &preview_tex {
-            self.gpu
-                .blit(&mut encoder, preview_only.unwrap_or(program), view, *format);
+            self.gpu.blit(&mut encoder, preview_only.unwrap_or(program), view, *format);
         }
         // each encoder's buffer or surface
         #[cfg(any(target_os = "macos", target_os = "ios"))]
-        let mut buffers: Vec<(
-            usize,
-            objc2_core_foundation::CFRetained<objc2_core_video::CVPixelBuffer>,
-        )> = Vec::new();
+        let mut buffers: Vec<(usize, objc2_core_foundation::CFRetained<objc2_core_video::CVPixelBuffer>)> = Vec::new();
         let mut readbacks: Vec<(usize, wgpu::Texture)> = Vec::new();
         let encoders = std::mem::take(&mut self.encoders);
         for (i, e) in encoders.iter().enumerate() {
@@ -914,18 +791,11 @@ impl Renderer {
                 Out::Pool(pool) => match pool.next(self.gpu.device()) {
                     Some((buffer, texture)) => {
                         let view = texture.create_view(&Default::default());
-                        self.gpu.blit(
-                            &mut encoder,
-                            program,
-                            &view,
-                            wgpu::TextureFormat::Bgra8Unorm,
-                        );
+                        self.gpu.blit(&mut encoder, program, &view, wgpu::TextureFormat::Bgra8Unorm);
                         buffers.push((i, buffer));
                     }
                     None => {
-                        e.encoder
-                            .dropped
-                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        e.encoder.dropped.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     }
                 },
                 Out::Window(w) => {
@@ -950,9 +820,7 @@ impl Renderer {
         for (i, t) in presents {
             self.gpu.queue().present(t);
             #[cfg(not(any(target_os = "macos", target_os = "ios")))]
-            encoders[i]
-                .encoder
-                .presented(clock::monotonic_now_ns(), pts);
+            encoders[i].encoder.presented(clock::monotonic_now_ns(), pts);
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             let _ = i;
         }
@@ -967,21 +835,11 @@ impl Renderer {
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         for (i, b) in buffers {
             let buffer = crate::gpu::apple::into_raw(b);
-            encoders[i].encoder.queue(Drawn {
-                buffer,
-                pts_ns: pts,
-                keyframe: false,
-                rgba: None,
-            });
+            encoders[i].encoder.queue(Drawn { buffer, pts_ns: pts, keyframe: false, rgba: None });
         }
         for (i, t) in readbacks {
             let rgba = lightair_render::compose::read_texture(&t);
-            encoders[i].encoder.queue(Drawn {
-                buffer: 0,
-                pts_ns: pts,
-                keyframe: false,
-                rgba,
-            });
+            encoders[i].encoder.queue(Drawn { buffer: 0, pts_ns: pts, keyframe: false, rgba });
         }
         self.encoders = encoders;
     }
@@ -1004,22 +862,12 @@ fn draw(
             r.frame(ws, *scene, canvas, pictures, time_s);
         }
         (None, Some(sw)) if pts < sw.start_ns + sw.settings.duration_ms as i64 * 1_000_000 => {
-            let p =
-                (pts - sw.start_ns).max(0) as f32 / (sw.settings.duration_ms.max(1) as f32 * 1e6);
+            let p = (pts - sw.start_ns).max(0) as f32 / (sw.settings.duration_ms.max(1) as f32 * 1e6);
             let mut settings = sw.settings;
             if settings.kind == TransitionKind::Stinger {
                 settings.kind = TransitionKind::Fade;
             }
-            r.transition(
-                ws,
-                sw.from,
-                program.scene,
-                canvas,
-                &settings,
-                p,
-                pictures,
-                time_s,
-            );
+            r.transition(ws, sw.from, program.scene, canvas, &settings, p, pictures, time_s);
         }
         _ => {
             r.frame(ws, program.scene, canvas, pictures, time_s);
@@ -1034,10 +882,7 @@ pub const PAUSED_NS: i64 = 500_000_000;
 /// the renderer draws); `None` when every feed is sending.
 /// Whether the session's program would be drawn with paused feeds now (tests).
 #[cfg(test)]
-pub fn dim_paused_for_test(
-    session: &crate::session::Session,
-    now_ns: i64,
-) -> Option<Arc<Workspace>> {
+pub fn dim_paused_for_test(session: &crate::session::Session, now_ns: i64) -> Option<Arc<Workspace>> {
     let program = session.hot().program.read().clone();
     dim_paused(&program, session.hot(), now_ns)
 }
@@ -1049,13 +894,7 @@ fn dim_paused(program: &Program, hot: &Hot, now_ns: i64) -> Option<Arc<Workspace
         .filter(|(_, f)| !program.frozen.contains(f))
         // a still screen sends no frames (ScreenCaptureKit, ReplayKit): its last one stands, and
         // the host says when sharing stopped
-        .filter(|(s, _)| {
-            program
-                .workspace
-                .sources
-                .get(*s)
-                .is_none_or(|s| s.kind != crate::templates::SCREEN)
-        })
+        .filter(|(s, _)| program.workspace.sources.get(*s).is_none_or(|s| s.kind != crate::templates::SCREEN))
         .filter(|(_, f)| {
             hot.feed(**f).is_some_and(|f| {
                 f.video().is_some_and(|v| {
@@ -1102,18 +941,11 @@ fn privacy_card(canvas: &Canvas) -> (Workspace, Id) {
     );
     let mut full = Layout::boxed(0.0, 0.0, canvas.width as f32, canvas.height as f32);
     full.fit = Fit::Stretch;
-    let mut middle = Layout::boxed(
-        0.0,
-        canvas.height as f32 * 0.4,
-        canvas.width as f32,
-        canvas.height as f32 * 0.2,
-    );
+    let mut middle = Layout::boxed(0.0, canvas.height as f32 * 0.4, canvas.width as f32, canvas.height as f32 * 0.2);
     middle.fit = Fit::Fit;
     let mut scene = Scene::new("Privacy");
-    scene.objects = vec![
-        Object::new("Cover", bg.id, [(canvas.id, full)]),
-        Object::new("Text", text.id, [(canvas.id, middle)]),
-    ];
+    scene.objects =
+        vec![Object::new("Cover", bg.id, [(canvas.id, full)]), Object::new("Text", text.id, [(canvas.id, middle)])];
     let id = scene.id;
     ws.sources.insert(bg.id, Arc::new(bg));
     ws.sources.insert(text.id, Arc::new(text));

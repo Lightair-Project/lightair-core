@@ -20,10 +20,7 @@ pub fn save(rgba: Vec<u8>, size: (u32, u32), path: &Path) -> std::io::Result<()>
     let img = image::RgbaImage::from_raw(size.0, size.1, rgba)
         .ok_or_else(|| std::io::Error::other("a frame of the wrong size"))?;
     let k = LONG as f32 / size.0.max(size.1).max(1) as f32;
-    let (w, h) = (
-        ((size.0 as f32 * k) as u32).max(1),
-        ((size.1 as f32 * k) as u32).max(1),
-    );
+    let (w, h) = (((size.0 as f32 * k) as u32).max(1), ((size.1 as f32 * k) as u32).max(1));
     let small = image::imageops::thumbnail(&img, w, h);
     let rgb = image::DynamicImage::ImageRgba8(small).to_rgb8();
     let mut bytes = Vec::new();
@@ -40,16 +37,10 @@ pub fn save(rgba: Vec<u8>, size: (u32, u32), path: &Path) -> std::io::Result<()>
 pub fn render(dir: &Path) -> Result<(), String> {
     let ws = Arc::new(lightair_store::portable::load_current(dir).map_err(|e| e.to_string())?);
     let canvas = ws.canvases.first().cloned().ok_or("no format")?;
-    let scene = ws
-        .program
-        .filter(|p| ws.scene(*p).is_some())
-        .or_else(|| ws.scenes.first().map(|s| s.id))
-        .ok_or("no scene")?;
+    let scene =
+        ws.program.filter(|p| ws.scene(*p).is_some()).or_else(|| ws.scenes.first().map(|s| s.id)).ok_or("no scene")?;
     let k = LONG as f32 / canvas.width.max(canvas.height).max(1) as f32;
-    let size = (
-        ((canvas.width as f32 * k) as u32).max(2),
-        ((canvas.height as f32 * k) as u32).max(2),
-    );
+    let size = (((canvas.width as f32 * k) as u32).max(2), ((canvas.height as f32 * k) as u32).max(2));
     let gpu = Gpu::new()?;
     let program = Program {
         workspace: ws.clone(),
@@ -91,11 +82,9 @@ pub fn render(dir: &Path) -> Result<(), String> {
 /// Renders a project's thumbnail on a thread of its own (a new or imported project).
 pub fn render_soon(dir: &Path) {
     let dir = dir.to_path_buf();
-    let _ = std::thread::Builder::new()
-        .name("lightair-thumbnail".into())
-        .spawn(move || {
-            if let Err(e) = render(&dir) {
-                tracing::warn!(%e, "a project's thumbnail");
-            }
-        });
+    let _ = std::thread::Builder::new().name("lightair-thumbnail".into()).spawn(move || {
+        if let Err(e) = render(&dir) {
+            tracing::warn!(%e, "a project's thumbnail");
+        }
+    });
 }

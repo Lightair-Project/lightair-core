@@ -83,11 +83,7 @@ pub fn light_names() -> Vec<String> {
     serde_json::from_str::<Value>(LIGHTS_JSON)
         .ok()
         .and_then(|v| {
-            v["lights"].as_array().map(|a| {
-                a.iter()
-                    .filter_map(|l| l["name"].as_str().map(String::from))
-                    .collect()
-            })
+            v["lights"].as_array().map(|a| a.iter().filter_map(|l| l["name"].as_str().map(String::from)).collect())
         })
         .unwrap_or_default()
 }
@@ -97,11 +93,7 @@ pub fn makeup_names() -> Vec<String> {
     serde_json::from_str::<Value>(MAKEUP_JSON)
         .ok()
         .and_then(|v| {
-            v["presets"].as_array().map(|a| {
-                a.iter()
-                    .filter_map(|l| l["name"].as_str().map(String::from))
-                    .collect()
-            })
+            v["presets"].as_array().map(|a| a.iter().filter_map(|l| l["name"].as_str().map(String::from)).collect())
         })
         .unwrap_or_default()
 }
@@ -176,10 +168,7 @@ pub struct Settings {
 fn int(s: &Map<String, Value>, k: &str, default: i64) -> i64 {
     match s.get(k) {
         None | Some(Value::Null) => default,
-        Some(v) => v
-            .as_i64()
-            .or_else(|| v.as_f64().map(|f| f as i64))
-            .unwrap_or(0),
+        Some(v) => v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)).unwrap_or(0),
     }
 }
 
@@ -207,21 +196,15 @@ fn hex_to_obs_color(hex: &str) -> i64 {
     let Some(digits) = hex.strip_prefix('#').filter(|_| hex.len() >= 7) else {
         return 0xFFFF_FFFF;
     };
-    let v = digits
-        .chars()
-        .map_while(|c| c.to_digit(16))
-        .fold(0u64, |a, d| a.wrapping_mul(16).wrapping_add(d as u64)) as u32;
+    let v = digits.chars().map_while(|c| c.to_digit(16)).fold(0u64, |a, d| a.wrapping_mul(16).wrapping_add(d as u64))
+        as u32;
     let (r, g, b) = ((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF);
     0xFF00_0000 | ((b as i64) << 16) | ((g as i64) << 8) | r as i64
 }
 
 /// 0xAABBGGRR → sRGB 0..1.
 fn obs_color_to_rgb(c: i64) -> [f32; 3] {
-    [
-        (c & 0xFF) as f32 / 255.0,
-        ((c >> 8) & 0xFF) as f32 / 255.0,
-        ((c >> 16) & 0xFF) as f32 / 255.0,
-    ]
+    [(c & 0xFF) as f32 / 255.0, ((c >> 8) & 0xFF) as f32 / 255.0, ((c >> 16) & 0xFF) as f32 / 255.0]
 }
 
 /// A makeup look's values into the settings.
@@ -230,67 +213,36 @@ fn apply_makeup_preset(s: &mut Map<String, Value>, name: &str) {
     let p = json(MAKEUP_JSON, &ROOT)
         .get("presets")
         .and_then(Value::as_array)
-        .and_then(|a| {
-            a.iter()
-                .find(|p| p.get("name").and_then(Value::as_str).unwrap_or("") == name)
-        });
+        .and_then(|a| a.iter().find(|p| p.get("name").and_then(Value::as_str).unwrap_or("") == name));
     let fl = p.and_then(|p| p.get("filter")).filter(|v| v.is_object());
     let mk = p.and_then(|p| p.get("makeup")).filter(|v| v.is_object());
     // preset JSON uses 0..1 floats; settings use -100..100 ints (`set_pct`, :83-87)
     let pct = |src: Option<&Value>, k: &str| {
-        let v = src
-            .and_then(|o| o.get(k))
-            .and_then(Value::as_f64)
-            .unwrap_or(0.0);
+        let v = src.and_then(|o| o.get(k)).and_then(Value::as_f64).unwrap_or(0.0);
         Value::from((v * 100.0 + if v >= 0.0 { 0.5 } else { -0.5 }) as i64)
     };
-    let text = |src: Option<&Value>, k: &str| {
-        src.and_then(|o| o.get(k))
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string()
-    };
-    for k in [
-        "exposure",
-        "contrast",
-        "saturation",
-        "warmth",
-        "tint",
-        "fade",
-    ] {
+    let text =
+        |src: Option<&Value>, k: &str| src.and_then(|o| o.get(k)).and_then(Value::as_str).unwrap_or("").to_string();
+    for k in ["exposure", "contrast", "saturation", "warmth", "tint", "fade"] {
         s.insert(format!("fl_{k}"), pct(fl, k));
     }
     s.insert("fl_lut".into(), Value::from(text(fl, "lut")));
     for k in ["lip_color", "blush_color", "shadow_color"] {
-        let c = if mk.is_some() {
-            hex_to_obs_color(&text(mk, k))
-        } else {
-            0xFFFF_FFFF
-        };
+        let c = if mk.is_some() { hex_to_obs_color(&text(mk, k)) } else { 0xFFFF_FFFF };
         s.insert(format!("mk_{k}"), Value::from(c));
     }
-    for k in [
-        "lip_opacity",
-        "lip_gloss",
-        "blush_opacity",
-        "shadow_opacity",
-    ] {
+    for k in ["lip_opacity", "lip_gloss", "blush_opacity", "shadow_opacity"] {
         s.insert(format!("mk_{k}"), pct(mk, k));
     }
     let ls = text(mk, "liner_style");
-    let style = ["none", "classic", "winged", "cat", "smoky"]
-        .iter()
-        .rposition(|n| *n == ls)
-        .filter(|i| *i >= 1)
-        .unwrap_or(0) as i64;
+    let style =
+        ["none", "classic", "winged", "cat", "smoky"].iter().rposition(|n| *n == ls).filter(|i| *i >= 1).unwrap_or(0)
+            as i64;
     s.insert("mk_liner_style".into(), Value::from(style));
     for k in ["contour", "highlight", "brow"] {
         s.insert(format!("mk_{k}"), pct(mk, k));
     }
-    let blush_style = mk
-        .and_then(|o| o.get("blush_style"))
-        .and_then(Value::as_i64)
-        .unwrap_or(0);
+    let blush_style = mk.and_then(|o| o.get("blush_style")).and_then(Value::as_i64).unwrap_or(0);
     s.insert("mk_blush_style".into(), Value::from(blush_style));
 }
 
@@ -390,18 +342,10 @@ impl Settings {
             enhance_on: boolean(s, "enhance_on", true),
             makeup,
             light: light_preset(&string(s, "light_preset", "")),
-            light_amt: if lights_on {
-                slider(s, "light_amt", 60, false)
-            } else {
-                0.0
-            },
+            light_amt: if lights_on { slider(s, "light_amt", 60, false) } else { 0.0 },
             filter: grade::preset(&filter_preset),
             filter_preset,
-            filter_amt: if filters_on {
-                slider(s, "filter_preset_amt", 80, false)
-            } else {
-                0.0
-            },
+            filter_amt: if filters_on { slider(s, "filter_preset_amt", 80, false) } else { 0.0 },
         };
         // the Looks screen's part switches: a part switched off draws
         // nothing of its own, and its stored values stay as they are for when it's back on
@@ -501,11 +445,7 @@ pub(crate) struct Draw {
 
 impl Draw {
     pub fn all(entry: &'static str, vertices: Range<u32>) -> Draw {
-        Draw {
-            entry,
-            writes: wgpu::ColorWrites::ALL,
-            vertices,
-        }
+        Draw { entry, writes: wgpu::ColorWrites::ALL, vertices }
     }
 }
 
@@ -556,12 +496,7 @@ impl Kit {
         let sampler = wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering);
         let blur_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("looks blur"),
-            entries: &[
-                entry(0, uniform),
-                entry(1, tex(true)),
-                entry(2, tex(true)),
-                entry(3, sampler),
-            ],
+            entries: &[entry(0, uniform), entry(1, tex(true)), entry(2, tex(true)), entry(3, sampler)],
         });
         let mut final_entries = vec![entry(0, uniform)];
         for b in 1..=9 {
@@ -584,11 +519,7 @@ impl Kit {
             device.create_sampler(&wgpu::SamplerDescriptor {
                 mag_filter: wgpu::FilterMode::Linear,
                 min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: if mip {
-                    wgpu::MipmapFilterMode::Linear
-                } else {
-                    wgpu::MipmapFilterMode::Nearest
-                },
+                mipmap_filter: if mip { wgpu::MipmapFilterMode::Linear } else { wgpu::MipmapFilterMode::Nearest },
                 address_mode_u: wgpu::AddressMode::ClampToEdge,
                 address_mode_v: wgpu::AddressMode::ClampToEdge,
                 ..Default::default()
@@ -628,16 +559,8 @@ impl Kit {
         };
         let geometry = GEOMETRY_ENTRIES.contains(&entry);
         let attributes = [
-            wgpu::VertexAttribute {
-                format: wgpu::VertexFormat::Float32x2,
-                offset: 0,
-                shader_location: 0,
-            },
-            wgpu::VertexAttribute {
-                format: wgpu::VertexFormat::Float32x2,
-                offset: 8,
-                shader_location: 1,
-            },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x2, offset: 0, shader_location: 0 },
+            wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x2, offset: 8, shader_location: 1 },
         ];
         let buffers = [Some(wgpu::VertexBufferLayout {
             array_stride: 16,
@@ -662,11 +585,7 @@ impl Kit {
                 entry_point: Some(entry),
                 compilation_options: Default::default(),
                 // blending off throughout
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: None,
-                    write_mask: writes,
-                })],
+                targets: &[Some(wgpu::ColorTargetState { format, blend: None, write_mask: writes })],
             }),
             multiview_mask: None,
             cache: None,
@@ -700,27 +619,13 @@ impl Kit {
             mapped_at_creation: false,
         });
         gpu.queue().write_buffer(&ubuf, 0, &bytes);
-        let views: Vec<wgpu::TextureView> = textures
-            .iter()
-            .map(|t| t.create_view(&Default::default()))
-            .collect();
-        let is_final = draws
-            .first()
-            .is_some_and(|d| FINAL_ENTRIES.contains(&d.entry));
-        let sampler = if mipmapped {
-            &self.mip_sampler
-        } else {
-            &self.sampler
-        };
-        let mut entries = vec![wgpu::BindGroupEntry {
-            binding: 0,
-            resource: ubuf.as_entire_binding(),
-        }];
+        let views: Vec<wgpu::TextureView> = textures.iter().map(|t| t.create_view(&Default::default())).collect();
+        let is_final = draws.first().is_some_and(|d| FINAL_ENTRIES.contains(&d.entry));
+        let sampler = if mipmapped { &self.mip_sampler } else { &self.sampler };
+        let mut entries = vec![wgpu::BindGroupEntry { binding: 0, resource: ubuf.as_entire_binding() }];
         for (i, v) in views.iter().enumerate() {
-            entries.push(wgpu::BindGroupEntry {
-                binding: i as u32 + 1,
-                resource: wgpu::BindingResource::TextureView(v),
-            });
+            entries
+                .push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(v) });
         }
         entries.push(wgpu::BindGroupEntry {
             binding: views.len() as u32 + 1,
@@ -728,11 +633,7 @@ impl Kit {
         });
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
-            layout: if is_final {
-                &self.final_layout
-            } else {
-                &self.blur_layout
-            },
+            layout: if is_final { &self.final_layout } else { &self.blur_layout },
             entries: &entries,
         });
         let vbuf = geometry.filter(|g| !g.is_empty()).map(|g| {
@@ -746,10 +647,8 @@ impl Kit {
             gpu.queue().write_buffer(&b, 0, &bytes);
             b
         });
-        let pipes: Vec<wgpu::RenderPipeline> = draws
-            .iter()
-            .map(|d| self.pipeline(device, d.entry, out.format(), d.writes))
-            .collect();
+        let pipes: Vec<wgpu::RenderPipeline> =
+            draws.iter().map(|d| self.pipeline(device, d.entry, out.format(), d.writes)).collect();
         let view = out.create_view(&Default::default());
         let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("looks"),
@@ -799,19 +698,8 @@ impl Kit {
         step: f32,
         sigma: f32,
     ) {
-        let u = [
-            texel[0], texel[1], dir[0], dir[1], step, sigma, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-        ];
-        self.pass(
-            gpu,
-            enc,
-            out,
-            &u,
-            &[image, guide],
-            None,
-            &[Draw::all(entry, 0..3)],
-            false,
-        );
+        let u = [texel[0], texel[1], dir[0], dir[1], step, sigma, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        self.pass(gpu, enc, out, &u, &[image, guide], None, &[Draw::all(entry, 0..3)], false);
     }
 }
 
@@ -819,20 +707,10 @@ fn inv(t: &wgpu::Texture) -> [f32; 2] {
     [1.0 / t.width() as f32, 1.0 / t.height() as f32]
 }
 
-fn texture(
-    gpu: &Gpu,
-    label: &str,
-    size: (u32, u32),
-    format: wgpu::TextureFormat,
-    target: bool,
-) -> wgpu::Texture {
+fn texture(gpu: &Gpu, label: &str, size: (u32, u32), format: wgpu::TextureFormat, target: bool) -> wgpu::Texture {
     gpu.device().create_texture(&wgpu::TextureDescriptor {
         label: Some(label),
-        size: wgpu::Extent3d {
-            width: size.0.max(1),
-            height: size.1.max(1),
-            depth_or_array_layers: 1,
-        },
+        size: wgpu::Extent3d { width: size.0.max(1), height: size.1.max(1), depth_or_array_layers: 1 },
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
@@ -918,14 +796,8 @@ impl Targets {
     }
 }
 
-fn lazy(
-    slot: &mut Option<wgpu::Texture>,
-    gpu: &Gpu,
-    label: &str,
-    size: (u32, u32),
-) -> wgpu::Texture {
-    slot.get_or_insert_with(|| texture(gpu, label, size, RGBA8, true))
-        .clone()
+fn lazy(slot: &mut Option<wgpu::Texture>, gpu: &Gpu, label: &str, size: (u32, u32)) -> wgpu::Texture {
+    slot.get_or_insert_with(|| texture(gpu, label, size, RGBA8, true)).clone()
 }
 
 /// The segmentation's texture and the body
@@ -989,12 +861,7 @@ pub struct Looks {
 
 impl Looks {
     pub fn new(gpu: &Gpu) -> Looks {
-        Looks {
-            kit: Kit::new(gpu.device()),
-            sources: HashMap::new(),
-            luts: HashMap::new(),
-            maps: Maps::default(),
-        }
+        Looks { kit: Kit::new(gpu.device()), sources: HashMap::new(), luts: HashMap::new(), maps: Maps::default() }
     }
 
     /// Drops the textures of cameras not in `keep`.
@@ -1026,12 +893,7 @@ impl Looks {
         if !s.active() || w == 0 || h == 0 {
             return camera.clone();
         }
-        let Looks {
-            kit,
-            sources,
-            luts,
-            maps,
-        } = self;
+        let Looks { kit, sources, luts, maps } = self;
         let st = sources.entry(source).or_insert_with(|| PerSource {
             t: Targets::new(gpu, (w, h)),
             person: None,
@@ -1045,11 +907,7 @@ impl Looks {
         let m = &s.makeup;
 
         // --- landmarks -> layout ---
-        let shape = if s.enhance_on {
-            s.shape
-        } else {
-            Shape::default()
-        };
+        let shape = if s.enhance_on { s.shape } else { Shape::default() };
         let lay = layout::build(face, &shape, wf, hf, face_weight, m.blush_style);
         gpu.queue().write_texture(
             st.t.data.as_image_copy(),
@@ -1059,11 +917,7 @@ impl Looks {
                 bytes_per_row: Some(layout::DATA_TEX_WIDTH as u32 * 16),
                 rows_per_image: Some(1),
             },
-            wgpu::Extent3d {
-                width: layout::DATA_TEX_WIDTH as u32,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
+            wgpu::Extent3d { width: layout::DATA_TEX_WIDTH as u32, height: 1, depth_or_array_layers: 1 },
         );
 
         // --- smoothing + tone passes ---
@@ -1076,91 +930,20 @@ impl Looks {
         let mut enc = gpu.device().create_command_encoder(&Default::default());
         let e = &mut enc;
         let full = [1.0 / wf, 1.0 / hf];
-        kit.blur(
-            gpu, e, "fs_copy", camera, camera, &t.half, full, [0.0; 2], 0.0, 0.0,
-        ); // S1
-        kit.blur(
-            gpu,
-            e,
-            "fs_bilateral",
-            &t.half,
-            &t.half,
-            &t.tmp,
-            inv(&t.half),
-            [1.0, 0.0],
-            step,
-            sigma,
-        ); // S2
-        kit.blur(
-            gpu,
-            e,
-            "fs_bilateral",
-            &t.tmp,
-            &t.tmp,
-            &t.smooth,
-            inv(&t.tmp),
-            [0.0, 1.0],
-            step,
-            sigma,
-        ); // S3
-        kit.blur(
-            gpu,
-            e,
-            "fs_copy",
-            &t.smooth,
-            &t.smooth,
-            &t.q,
-            inv(&t.smooth),
-            [0.0; 2],
-            0.0,
-            0.0,
-        ); // S4
-        kit.blur(
-            gpu,
-            e,
-            "fs_copy",
-            &t.q,
-            &t.q,
-            &t.e,
-            inv(&t.q),
-            [0.0; 2],
-            0.0,
-            0.0,
-        ); // S5
-        kit.blur(
-            gpu,
-            e,
-            "fs_gauss",
-            &t.e,
-            &t.e,
-            &t.tmp_e,
-            inv(&t.e),
-            [1.0, 0.0],
-            1.5,
-            0.0,
-        ); // S6
-        kit.blur(
-            gpu,
-            e,
-            "fs_gauss",
-            &t.tmp_e,
-            &t.tmp_e,
-            &t.tone,
-            inv(&t.tmp_e),
-            [0.0, 1.0],
-            1.5,
-            0.0,
-        ); // S7
+        kit.blur(gpu, e, "fs_copy", camera, camera, &t.half, full, [0.0; 2], 0.0, 0.0); // S1
+        kit.blur(gpu, e, "fs_bilateral", &t.half, &t.half, &t.tmp, inv(&t.half), [1.0, 0.0], step, sigma); // S2
+        kit.blur(gpu, e, "fs_bilateral", &t.tmp, &t.tmp, &t.smooth, inv(&t.tmp), [0.0, 1.0], step, sigma); // S3
+        kit.blur(gpu, e, "fs_copy", &t.smooth, &t.smooth, &t.q, inv(&t.smooth), [0.0; 2], 0.0, 0.0); // S4
+        kit.blur(gpu, e, "fs_copy", &t.q, &t.q, &t.e, inv(&t.q), [0.0; 2], 0.0, 0.0); // S5
+        kit.blur(gpu, e, "fs_gauss", &t.e, &t.e, &t.tmp_e, inv(&t.e), [1.0, 0.0], 1.5, 0.0); // S6
+        kit.blur(gpu, e, "fs_gauss", &t.tmp_e, &t.tmp_e, &t.tone, inv(&t.tmp_e), [0.0, 1.0], 1.5, 0.0); // S7
         let mut tone = t.tone.clone();
 
         // --- learned segmentation: R skin, G face skin, B hair, A person ---
         let fresh: Option<Upload> = match (&masks.seg, person) {
             (Some((bytes, size, serial)), _) => {
                 let key = (*serial, false);
-                let same = st
-                    .person
-                    .as_ref()
-                    .is_some_and(|p| p.key == key && (p.tex.width(), p.tex.height()) == *size);
+                let same = st.person.as_ref().is_some_and(|p| p.key == key && (p.tex.width(), p.tex.height()) == *size);
                 (!same && size.0 > 0 && size.1 > 0 && bytes.len() >= (size.0 * size.1 * 4) as usize)
                     .then(|| (key, bytes.to_vec(), *size))
             }
@@ -1178,10 +961,7 @@ impl Looks {
             }
         };
         if let Some((key, bytes, size)) = fresh {
-            let same_size = st
-                .person
-                .as_ref()
-                .is_some_and(|p| (p.tex.width(), p.tex.height()) == size);
+            let same_size = st.person.as_ref().is_some_and(|p| (p.tex.width(), p.tex.height()) == size);
             if !same_size {
                 st.person = Some(PersonTex {
                     key,
@@ -1200,11 +980,7 @@ impl Looks {
                     bytes_per_row: Some(size.0 * 4),
                     rows_per_image: Some(size.1),
                 },
-                wgpu::Extent3d {
-                    width: size.0,
-                    height: size.1,
-                    depth_or_array_layers: 1,
-                },
+                wgpu::Extent3d { width: size.0, height: size.1, depth_or_array_layers: 1 },
             );
         }
         let t = &mut st.t;
@@ -1214,68 +990,13 @@ impl Looks {
             let (pm_w, pm_h) = (p.tex.width(), p.tex.height());
             pm_size = (pm_w, pm_h);
             // G2: snap the 256px mask to the frame's real edges
-            kit.blur(
-                gpu,
-                e,
-                "fs_refine",
-                &p.tex,
-                &t.half,
-                &t.seg,
-                inv(&p.tex),
-                [0.0; 2],
-                0.0,
-                0.07,
-            );
+            kit.blur(gpu, e, "fs_refine", &p.tex, &t.half, &t.seg, inv(&p.tex), [0.0; 2], 0.0, 0.07);
             // G3-G6: skin-weighted optical density, blurred by normalised convolution
             let ps = (iod_half * 2.0 * 0.25 / 8.0 / 2.0).max(0.75);
-            kit.blur(
-                gpu,
-                e,
-                "fs_skin_od",
-                &t.half,
-                &t.seg,
-                &t.skin_q,
-                [0.0; 2],
-                [0.0; 2],
-                0.0,
-                0.0,
-            );
-            kit.blur(
-                gpu,
-                e,
-                "fs_copy",
-                &t.skin_q,
-                &t.skin_q,
-                &t.skin_e,
-                inv(&t.skin_q),
-                [0.0; 2],
-                0.0,
-                0.0,
-            );
-            kit.blur(
-                gpu,
-                e,
-                "fs_gauss",
-                &t.skin_e,
-                &t.skin_e,
-                &t.skin_t,
-                inv(&t.skin_e),
-                [1.0, 0.0],
-                ps,
-                0.0,
-            );
-            kit.blur(
-                gpu,
-                e,
-                "fs_gauss",
-                &t.skin_t,
-                &t.skin_t,
-                &t.skin_tone,
-                inv(&t.skin_t),
-                [0.0, 1.0],
-                ps,
-                0.0,
-            );
+            kit.blur(gpu, e, "fs_skin_od", &t.half, &t.seg, &t.skin_q, [0.0; 2], [0.0; 2], 0.0, 0.0);
+            kit.blur(gpu, e, "fs_copy", &t.skin_q, &t.skin_q, &t.skin_e, inv(&t.skin_q), [0.0; 2], 0.0, 0.0);
+            kit.blur(gpu, e, "fs_gauss", &t.skin_e, &t.skin_e, &t.skin_t, inv(&t.skin_e), [1.0, 0.0], ps, 0.0);
+            kit.blur(gpu, e, "fs_gauss", &t.skin_t, &t.skin_t, &t.skin_tone, inv(&t.skin_t), [0.0, 1.0], ps, 0.0);
             // G7/G8: soft body height field for whole-body light normals, from the snapped mask
             let stp = (pm_w as f32 * 0.012).max(1.0);
             kit.blur(
@@ -1290,31 +1011,9 @@ impl Looks {
                 stp * hw as f32 / pm_w as f32,
                 0.0,
             );
-            kit.blur(
-                gpu,
-                e,
-                "fs_gauss",
-                &p.pm1,
-                &p.pm1,
-                &p.pm2,
-                inv(&p.pm1),
-                [0.0, 1.0],
-                stp,
-                0.0,
-            );
+            kit.blur(gpu, e, "fs_gauss", &p.pm1, &p.pm1, &p.pm2, inv(&p.pm1), [0.0, 1.0], stp, 0.0);
             // G9: packed into tone's alpha
-            kit.blur(
-                gpu,
-                e,
-                "fs_with_alpha",
-                &t.tone,
-                &p.pm2,
-                &t.tone_pb,
-                [0.0; 2],
-                [0.0; 2],
-                0.0,
-                0.0,
-            );
+            kit.blur(gpu, e, "fs_with_alpha", &t.tone, &p.pm2, &t.tone_pb, [0.0; 2], [0.0; 2], 0.0, 0.0);
             tone = t.tone_pb.clone();
             seg_ok = true;
         }
@@ -1335,76 +1034,29 @@ impl Looks {
                     Channel::B => wgpu::ColorWrites::BLUE,
                     Channel::A => wgpu::ColorWrites::ALPHA,
                 };
-                list.push(Draw {
-                    entry: "fs_solid",
-                    writes,
-                    vertices: first..(geometry.len() / 4) as u32,
-                });
+                list.push(Draw { entry: "fs_solid", writes, vertices: first..(geometry.len() / 4) as u32 });
             }
             let mut u = [0.0f32; 12];
             u[6] = wf;
             u[7] = hf;
-            kit.pass(
-                gpu,
-                e,
-                &t.mask_raw,
-                &u,
-                &[&t.half, &t.half],
-                Some(&geometry),
-                &list,
-                false,
-            );
+            kit.pass(gpu, e, &t.mask_raw, &u, &[&t.half, &t.half], Some(&geometry), &list, false);
         }
         // M2: the mesh and the head pose
         let mesh_v = face.and_then(|f| mesh::update(f, &lay, face_weight, wf, hf, &mut st.pose));
         let mesh_ok = mesh_v.is_some();
         // M3, M4 (their frame-sized targets made only once a mesh is drawn)
         let (paint_t, fnorm_t) = if mesh_ok {
-            (
-                lazy(&mut t.paint, gpu, "looks paint", (w, h)),
-                lazy(&mut t.fnorm, gpu, "looks facenorm", (w, h)),
-            )
+            (lazy(&mut t.paint, gpu, "looks paint", (w, h)), lazy(&mut t.fnorm, gpu, "looks facenorm", (w, h)))
         } else {
             (t.smooth.clone(), t.smooth.clone())
         };
         let paint = mesh::render_paint(kit, gpu, e, maps, mesh_v.as_deref(), m, (w, h), &paint_t);
-        let facenorm = mesh::render_facenorm(
-            kit,
-            gpu,
-            e,
-            maps,
-            mesh_v.as_deref(),
-            s.light_active(),
-            (w, h),
-            &fnorm_t,
-        );
+        let facenorm = mesh::render_facenorm(kit, gpu, e, maps, mesh_v.as_deref(), s.light_active(), (w, h), &fnorm_t);
         // M5/M6
         if mask_draws.is_some() {
             let ms = (iod_half * 0.012).max(0.6);
-            kit.blur(
-                gpu,
-                e,
-                "fs_gauss",
-                &t.mask_raw,
-                &t.mask_raw,
-                &t.mask_tmp,
-                inv(&t.mask_raw),
-                [1.0, 0.0],
-                ms,
-                0.0,
-            );
-            kit.blur(
-                gpu,
-                e,
-                "fs_gauss",
-                &t.mask_tmp,
-                &t.mask_tmp,
-                &t.mask,
-                inv(&t.mask_tmp),
-                [0.0, 1.0],
-                ms,
-                0.0,
-            );
+            kit.blur(gpu, e, "fs_gauss", &t.mask_raw, &t.mask_raw, &t.mask_tmp, inv(&t.mask_raw), [1.0, 0.0], ms, 0.0);
+            kit.blur(gpu, e, "fs_gauss", &t.mask_tmp, &t.mask_tmp, &t.mask, inv(&t.mask_tmp), [0.0, 1.0], ms, 0.0);
         }
         let has_mask = mask_draws.is_some();
 
@@ -1416,29 +1068,10 @@ impl Looks {
         let mut u = [0.0f32; 100];
         {
             let mut put = |i: usize, v: [f32; 4]| u[i * 4..i * 4 + 4].copy_from_slice(&v);
-            put(
-                0,
-                [
-                    wf,
-                    hf,
-                    if lay.has_face { face_weight } else { 0.0 },
-                    lay.warp_count as f32,
-                ],
-            );
+            put(0, [wf, hf, if lay.has_face { face_weight } else { 0.0 }, lay.warp_count as f32]);
             put(1, lay.bounds);
-            put(
-                2,
-                [
-                    if s.all_skin { 1.0 } else { 0.0 },
-                    en * s.smooth,
-                    en * s.foundation,
-                    en * s.skin_tone,
-                ],
-            );
-            put(
-                3,
-                [en * s.pouch, en * s.teeth, en * s.eyelight, en * s.clarity],
-            );
+            put(2, [if s.all_skin { 1.0 } else { 0.0 }, en * s.smooth, en * s.foundation, en * s.skin_tone]);
+            put(3, [en * s.pouch, en * s.teeth, en * s.eyelight, en * s.clarity]);
             put(
                 4,
                 [
@@ -1454,68 +1087,16 @@ impl Looks {
             put(8, [m.blush[0], m.blush[1], m.blush[2], m.blush_opacity]);
             put(9, [m.shadow[0], m.shadow[1], m.shadow[2], m.shadow_opacity]);
             put(10, [0.0, m.contour, m.highlight, m.brow]);
-            put(
-                11,
-                [
-                    m.lip_gloss,
-                    light_amt,
-                    if has_person { 1.0 } else { 0.0 },
-                    if facenorm { 1.0 } else { 0.0 },
-                ],
-            );
+            put(11, [m.lip_gloss, light_amt, if has_person { 1.0 } else { 0.0 }, if facenorm { 1.0 } else { 0.0 }]);
             put(12, [li.key_dir[0], li.key_dir[1], li.key_dir[2], 0.0]);
-            put(
-                13,
-                [
-                    li.key_color[0],
-                    li.key_color[1],
-                    li.key_color[2],
-                    li.key_amt,
-                ],
-            );
-            put(
-                14,
-                [
-                    li.rim_color[0],
-                    li.rim_color[1],
-                    li.rim_color[2],
-                    li.rim_amt,
-                ],
-            );
+            put(13, [li.key_color[0], li.key_color[1], li.key_color[2], li.key_amt]);
+            put(14, [li.rim_color[0], li.rim_color[1], li.rim_color[2], li.rim_amt]);
             put(15, [li.fill, li.bg_dim, li.exposure, li.warmth]);
-            let pt = if has_person {
-                [1.0 / pm_size.0 as f32, 1.0 / pm_size.1 as f32]
-            } else {
-                [0.0; 2]
-            };
-            put(
-                16,
-                [
-                    pt[0],
-                    pt[1],
-                    if seg_ok { 1.0 } else { 0.0 },
-                    if has_mask { 1.0 } else { 0.0 },
-                ],
-            );
+            let pt = if has_person { [1.0 / pm_size.0 as f32, 1.0 / pm_size.1 as f32] } else { [0.0; 2] };
+            put(16, [pt[0], pt[1], if seg_ok { 1.0 } else { 0.0 }, if has_mask { 1.0 } else { 0.0 }]);
             let pg = pigment;
-            put(
-                17,
-                [
-                    pg.mel[0],
-                    pg.mel[1],
-                    pg.mel[2],
-                    if s.enhance_on { s.redness } else { 0.0 },
-                ],
-            );
-            put(
-                18,
-                [
-                    pg.hem[0],
-                    pg.hem[1],
-                    pg.hem[2],
-                    if mesh_ok { pose.scale } else { 0.0 },
-                ],
-            );
+            put(17, [pg.mel[0], pg.mel[1], pg.mel[2], if s.enhance_on { s.redness } else { 0.0 }]);
+            put(18, [pg.hem[0], pg.hem[1], pg.hem[2], if mesh_ok { pose.scale } else { 0.0 }]);
             put(19, [pg.inv[0], pg.inv[1], pg.inv[2], 0.0]);
             put(20, [pg.inv[3], pg.inv[4], pg.inv[5], 0.0]);
             for (k, a) in pose.axes.iter().take(3).enumerate() {
@@ -1532,17 +1113,7 @@ impl Looks {
             e,
             &t.out,
             &u,
-            &[
-                camera,
-                &t.smooth,
-                &tone,
-                &t.data,
-                mask_tex,
-                paint_tex,
-                seg_tex,
-                skin_od_tex,
-                &t.smooth,
-            ],
+            &[camera, &t.smooth, &tone, &t.data, mask_tex, paint_tex, seg_tex, skin_od_tex, &t.smooth],
             None,
             &[Draw::all("fs_main", 0..3)],
             false,
@@ -1559,17 +1130,7 @@ impl Looks {
                 e,
                 &fin,
                 &u,
-                &[
-                    &out,
-                    &t.smooth,
-                    &tone,
-                    &t.data,
-                    mask_tex,
-                    paint_tex,
-                    seg_tex,
-                    skin_od_tex,
-                    fnorm,
-                ],
+                &[&out, &t.smooth, &tone, &t.data, mask_tex, paint_tex, seg_tex, skin_od_tex, fnorm],
                 None,
                 &[Draw::all("fs_finish", 0..3)],
                 false,
@@ -1586,12 +1147,7 @@ impl Looks {
                 .or_insert_with(|| {
                     let n = grade::LUT_N as u32;
                     let px = grade::build_lut(g, grade::LUT_N);
-                    Some(crate::gpu::texture_on(
-                        gpu.device(),
-                        gpu.queue(),
-                        &px,
-                        (n * n, n),
-                    ))
+                    Some(crate::gpu::texture_on(gpu.device(), gpu.queue(), &px, (n * n, n)))
                 })
                 .clone();
             if let Some(lut) = lut {
@@ -1623,13 +1179,8 @@ mod tests {
     fn source(effects: &[(&str, Value)]) -> Source {
         let mut s = Source::new("Cam", "lightair_camera", serde_json::json!({}));
         for (kind, own) in effects {
-            let own = if own.is_null() {
-                serde_json::json!({})
-            } else {
-                own.clone()
-            };
-            s.effects
-                .push(lightair_model::Effect::new(*kind, *kind, own));
+            let own = if own.is_null() { serde_json::json!({}) } else { own.clone() };
+            s.effects.push(lightair_model::Effect::new(*kind, *kind, own));
         }
         s
     }
@@ -1638,8 +1189,7 @@ mod tests {
     fn created(kinds: &[&str]) -> Source {
         let mut s = Source::new("Cam", "lightair_camera", serde_json::json!({}));
         for kind in kinds {
-            s.effects
-                .push(catalog::def(kind).expect("a catalogue effect").create());
+            s.effects.push(catalog::def(kind).expect("a catalogue effect").create());
         }
         s
     }
@@ -1654,31 +1204,21 @@ mod tests {
                 "skin_on": skin, "shape_on": shape, "makeup_on": makeup,
             })
         };
-        let on =
-            Settings::from_source(&source(&[("studio.beauty", own(true, true, true))])).unwrap();
+        let on = Settings::from_source(&source(&[("studio.beauty", own(true, true, true))])).unwrap();
         assert!(on.smooth > 0.0 && on.shape != Shape::default() && on.makeup.makeup_amt > 0.0);
 
         let off = Settings::from_source(&source(&[("studio.beauty", own(false, false, false))]));
         if let Some(off) = off {
             assert_eq!(off.smooth, 0.0, "no smoothing");
             assert_eq!(off.shape, Shape::default(), "no reshaping");
-            assert_eq!(
-                (off.makeup.makeup_amt, off.makeup.filter_amt),
-                (0.0, 0.0),
-                "no makeup"
-            );
+            assert_eq!((off.makeup.makeup_amt, off.makeup.filter_amt), (0.0, 0.0), "no makeup");
         }
         // each switch takes its own part only
-        let no_skin =
-            Settings::from_source(&source(&[("studio.beauty", own(false, true, true))])).unwrap();
+        let no_skin = Settings::from_source(&source(&[("studio.beauty", own(false, true, true))])).unwrap();
         assert_eq!(no_skin.smooth, 0.0);
-        assert_eq!(
-            (no_skin.shape, no_skin.makeup.makeup_amt),
-            (on.shape, on.makeup.makeup_amt)
-        );
+        assert_eq!((no_skin.shape, no_skin.makeup.makeup_amt), (on.shape, on.makeup.makeup_amt));
         // back on: the same values as before (they were kept in the effect's settings)
-        let again =
-            Settings::from_source(&source(&[("studio.beauty", own(true, true, true))])).unwrap();
+        let again = Settings::from_source(&source(&[("studio.beauty", own(true, true, true))])).unwrap();
         assert_eq!((again.smooth, again.shape), (on.smooth, on.shape));
     }
 
@@ -1698,8 +1238,7 @@ mod tests {
         assert_eq!(bare.makeup.lip, [1.0; 3]);
 
         // all three: the light and the grade come on with their presets
-        let s = Settings::from_source(&created(&["studio.beauty", "studio.light", "studio.grade"]))
-            .unwrap();
+        let s = Settings::from_source(&created(&["studio.beauty", "studio.light", "studio.grade"])).unwrap();
         assert!(s.light_active() && s.light.is_some());
         assert_eq!(s.filter_preset, "Portra");
         assert!(s.filter.is_some() && s.filter_amt > 0.0);
@@ -1715,21 +1254,12 @@ mod tests {
                     "contrast": 10, "shadows": 20, "enhance_on": false, "makeup_preset": "Berry",
                 }),
             ),
-            (
-                "studio.light",
-                serde_json::json!({"light_preset": "Neon", "light_amt": 40}),
-            ),
-            (
-                "studio.grade",
-                serde_json::json!({"filter_preset": "", "filter_preset_amt": 50}),
-            ),
+            ("studio.light", serde_json::json!({"light_preset": "Neon", "light_amt": 40})),
+            ("studio.grade", serde_json::json!({"filter_preset": "", "filter_preset_amt": 50})),
         ]))
         .unwrap();
         assert_eq!(s.smooth, 1.0, "held to 0..100");
-        assert_eq!(
-            (s.skin_tone, s.shape.chin, s.shape.eye_size),
-            (-0.4, -0.3, 0.25)
-        );
+        assert_eq!((s.skin_tone, s.shape.chin, s.shape.eye_size), (-0.4, -0.3, 0.25));
         assert_eq!((s.clarity, s.pouch), (0.1, 0.2));
         assert!(!s.enhance_on);
         // Berry's look applied: winged liner, its lip colour (#…), its grade
@@ -1762,13 +1292,8 @@ mod tests {
 
     #[test]
     fn a_person_mask_turns_upright() {
-        let m = crate::feeds::Mask {
-            bytes: vec![1, 2, 3, 4, 5, 6],
-            size: (3, 2),
-            rotation: 1,
-            mirrored: false,
-            serial: 1,
-        };
+        let m =
+            crate::feeds::Mask { bytes: vec![1, 2, 3, 4, 5, 6], size: (3, 2), rotation: 1, mirrored: false, serial: 1 };
         let (rgba, size) = upright_person(&m).unwrap();
         assert_eq!(size, (2, 3));
         let a: Vec<u8> = rgba.chunks(4).map(|p| p[3]).collect();
@@ -1788,8 +1313,7 @@ mod tests {
         let u3 = [0.577_350_26f32; 3];
         let c = [mel, hem, u3]; // columns
         let m = |r: usize, k: usize| c[k][r] as f64;
-        let det = m(0, 0) * (m(1, 1) * m(2, 2) - m(1, 2) * m(2, 1))
-            - m(0, 1) * (m(1, 0) * m(2, 2) - m(1, 2) * m(2, 0))
+        let det = m(0, 0) * (m(1, 1) * m(2, 2) - m(1, 2) * m(2, 1)) - m(0, 1) * (m(1, 0) * m(2, 2) - m(1, 2) * m(2, 0))
             + m(0, 2) * (m(1, 0) * m(2, 1) - m(1, 1) * m(2, 0));
         let mut inv = [0.0f32; 9];
         for r in 0..3 {
@@ -1798,12 +1322,7 @@ mod tests {
                 inv[r * 3 + k] = ((m(r1, k1) * m(r2, k2) - m(r1, k2) * m(r2, k1)) / det) as f32;
             }
         }
-        Pigment {
-            calibrated: false,
-            mel,
-            hem,
-            inv,
-        }
+        Pigment { calibrated: false, mel, hem, inv }
     }
 
     /// The synthetic face with a mesh: MediaPipe's canonical mesh, 2.5 px per cm, centred.
@@ -1813,8 +1332,7 @@ mod tests {
         f.region_start[r] = f.pts.len();
         f.region_count[r] = mesh::VERTS;
         for p in &mesh::POS {
-            f.pts
-                .push([(32.0 + 2.5 * p[0]) / 64.0, (30.0 - 2.5 * p[1]) / 64.0]);
+            f.pts.push([(32.0 + 2.5 * p[0]) / 64.0, (30.0 - 2.5 * p[1]) / 64.0]);
         }
         f
     }
@@ -1833,17 +1351,9 @@ mod tests {
             t.as_image_copy(),
             wgpu::TexelCopyBufferInfo {
                 buffer: &buf,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(row),
-                    rows_per_image: Some(h),
-                },
+                layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(row), rows_per_image: Some(h) },
             },
-            wgpu::Extent3d {
-                width: w,
-                height: h,
-                depth_or_array_layers: 1,
-            },
+            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
         );
         gpu.queue().submit([enc.finish()]);
         buf.slice(..).map_async(wgpu::MapMode::Read, |_| {});
@@ -1880,12 +1390,7 @@ mod tests {
         let beauty = Settings::from_source(&created(&["studio.beauty"])).unwrap();
         let out = looks.draw(&gpu, id, &camera, &beauty, None, 0.0, &none, &pig, None);
         let got = read(&gpu, &out);
-        let worst = got
-            .iter()
-            .zip(&px)
-            .map(|(a, b)| a.abs_diff(*b))
-            .max()
-            .unwrap();
+        let worst = got.iter().zip(&px).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
         assert!(worst <= 2, "off by {worst}");
 
         // everything on: a face with its mesh, the multiclass mask, makeup, light and grade
@@ -1897,10 +1402,7 @@ mod tests {
                     "shadows": 50, "teeth": 50, "contrast": 30, "redness": 40,
                 }),
             ),
-            (
-                "studio.light",
-                serde_json::json!({"light_preset": "Rembrandt"}),
-            ),
+            ("studio.light", serde_json::json!({"light_preset": "Rembrandt"})),
             ("studio.grade", Value::Null),
         ]))
         .unwrap();
@@ -1910,44 +1412,17 @@ mod tests {
         let verts = mesh::update(&face, &lay, 1.0, 64.0, 64.0, &mut Pose::default()).unwrap();
         assert!(verts.chunks(4).any(|v| v[0] != 0.0));
         let seg: Vec<u8> = (0..16 * 16).flat_map(|_| [200u8, 180, 10, 255]).collect();
-        let masks = Masks {
-            seg: Some((std::sync::Arc::new(seg), (16, 16), 1)),
-        };
-        let out = looks.draw(
-            &gpu,
-            id,
-            &camera,
-            &all,
-            Some(&face),
-            1.0,
-            &masks,
-            &pig,
-            None,
-        );
+        let masks = Masks { seg: Some((std::sync::Arc::new(seg), (16, 16), 1)) };
+        let out = looks.draw(&gpu, id, &camera, &all, Some(&face), 1.0, &masks, &pig, None);
         let got = read(&gpu, &out);
         assert_eq!(got.len(), (w * h * 4) as usize);
         assert!(got.chunks(4).all(|p| p[3] == 255), "alpha kept");
         assert_ne!(got, px, "the looks changed the picture");
 
         // the face gone, a person mask only (person-only segmentation)
-        let person = crate::feeds::Mask {
-            bytes: vec![255; 32 * 32],
-            size: (32, 32),
-            rotation: 1,
-            mirrored: true,
-            serial: 9,
-        };
-        let out = looks.draw(
-            &gpu,
-            id,
-            &camera,
-            &all,
-            None,
-            0.0,
-            &none,
-            &pig,
-            Some(&person),
-        );
+        let person =
+            crate::feeds::Mask { bytes: vec![255; 32 * 32], size: (32, 32), rotation: 1, mirrored: true, serial: 9 };
+        let out = looks.draw(&gpu, id, &camera, &all, None, 0.0, &none, &pig, Some(&person));
         assert_eq!((out.width(), out.height()), (w, h));
         let _ = read(&gpu, &out);
 

@@ -66,10 +66,8 @@ pub fn parse_hex(hex: &str, out: &mut [f32; 3]) {
         return;
     }
     // strtoul: the leading hex digits, as an unsigned long, cast to unsigned
-    let v = digits
-        .chars()
-        .map_while(|c| c.to_digit(16))
-        .fold(0u64, |a, d| a.wrapping_mul(16).wrapping_add(d as u64)) as u32;
+    let v = digits.chars().map_while(|c| c.to_digit(16)).fold(0u64, |a, d| a.wrapping_mul(16).wrapping_add(d as u64))
+        as u32;
     out[0] = ((v >> 16) & 0xff) as f32 / 255.0;
     out[1] = ((v >> 8) & 0xff) as f32 / 255.0;
     out[2] = (v & 0xff) as f32 / 255.0;
@@ -93,11 +91,8 @@ pub(crate) fn find_in<'a>(root: &'a Value, list: &str, name: &str) -> Option<&'a
     if name.is_empty() {
         return None;
     }
-    let named = |arr: &'a Value| {
-        arr.as_array()?
-            .iter()
-            .find(|it| it.get("name").and_then(Value::as_str).unwrap_or("") == name)
-    };
+    let named =
+        |arr: &'a Value| arr.as_array()?.iter().find(|it| it.get("name").and_then(Value::as_str).unwrap_or("") == name);
     if let Some(cats) = root.get("categories").and_then(Value::as_array) {
         return cats.iter().find_map(|c| c.get(list).and_then(named));
     }
@@ -185,11 +180,7 @@ pub fn apply(g: &GradeParams, c: &mut [f32; 3]) {
     for v in c.iter_mut() {
         let x = *v;
         let s = x * x * (3.0 - 2.0 * x);
-        *v = if k >= 0.0 {
-            x + (s - x) * k
-        } else {
-            x + (0.5 - x) * (-k * 0.4)
-        };
+        *v = if k >= 0.0 { x + (s - x) * k } else { x + (0.5 - x) * (-k * 0.4) };
     }
 
     // hue rotation (YIQ)
@@ -219,8 +210,7 @@ pub fn apply(g: &GradeParams, c: &mut [f32; 3]) {
     let y = luma(c).clamp(0.0, 1.0);
     let (ws, wh) = ((1.0 - y) * (1.0 - y), y * y);
     for (i, v) in c.iter_mut().enumerate() {
-        *v += (g.shadow_tint[i] - 0.5) * g.shadow_amt * ws
-            + (g.highlight_tint[i] - 0.5) * g.highlight_amt * wh;
+        *v += (g.shadow_tint[i] - 0.5) * g.shadow_amt * ws + (g.highlight_tint[i] - 0.5) * g.highlight_amt * wh;
     }
 
     // per-channel gamma
@@ -303,14 +293,7 @@ mod tests {
 
         // neutral parameters are the identity everywhere
         let id = build_lut(&GradeParams::default(), n);
-        for (r, g, b) in [
-            (0, 0, 0),
-            (24, 0, 0),
-            (0, 24, 0),
-            (0, 0, 24),
-            (24, 24, 24),
-            (3, 17, 9),
-        ] {
+        for (r, g, b) in [(0, 0, 0), (24, 0, 0), (0, 24, 0), (0, 0, 24), (24, 24, 24), (3, 17, 9)] {
             let want = |v: usize| (v as f32 / 24.0 * 255.0 + 0.5) as u8;
             assert_eq!(at(&id, n, r, g, b), [want(r), want(g), want(b), 255]);
         }

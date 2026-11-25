@@ -110,11 +110,8 @@ impl Cache {
                 strings(&e.settings, &mut named);
             }
         }
-        self.images.retain(|path, _| {
-            named
-                .iter()
-                .any(|n| !n.is_empty() && (path.ends_with(n) || path == Path::new(n)))
-        });
+        self.images
+            .retain(|path, _| named.iter().any(|n| !n.is_empty() && (path.ends_with(n) || path == Path::new(n))));
         self.keyed.forget_others(&keep);
         self.key_masks.forget_others(&keep);
         if let Some(l) = self.looks.as_mut() {
@@ -163,39 +160,22 @@ impl Frame<'_> {
         let Feed::Video(v) = &*f else { return None };
         let (picture, serial, host_ns) = v.at(self.host_ns)?;
         if !self.used.iter().any(|u| u.feed == feed) {
-            self.used.push(SourceFrame {
-                feed,
-                host_ns,
-                serial,
-            });
+            self.used.push(SourceFrame { feed, host_ns, serial });
         }
         match &*picture {
             #[cfg(any(target_os = "macos", target_os = "ios"))]
-            Pushed::Buffer(b, _) => Some(Shot {
-                picture: Picture::Buffer(b.clone()),
-                size: b.size(),
-                premultiplied: false,
-            }),
+            Pushed::Buffer(b, _) => {
+                Some(Shot { picture: Picture::Buffer(b.clone()), size: b.size(), premultiplied: false })
+            }
             #[cfg(target_os = "android")]
-            Pushed::Hardware {
-                held,
-                size,
-                rotation,
-                mirrored,
-            } => {
-                let upright = if rotation % 180 == 90 {
-                    (size.1, size.0)
-                } else {
-                    *size
-                };
+            Pushed::Hardware { held, size, rotation, mirrored } => {
+                let upright = if rotation % 180 == 90 { (size.1, size.0) } else { *size };
                 let old = self.cache.converted.remove(&feed);
                 let t = match old {
                     Some((s, t)) if s == serial => t,
                     old => {
-                        let target = old
-                            .map(|(_, t)| t)
-                            .filter(|t| (t.width(), t.height()) == upright)
-                            .unwrap_or_else(|| {
+                        let target =
+                            old.map(|(_, t)| t).filter(|t| (t.width(), t.height()) == upright).unwrap_or_else(|| {
                                 let t = self.gpu.target(upright, wgpu::TextureFormat::Rgba8Unorm);
                                 self.gpu.prime(&t);
                                 t
@@ -217,11 +197,7 @@ impl Frame<'_> {
                     }
                 };
                 self.cache.converted.insert(feed, (serial, t.clone()));
-                Some(Shot {
-                    picture: Picture::Texture(t),
-                    size: upright,
-                    premultiplied: false,
-                })
+                Some(Shot { picture: Picture::Texture(t), size: upright, premultiplied: false })
             }
             Pushed::Rgba(bytes, size) => {
                 let t = match self.cache.converted.remove(&feed) {
@@ -234,11 +210,7 @@ impl Frame<'_> {
                     _ => self.gpu.texture(bytes, *size),
                 };
                 self.cache.converted.insert(feed, (serial, t.clone()));
-                Some(Shot {
-                    picture: Picture::Texture(t),
-                    size: *size,
-                    premultiplied: false,
-                })
+                Some(Shot { picture: Picture::Texture(t), size: *size, premultiplied: false })
             }
             Pushed::Yuv(y) => {
                 let t = match self.cache.converted.remove(&feed) {
@@ -247,11 +219,7 @@ impl Frame<'_> {
                 };
                 let size = (t.width(), t.height());
                 self.cache.converted.insert(feed, (serial, t.clone()));
-                Some(Shot {
-                    picture: Picture::Texture(t),
-                    size,
-                    premultiplied: false,
-                })
+                Some(Shot { picture: Picture::Texture(t), size, premultiplied: false })
             }
         }
     }
@@ -283,38 +251,23 @@ impl Frame<'_> {
             },
         };
         let image = if look.mode == 4 {
-            look.image
-                .clone()
-                .and_then(|file| self.image(&file))
-                .and_then(|s| match s.picture {
-                    Picture::Texture(t) => Some(t),
-                    _ => None,
-                })
+            look.image.clone().and_then(|file| self.image(&file)).and_then(|s| match s.picture {
+                Picture::Texture(t) => Some(t),
+                _ => None,
+            })
         } else {
             None
         };
         let gpu = self.gpu;
-        let pipelines = self
-            .cache
-            .background
-            .get_or_insert_with(|| crate::background::Pipelines::new(gpu.device()));
+        let pipelines = self.cache.background.get_or_insert_with(|| crate::background::Pipelines::new(gpu.device()));
         let state = self.cache.backgrounds.entry(feed).or_default();
-        let out =
-            crate::background::draw(gpu, pipelines, state, &camera, &mask, image.as_ref(), look);
-        Shot {
-            picture: Picture::Texture(out),
-            size: shot.size,
-            premultiplied: false,
-        }
+        let out = crate::background::draw(gpu, pipelines, state, &camera, &mask, image.as_ref(), look);
+        Shot { picture: Picture::Texture(out), size: shot.size, premultiplied: false }
     }
 
     fn path(&self, s: &str) -> PathBuf {
         let p = Path::new(s);
-        if p.is_absolute() {
-            p.to_path_buf()
-        } else {
-            self.program.folder.join(p)
-        }
+        if p.is_absolute() { p.to_path_buf() } else { self.program.folder.join(p) }
     }
 
     fn image(&mut self, file: &str) -> Option<Shot> {
@@ -326,9 +279,7 @@ impl Frame<'_> {
             Some(Slot::Loading(rx)) => match rx.try_recv() {
                 Ok(Some(i)) => {
                     let i = Arc::new(i);
-                    self.cache
-                        .images
-                        .insert(path.clone(), Slot::Ready(i.clone()));
+                    self.cache.images.insert(path.clone(), Slot::Ready(i.clone()));
                     i
                 }
                 Ok(None) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
@@ -347,36 +298,17 @@ impl Frame<'_> {
                         let _ = tx.send(decode(&p));
                     })
                     .is_ok();
-                self.cache.images.insert(
-                    path,
-                    if started {
-                        Slot::Loading(rx)
-                    } else {
-                        Slot::Broken
-                    },
-                );
+                self.cache.images.insert(path, if started { Slot::Loading(rx) } else { Slot::Broken });
                 return None;
             }
         };
         let total = img.frames.last().map_or(0, |f| f.1).max(1);
         let at = ((self.pts_ns / 1_000_000).max(0) as u64 % total as u64) as u32;
-        let frame = img
-            .frames
-            .iter()
-            .find(|f| at < f.1)
-            .unwrap_or(&img.frames[0]);
-        Some(Shot {
-            picture: Picture::Texture(frame.0.clone()),
-            size: img.size,
-            premultiplied: false,
-        })
+        let frame = img.frames.iter().find(|f| at < f.1).unwrap_or(&img.frames[0]);
+        Some(Shot { picture: Picture::Texture(frame.0.clone()), size: img.size, premultiplied: false })
     }
 
-    fn made(
-        &mut self,
-        key: String,
-        make: impl FnOnce() -> Option<(Vec<u8>, (u32, u32), bool)>,
-    ) -> Option<Shot> {
+    fn made(&mut self, key: String, make: impl FnOnce() -> Option<(Vec<u8>, (u32, u32), bool)>) -> Option<Shot> {
         if !self.cache.made.contains_key(&key) {
             let (rgba, size, pre) = make()?;
             if size.0 == 0 || size.1 == 0 {
@@ -387,11 +319,7 @@ impl Frame<'_> {
         }
         self.cache.used.insert(key.clone());
         let (t, size, pre) = self.cache.made.get(&key)?;
-        Some(Shot {
-            picture: Picture::Texture(t.clone()),
-            size: *size,
-            premultiplied: *pre,
-        })
+        Some(Shot { picture: Picture::Texture(t.clone()), size: *size, premultiplied: *pre })
     }
 
     fn text(&mut self, s: &Value, text: String) -> Option<Shot> {
@@ -409,12 +337,7 @@ impl Frame<'_> {
         let h = s["height"].as_u64().unwrap_or(1080).clamp(1, 4096) as u32;
         let key = format!("colour:{abgr:08x}:{w}x{h}");
         self.made(key, || {
-            let px = [
-                (abgr & 0xFF) as u8,
-                (abgr >> 8 & 0xFF) as u8,
-                (abgr >> 16 & 0xFF) as u8,
-                (abgr >> 24) as u8,
-            ];
+            let px = [(abgr & 0xFF) as u8, (abgr >> 8 & 0xFF) as u8, (abgr >> 16 & 0xFF) as u8, (abgr >> 24) as u8];
             Some((px.repeat((w * h) as usize), (w, h), false))
         })
     }
@@ -422,20 +345,14 @@ impl Frame<'_> {
     /// A widget: drawn again only when its settings, the chat or the alert change.
     fn widget(&mut self, s: &Value) -> Option<Shot> {
         let i = crate::widgets::instance(s)?;
-        let size = (
-            s["width"].as_u64().unwrap_or(800) as u32,
-            s["height"].as_u64().unwrap_or(600) as u32,
-        );
+        let size = (s["width"].as_u64().unwrap_or(800) as u32, s["height"].as_u64().unwrap_or(600) as u32);
         let chat = self.hot.chat.read();
         let alert = self.hot.alert.read();
         let uses_chat = i.kind != "counter" && i.kind != "alert-box" && i.kind != "subathon";
         // a subathon timer: what the widget server keeps for it, drawn again each second
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_millis() as i64);
-        let stored = (i.kind == "subathon")
-            .then(|| crate::web::started().map(|w| w.storage(&i.id)))
-            .flatten();
+        let now_ms =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
+        let stored = (i.kind == "subathon").then(|| crate::web::started().map(|w| w.storage(&i.id))).flatten();
         let tick = stored.as_ref().map_or(String::new(), |s| {
             let left = crate::widgets::subathon_left(&crate::widgets::values(&i), s, now_ms);
             format!("{}:{}", left / 1000, serde_json::Value::Object(s.clone()))
@@ -462,11 +379,7 @@ impl Frame<'_> {
     }
 
     fn timer(&mut self, s: &Value) -> Option<Shot> {
-        let shown = timer_text(
-            s,
-            self.pts_ns - self.program.on_air_ns,
-            self.program.utc_offset_min,
-        );
+        let shown = timer_text(s, self.pts_ns - self.program.on_air_ns, self.program.utc_offset_min);
         self.text(s, shown)
     }
 }
@@ -487,12 +400,7 @@ impl Pictures for Frame<'_> {
         // the looks on a camera, before its other effects (as on the desktop)
         if let Some(mut settings) = crate::looks::render::Settings::from_source(source) {
             // hot (the governor's step 3): the face parts stop, Light and the grade stay
-            if self
-                .hot
-                .governor_step
-                .load(std::sync::atomic::Ordering::Relaxed)
-                >= crate::looks::LIGHTER_STEP
-            {
+            if self.hot.governor_step.load(std::sync::atomic::Ordering::Relaxed) >= crate::looks::LIGHTER_STEP {
                 settings.lighten();
             }
             if settings.active() {
@@ -510,12 +418,7 @@ impl Pictures for Frame<'_> {
 impl Frame<'_> {
     /// A camera through the looks (beauty, light, grade), with
     /// the faces and masks its host pushed.
-    fn looked(
-        &mut self,
-        source: &Source,
-        shot: Shot,
-        settings: &crate::looks::render::Settings,
-    ) -> Shot {
+    fn looked(&mut self, source: &Source, shot: Shot, settings: &crate::looks::render::Settings) -> Shot {
         let Some(feed) = self.program.feeds.get(&source.id).copied() else {
             return shot;
         };
@@ -538,15 +441,13 @@ impl Frame<'_> {
                         return shot;
                     };
                     match &*picture {
-                        Pushed::Buffer(_, k) => {
-                            match crate::gpu::apple::sampled(self.gpu.device(), &k.0) {
-                                Some(t) => {
-                                    _kept = Some(Box::new(k.clone()));
-                                    t
-                                }
-                                None => return shot,
+                        Pushed::Buffer(_, k) => match crate::gpu::apple::sampled(self.gpu.device(), &k.0) {
+                            Some(t) => {
+                                _kept = Some(Box::new(k.clone()));
+                                t
                             }
-                        }
+                            None => return shot,
+                        },
                         _ => return shot,
                     }
                 }
@@ -558,32 +459,14 @@ impl Frame<'_> {
         // the frame for what reads pixels (lid snapping, cheek colour, mask motion, pigment), read
         // back only when something new came: each analysed frame is read back once
         let new_faces: Vec<Arc<crate::feeds::FacePush>> = {
-            let last = self
-                .cache
-                .trackers
-                .get(&feed)
-                .and_then(|s| s.tracker.last_serial())
-                .unwrap_or(0);
-            v.faces
-                .lock()
-                .iter()
-                .filter(|p| p.serial > last)
-                .cloned()
-                .collect()
+            let last = self.cache.trackers.get(&feed).and_then(|s| s.tracker.last_serial()).unwrap_or(0);
+            v.faces.lock().iter().filter(|p| p.serial > last).cloned().collect()
         };
         let seg = v.segmentation.lock().clone();
-        let new_seg = seg.as_ref().is_some_and(|s| {
-            self.cache
-                .trackers
-                .get(&feed)
-                .is_none_or(|st| st.seg_serial != s.serial)
-        });
-        let copy = (!new_faces.is_empty() || new_seg)
-            .then(|| self.small_copy(&texture))
-            .flatten();
-        let luma = copy
-            .as_ref()
-            .map(|(rgba, w, h)| crate::looks::face::Luma::from_rgba(rgba, *w, *h));
+        let new_seg =
+            seg.as_ref().is_some_and(|s| self.cache.trackers.get(&feed).is_none_or(|st| st.seg_serial != s.serial));
+        let copy = (!new_faces.is_empty() || new_seg).then(|| self.small_copy(&texture)).flatten();
+        let luma = copy.as_ref().map(|(rgba, w, h)| crate::looks::face::Luma::from_rgba(rgba, *w, *h));
         let state = self.cache.trackers.entry(feed).or_default();
         for p in &new_faces {
             state.tracker.push(p, luma.as_ref());
@@ -592,27 +475,14 @@ impl Frame<'_> {
             state.seg_serial = seg.serial;
             state.masks.push(&seg, luma.as_ref());
             if let Some((rgba, w, h)) = &copy {
-                let picture = crate::looks::pigment::Picture {
-                    rgba,
-                    width: *w,
-                    height: *h,
-                };
+                let picture = crate::looks::pigment::Picture { rgba, width: *w, height: *h };
                 state.pigment.push(&seg, &picture, now);
             }
         }
         let face = state.tracker.get_at(frame_ns, now);
         let weight = state.weight.update(face.present, now);
-        let face_box = face
-            .present
-            .then(|| {
-                v.faces
-                    .lock()
-                    .iter()
-                    .rev()
-                    .find(|p| p.present)
-                    .and_then(|p| p.face_box())
-            })
-            .flatten();
+        let face_box =
+            face.present.then(|| v.faces.lock().iter().rev().find(|p| p.present).and_then(|p| p.face_box())).flatten();
         *v.looks_seen.lock() = Some(crate::feeds::LooksSeen {
             at_ns: now,
             analysed: state.tracker.last_serial().is_some(),
@@ -623,10 +493,7 @@ impl Frame<'_> {
         let pigment = state.pigment.pigment();
         let person = v.mask.lock().clone();
         let gpu = self.gpu;
-        let looks = self
-            .cache
-            .looks
-            .get_or_insert_with(|| crate::looks::render::Looks::new(gpu));
+        let looks = self.cache.looks.get_or_insert_with(|| crate::looks::render::Looks::new(gpu));
         let out = looks.draw(
             gpu,
             source.id,
@@ -638,11 +505,7 @@ impl Frame<'_> {
             &pigment,
             person.as_deref(),
         );
-        Shot {
-            picture: Picture::Texture(out),
-            size: shot.size,
-            premultiplied: false,
-        }
+        Shot { picture: Picture::Texture(out), size: shot.size, premultiplied: false }
     }
 
     /// A picture scaled to at most 720 on its short side, read back as RGBA (the looks'
@@ -650,23 +513,11 @@ impl Frame<'_> {
     fn small_copy(&self, texture: &wgpu::Texture) -> Option<(Vec<u8>, u32, u32)> {
         let (w, h) = (texture.width(), texture.height());
         let short = w.min(h).max(1);
-        let (sw, sh) = if short > 720 {
-            ((w * 720 / short).max(1), (h * 720 / short).max(1))
-        } else {
-            (w, h)
-        };
+        let (sw, sh) = if short > 720 { ((w * 720 / short).max(1), (h * 720 / short).max(1)) } else { (w, h) };
         let small = self.gpu.target((sw, sh), wgpu::TextureFormat::Rgba8Unorm);
-        let mut encoder = self
-            .gpu
-            .device()
-            .create_command_encoder(&Default::default());
+        let mut encoder = self.gpu.device().create_command_encoder(&Default::default());
         let view = small.create_view(&Default::default());
-        self.gpu.blit(
-            &mut encoder,
-            texture,
-            &view,
-            wgpu::TextureFormat::Rgba8Unorm,
-        );
+        self.gpu.blit(&mut encoder, texture, &view, wgpu::TextureFormat::Rgba8Unorm);
         self.gpu.queue().submit([encoder.finish()]);
         lightair_render::compose::read_texture(&small).map(|px| (px, sw, sh))
     }
@@ -681,12 +532,7 @@ impl Frame<'_> {
             _ => {
                 #[cfg(any(target_os = "macos", target_os = "ios"))]
                 {
-                    let Some(v) = self
-                        .program
-                        .feeds
-                        .get(&source.id)
-                        .and_then(|f| self.hot.feed(*f))
-                    else {
+                    let Some(v) = self.program.feeds.get(&source.id).and_then(|f| self.hot.feed(*f)) else {
                         return shot;
                     };
                     let Feed::Video(v) = &*v else { return shot };
@@ -694,15 +540,13 @@ impl Frame<'_> {
                         return shot;
                     };
                     match &*picture {
-                        Pushed::Buffer(_, k) => {
-                            match crate::gpu::apple::sampled(self.gpu.device(), &k.0) {
-                                Some(t) => {
-                                    _kept = Some(Box::new(k.clone()));
-                                    t
-                                }
-                                None => return shot,
+                        Pushed::Buffer(_, k) => match crate::gpu::apple::sampled(self.gpu.device(), &k.0) {
+                            Some(t) => {
+                                _kept = Some(Box::new(k.clone()));
+                                t
                             }
-                        }
+                            None => return shot,
+                        },
                         _ => return shot,
                     }
                 }
@@ -714,38 +558,26 @@ impl Frame<'_> {
         // a light or the skin smoothing follows the person: the host's mask, asked for while
         // it's drawn (drawn without it until the first comes)
         let mask = if steps.iter().any(|s| s.mode == 6 || s.mode == 7) {
-            self.program
-                .feeds
-                .get(&source.id)
-                .and_then(|f| self.hot.feed(*f))
-                .and_then(|f| match &*f {
-                    Feed::Video(v) => {
-                        let now = crate::clock::host_now_ns();
-                        v.want_mask(1, now);
-                        // the looks follow the face
-                        v.want_face(now);
-                        v.mask.lock().clone()
-                    }
-                    _ => None,
-                })
+            self.program.feeds.get(&source.id).and_then(|f| self.hot.feed(*f)).and_then(|f| match &*f {
+                Feed::Video(v) => {
+                    let now = crate::clock::host_now_ns();
+                    v.want_mask(1, now);
+                    // the looks follow the face
+                    v.want_face(now);
+                    v.mask.lock().clone()
+                }
+                _ => None,
+            })
         } else {
             None
         };
-        let mask_t = mask
-            .as_ref()
-            .map(|m| self.cache.key_masks.texture(gpu, source.id, m));
-        let mask_in = mask
-            .as_ref()
-            .zip(mask_t.as_ref())
-            .map(|(m, t)| crate::keying::MaskIn {
-                texture: t,
-                rotation: m.rotation,
-                mirrored: m.mirrored,
-            });
-        let pipeline = self
-            .cache
-            .keying
-            .get_or_insert_with(|| crate::keying::Pipeline::new(gpu.device()));
+        let mask_t = mask.as_ref().map(|m| self.cache.key_masks.texture(gpu, source.id, m));
+        let mask_in = mask.as_ref().zip(mask_t.as_ref()).map(|(m, t)| crate::keying::MaskIn {
+            texture: t,
+            rotation: m.rotation,
+            mirrored: m.mirrored,
+        });
+        let pipeline = self.cache.keying.get_or_insert_with(|| crate::keying::Pipeline::new(gpu.device()));
         let out = crate::keying::draw(
             gpu,
             pipeline,
@@ -756,26 +588,17 @@ impl Frame<'_> {
             steps,
             mask_in,
         );
-        Shot {
-            picture: Picture::Texture(out),
-            size: shot.size,
-            premultiplied: false,
-        }
+        Shot { picture: Picture::Texture(out), size: shot.size, premultiplied: false }
     }
 
     fn picture_of(&mut self, source: &Source) -> Option<Shot> {
         let s = &source.settings;
         match source.kind.as_str() {
-            templates::CAMERA
-            | "lightair_camera_capture"
-            | templates::SCREEN
-            | templates::MEDIA => {
+            templates::CAMERA | "lightair_camera_capture" | templates::SCREEN | templates::MEDIA => {
                 let feed = *self.program.feeds.get(&source.id)?;
                 let shot = self.feed_picture(feed)?;
                 match crate::background::look(source) {
-                    Some(look)
-                        if source.kind != templates::MEDIA && source.kind != templates::SCREEN =>
-                    {
+                    Some(look) if source.kind != templates::MEDIA && source.kind != templates::SCREEN => {
                         Some(self.background(feed, shot, &look))
                     }
                     _ => Some(shot),
@@ -814,8 +637,7 @@ fn decode(path: &Path) -> Option<Animated> {
 fn decode_within(path: &Path, side: u32, cap: usize) -> Option<Animated> {
     use image::AnimationDecoder;
     let gpu = lightair_render::shared_gpu().ok()?;
-    let texture =
-        |rgba: &[u8], size: (u32, u32)| crate::gpu::texture_on(&gpu.device, &gpu.queue, rgba, size);
+    let texture = |rgba: &[u8], size: (u32, u32)| crate::gpu::texture_on(&gpu.device, &gpu.queue, rgba, size);
     let bytes = std::fs::read(path).ok()?;
     if bytes.starts_with(b"GIF8") {
         let dec = image::codecs::gif::GifDecoder::new(std::io::Cursor::new(&bytes)).ok()?;
@@ -827,10 +649,7 @@ fn decode_within(path: &Path, side: u32, cap: usize) -> Option<Animated> {
             let mut buf = f.into_buffer();
             if buf.width().max(buf.height()) > side {
                 let k = side as f32 / buf.width().max(buf.height()) as f32;
-                let (w, h) = (
-                    ((buf.width() as f32 * k) as u32).max(1),
-                    ((buf.height() as f32 * k) as u32).max(1),
-                );
+                let (w, h) = (((buf.width() as f32 * k) as u32).max(1), ((buf.height() as f32 * k) as u32).max(1));
                 buf = image::imageops::thumbnail(&buf, w, h);
             }
             let bytes = buf.as_raw().len();
@@ -847,17 +666,10 @@ fn decode_within(path: &Path, side: u32, cap: usize) -> Option<Animated> {
     }
     let img = image::load_from_memory(&bytes).ok()?;
     // at most 4096 on a side (a GPU's limit and a phone's memory)
-    let img = if img.width() > 4096 || img.height() > 4096 {
-        img.thumbnail(4096, 4096)
-    } else {
-        img
-    };
+    let img = if img.width() > 4096 || img.height() > 4096 { img.thumbnail(4096, 4096) } else { img };
     let rgba = img.to_rgba8();
     let size = rgba.dimensions();
-    Some(Animated {
-        frames: vec![(texture(rgba.as_raw(), size), u32::MAX)],
-        size,
-    })
+    Some(Animated { frames: vec![(texture(rgba.as_raw(), size), u32::MAX)], size })
 }
 
 /// Tests: an image's decoded size and frame count.
@@ -876,34 +688,18 @@ mod tests {
     #[test]
     fn a_picture_nothing_names_is_let_go_when_the_project_changes() {
         let mut c = Cache::default();
-        for p in [
-            "/show/media/logo.png",
-            "/show/media/old.png",
-            "/show/media/frame.png",
-        ] {
+        for p in ["/show/media/logo.png", "/show/media/old.png", "/show/media/frame.png"] {
             c.images.insert(PathBuf::from(p), Slot::Broken);
         }
         let mut ws = lightair_model::Workspace::new("Show");
-        let logo = lightair_model::Source::new(
-            "Logo",
-            "image_source",
-            json!({ "file": "media/logo.png" }),
-        );
+        let logo = lightair_model::Source::new("Logo", "image_source", json!({ "file": "media/logo.png" }));
         let mut cam = lightair_model::Source::new("Cam", "lightair_camera", json!({}));
-        cam.effects.push(lightair_model::Effect::new(
-            "Frame",
-            "fx.frame",
-            json!({ "image": "/show/media/frame.png" }),
-        ));
+        cam.effects.push(lightair_model::Effect::new("Frame", "fx.frame", json!({ "image": "/show/media/frame.png" })));
         for s in [logo, cam] {
             ws.sources.insert(s.id, Arc::new(s));
         }
         c.keep_sources(&Arc::new(ws));
-        let mut kept: Vec<_> = c
-            .images
-            .keys()
-            .map(|p| p.to_string_lossy().into_owned())
-            .collect();
+        let mut kept: Vec<_> = c.images.keys().map(|p| p.to_string_lossy().into_owned()).collect();
         kept.sort();
         assert_eq!(kept, ["/show/media/frame.png", "/show/media/logo.png"]);
     }
@@ -925,29 +721,14 @@ mod tests {
         assert_eq!(timer_text(&s, 0, 0), "1:30");
         assert_eq!(timer_text(&s, 31_000_000_000, 0), "0:59");
         assert_eq!(timer_text(&s, 95_000_000_000, 0), "Live soon");
-        assert_eq!(
-            timer_text(&json!({ "mode": "stopwatch" }), 3_725_000_000_000, 0),
-            "1:02:05"
-        );
+        assert_eq!(timer_text(&json!({ "mode": "stopwatch" }), 3_725_000_000_000, 0), "1:02:05");
     }
 
     #[test]
     fn text_settings_read_back_as_the_style() {
-        let s = templates::text_settings(
-            "Hi",
-            Some("Inter"),
-            64.0,
-            0xFF8800,
-            true,
-            0,
-            Some(0x000000),
-            None,
-        );
+        let s = templates::text_settings("Hi", Some("Inter"), 64.0, 0xFF8800, true, 0, Some(0x000000), None);
         let t = text_style(&s, "Hi".into());
-        assert_eq!(
-            (t.color, t.bold, t.align, t.size),
-            (0xFF8800, true, 0, 64.0)
-        );
+        assert_eq!((t.color, t.bold, t.align, t.size), (0xFF8800, true, 0, 64.0));
         assert_eq!(t.outline, Some(0));
         assert_eq!(t.font.unwrap().family, "Inter");
     }

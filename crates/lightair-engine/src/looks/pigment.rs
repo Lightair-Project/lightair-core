@@ -28,33 +28,21 @@ struct V3 {
 impl std::ops::Add for V3 {
     type Output = V3;
     fn add(self, b: V3) -> V3 {
-        V3 {
-            x: self.x + b.x,
-            y: self.y + b.y,
-            z: self.z + b.z,
-        }
+        V3 { x: self.x + b.x, y: self.y + b.y, z: self.z + b.z }
     }
 }
 
 impl std::ops::Sub for V3 {
     type Output = V3;
     fn sub(self, b: V3) -> V3 {
-        V3 {
-            x: self.x - b.x,
-            y: self.y - b.y,
-            z: self.z - b.z,
-        }
+        V3 { x: self.x - b.x, y: self.y - b.y, z: self.z - b.z }
     }
 }
 
 impl std::ops::Mul<f64> for V3 {
     type Output = V3;
     fn mul(self, k: f64) -> V3 {
-        V3 {
-            x: self.x * k,
-            y: self.y * k,
-            z: self.z * k,
-        }
+        V3 { x: self.x * k, y: self.y * k, z: self.z * k }
     }
 }
 
@@ -67,11 +55,7 @@ fn dot(a: V3, b: V3) -> f64 {
 }
 
 fn cross(a: V3, b: V3) -> V3 {
-    v3(
-        a.y * b.z - a.z * b.y,
-        a.z * b.x - a.x * b.z,
-        a.x * b.y - a.y * b.x,
-    )
+    v3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x)
 }
 
 fn unit(a: V3) -> V3 {
@@ -117,13 +101,8 @@ fn clamp_cone(d: V3, prior_p: V3) -> V3 {
 // The inverse of [mel hem U] (columns), row-major.
 fn build_inverse(b: &mut Pigment) -> bool {
     let (mel, hem) = (b.mel.map(f64::from), b.hem.map(f64::from));
-    let m = [
-        [mel[0], hem[0], S3],
-        [mel[1], hem[1], S3],
-        [mel[2], hem[2], S3],
-    ];
-    let det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
-        - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+    let m = [[mel[0], hem[0], S3], [mel[1], hem[1], S3], [mel[2], hem[2], S3]];
+    let det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
         + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
     if det.abs() < 1e-6 {
         return false;
@@ -147,21 +126,12 @@ fn get(v: [f32; 3]) -> V3 {
 
 // An sRGB value (0–1) as linear light.
 fn srgb_to_lin(c: f64) -> f64 {
-    if c <= 0.04045 {
-        c / 12.92
-    } else {
-        ((c + 0.055) / 1.055).powf(2.4)
-    }
+    if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
 }
 
 // The physical priors, uncalibrated.
 pub fn prior() -> Pigment {
-    let mut b = Pigment {
-        calibrated: false,
-        mel: set(unit(PRIOR_MEL)),
-        hem: set(unit(PRIOR_HEM)),
-        inv: [0.0; 9],
-    };
+    let mut b = Pigment { calibrated: false, mel: set(unit(PRIOR_MEL)), hem: set(unit(PRIOR_HEM)), inv: [0.0; 9] };
     build_inverse(&mut b);
     b
 }
@@ -189,11 +159,7 @@ pub fn calibrate(frame: &Picture, mask: &[u8], mw: usize, mh: usize) -> Option<P
             if mask[(my * mw + mx) * 4] < 217 {
                 continue; // skin probability > 0.85
             }
-            let (r, g, b) = (
-                row[x * 4] as usize,
-                row[x * 4 + 1] as usize,
-                row[x * 4 + 2] as usize,
-            );
+            let (r, g, b) = (row[x * 4] as usize, row[x * 4 + 1] as usize, row[x * 4 + 2] as usize);
             let (mxc, mnc) = (r.max(g).max(b), r.min(g).min(b));
             if !(12..=247).contains(&mxc) {
                 continue;
@@ -243,12 +209,8 @@ pub fn calibrate(frame: &Picture, mask: &[u8], mw: usize, mh: usize) -> Option<P
     let ang0 = 0.5 * (2.0 * cxy).atan2(cxx - cyy); // eigenvector of l1
     let (c0, s0) = (ang0.cos(), ang0.sin());
     // whitened z = D^-1/2 E^T p
-    let zx: Vec<f64> = (0..od.len())
-        .map(|i| (c0 * px[i] + s0 * py[i]) / l1.sqrt())
-        .collect();
-    let zy: Vec<f64> = (0..od.len())
-        .map(|i| (-s0 * px[i] + c0 * py[i]) / l2.sqrt())
-        .collect();
+    let zx: Vec<f64> = (0..od.len()).map(|i| (c0 * px[i] + s0 * py[i]) / l1.sqrt()).collect();
+    let zy: Vec<f64> = (0..od.len()).map(|i| (-s0 * px[i] + c0 * py[i]) / l2.sqrt()).collect();
 
     // --- 2-D ICA: in whitened space the unmixing is a rotation; pick the angle that maximises
     //     non-Gaussianity (log-cosh negentropy proxy), brute force over 90 degrees ---
@@ -290,8 +252,7 @@ pub fn calibrate(frame: &Picture, mask: &[u8], mw: usize, mh: usize) -> Option<P
     if dot(d2, pm + ph) < 0.0 {
         d2 = d2 * -1.0;
     }
-    let d1_is_mel =
-        (dot(d1, pm).abs() - dot(d1, ph).abs()) > (dot(d2, pm).abs() - dot(d2, ph).abs());
+    let d1_is_mel = (dot(d1, pm).abs() - dot(d1, ph).abs()) > (dot(d2, pm).abs() - dot(d2, ph).abs());
     let (mut mel_p, mut hem_p) = if d1_is_mel { (d1, d2) } else { (d2, d1) };
     if dot(mel_p, pm) < 0.0 {
         mel_p = mel_p * -1.0;
@@ -302,12 +263,8 @@ pub fn calibrate(frame: &Picture, mask: &[u8], mw: usize, mh: usize) -> Option<P
     mel_p = clamp_cone(mel_p, pm);
     hem_p = clamp_cone(hem_p, ph);
 
-    let mut b = Pigment {
-        calibrated: true,
-        mel: set(lift(mel_p, PRIOR_MEL)),
-        hem: set(lift(hem_p, PRIOR_HEM)),
-        inv: [0.0; 9],
-    };
+    let mut b =
+        Pigment { calibrated: true, mel: set(lift(mel_p, PRIOR_MEL)), hem: set(lift(hem_p, PRIOR_HEM)), inv: [0.0; 9] };
     build_inverse(&mut b).then_some(b)
 }
 
@@ -317,12 +274,7 @@ pub fn blend(cur: &mut Pigment, next: &Pigment, k: f32) {
     let k = k as f64;
     let m = unit(get(cur.mel) * k1 + get(next.mel) * k);
     let h = unit(get(cur.hem) * k1 + get(next.hem) * k);
-    let mut b = Pigment {
-        calibrated: cur.calibrated,
-        mel: set(m),
-        hem: set(h),
-        inv: [0.0; 9],
-    };
+    let mut b = Pigment { calibrated: cur.calibrated, mel: set(m), hem: set(h), inv: [0.0; 9] };
     if build_inverse(&mut b) {
         *cur = b;
     }
@@ -343,10 +295,7 @@ impl Default for Calibrator {
 
 impl Calibrator {
     pub fn new() -> Calibrator {
-        Calibrator {
-            pigment: prior(),
-            next_ns: i64::MIN,
-        }
+        Calibrator { pigment: prior(), next_ns: i64::MIN }
     }
 
     /// A segmentation (raw, as pushed) and the frame it was computed from, at `now_ns`:
@@ -416,20 +365,14 @@ mod tests {
         let mut rgba = Vec::with_capacity((w * h * 4) as usize);
         let mut seed = 0x1234_5678u64;
         let mut rnd = || {
-            seed = seed
-                .wrapping_mul(6364136223846793005)
-                .wrapping_add(1442695040888963407);
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
             (seed >> 11) as f64 / (1u64 << 53) as f64 - 0.5
         };
         for _ in 0..w * h {
             let od = bias + mel * (0.5 * rnd()) + hem * (0.5 * rnd()) + U * (0.3 * rnd());
             for c in [od.x, od.y, od.z] {
                 let lin = (-c).exp();
-                let s = if lin <= 0.0031308 {
-                    lin * 12.92
-                } else {
-                    1.055 * lin.powf(1.0 / 2.4) - 0.055
-                };
+                let s = if lin <= 0.0031308 { lin * 12.92 } else { 1.055 * lin.powf(1.0 / 2.4) - 0.055 };
                 rgba.push((s * 255.0).round().clamp(0.0, 255.0) as u8);
             }
             rgba.push(255);
@@ -449,17 +392,8 @@ mod tests {
     fn calibrates_from_synthetic_skin() {
         let (mel, hem) = (turned(PRIOR_MEL, 6.0), turned(PRIOR_HEM, -5.0));
         let (rgba, w, h) = skin(mel, hem);
-        let seg = Segmentation {
-            pts_ns: 0,
-            rgba: [255u8, 255, 0, 255].repeat(64 * 64),
-            size: (64, 64),
-            serial: 1,
-        };
-        let frame = Picture {
-            rgba: &rgba,
-            width: w,
-            height: h,
-        };
+        let seg = Segmentation { pts_ns: 0, rgba: [255u8, 255, 0, 255].repeat(64 * 64), size: (64, 64), serial: 1 };
+        let frame = Picture { rgba: &rgba, width: w, height: h };
         let mut c = Calibrator::new();
         assert!(c.push(&seg, &frame, 0));
         let p = c.pigment();
@@ -482,29 +416,18 @@ mod tests {
     fn clamped_within_15_degrees_of_the_prior() {
         let (mel, hem) = (turned(PRIOR_MEL, 35.0), turned(PRIOR_HEM, -5.0));
         let (rgba, w, h) = skin(mel, hem);
-        let frame = Picture {
-            rgba: &rgba,
-            width: w,
-            height: h,
-        };
+        let frame = Picture { rgba: &rgba, width: w, height: h };
         let mask = [255u8, 255, 0, 255].repeat(16 * 16);
         let p = calibrate(&frame, &mask, 16, 16).unwrap();
         let ip = |v: [f32; 3]| unit(in_plane(get(v)));
-        let off = dot(ip(p.mel), unit(in_plane(PRIOR_MEL)))
-            .clamp(-1.0, 1.0)
-            .acos()
-            .to_degrees();
+        let off = dot(ip(p.mel), unit(in_plane(PRIOR_MEL))).clamp(-1.0, 1.0).acos().to_degrees();
         assert!((off - 15.0).abs() < 0.01, "melanin {off}° from its prior");
     }
 
     #[test]
     fn no_skin_no_calibration() {
         let rgba = [200u8, 150, 120, 255].repeat(100 * 100);
-        let frame = Picture {
-            rgba: &rgba,
-            width: 100,
-            height: 100,
-        };
+        let frame = Picture { rgba: &rgba, width: 100, height: 100 };
         let mask = [100u8, 0, 0, 255].repeat(16 * 16);
         assert!(calibrate(&frame, &mask, 16, 16).is_none());
     }

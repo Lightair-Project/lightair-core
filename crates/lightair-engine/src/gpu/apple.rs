@@ -12,13 +12,10 @@ use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_core_foundation::CFRetained;
 use objc2_core_video::{
-    CVPixelBuffer, CVPixelBufferGetHeight, CVPixelBufferGetIOSurface,
-    CVPixelBufferGetPixelFormatType, CVPixelBufferGetWidth, CVPixelBufferPool,
-    CVPixelBufferPoolCreatePixelBuffer, kCVPixelFormatType_32BGRA,
+    CVPixelBuffer, CVPixelBufferGetHeight, CVPixelBufferGetIOSurface, CVPixelBufferGetPixelFormatType,
+    CVPixelBufferGetWidth, CVPixelBufferPool, CVPixelBufferPoolCreatePixelBuffer, kCVPixelFormatType_32BGRA,
 };
-use objc2_metal::{
-    MTLDevice, MTLPixelFormat, MTLTexture, MTLTextureDescriptor, MTLTextureType, MTLTextureUsage,
-};
+use objc2_metal::{MTLDevice, MTLPixelFormat, MTLTexture, MTLTextureDescriptor, MTLTextureType, MTLTextureUsage};
 
 pub struct PoolTarget {
     pool: CFRetained<CVPixelBufferPool>,
@@ -34,21 +31,15 @@ impl PoolTarget {
     /// # Safety
     /// `raw` must be a `CVPixelBufferPoolRef` the caller owns one reference to.
     pub unsafe fn from_raw(raw: u64) -> Option<PoolTarget> {
-        let pool =
-            unsafe { CFRetained::from_raw(NonNull::new(raw as usize as *mut CVPixelBufferPool)?) };
+        let pool = unsafe { CFRetained::from_raw(NonNull::new(raw as usize as *mut CVPixelBufferPool)?) };
         Some(PoolTarget { pool })
     }
 
     /// A buffer from the pool and a render target over it; `None` when the pool is empty (the
     /// encoder holds every buffer) or the buffer isn't BGRA in an IOSurface.
-    pub fn next(
-        &self,
-        device: &wgpu::Device,
-    ) -> Option<(CFRetained<CVPixelBuffer>, wgpu::Texture)> {
+    pub fn next(&self, device: &wgpu::Device) -> Option<(CFRetained<CVPixelBuffer>, wgpu::Texture)> {
         let mut out: *mut CVPixelBuffer = std::ptr::null_mut();
-        let r = unsafe {
-            CVPixelBufferPoolCreatePixelBuffer(None, &self.pool, NonNull::from(&mut out))
-        };
+        let r = unsafe { CVPixelBufferPoolCreatePixelBuffer(None, &self.pool, NonNull::from(&mut out)) };
         if r != 0 {
             return None;
         }
@@ -63,10 +54,7 @@ pub fn render_target(device: &wgpu::Device, buffer: &CVPixelBuffer) -> Option<wg
     if CVPixelBufferGetPixelFormatType(buffer) != kCVPixelFormatType_32BGRA {
         return None;
     }
-    let (w, h) = (
-        CVPixelBufferGetWidth(buffer) as u32,
-        CVPixelBufferGetHeight(buffer) as u32,
-    );
+    let (w, h) = (CVPixelBufferGetWidth(buffer) as u32, CVPixelBufferGetHeight(buffer) as u32);
     let iosurface = CVPixelBufferGetIOSurface(Some(buffer))?;
     let raw: Retained<ProtocolObject<dyn MTLTexture>> = {
         let hal = unsafe { device.as_hal::<wgpu::hal::api::Metal>() }?;
@@ -79,8 +67,7 @@ pub fn render_target(device: &wgpu::Device, buffer: &CVPixelBuffer) -> Option<wg
             )
         };
         desc.setUsage(MTLTextureUsage::RenderTarget | MTLTextureUsage::ShaderRead);
-        hal.raw_device()
-            .newTextureWithDescriptor_iosurface_plane(&desc, &iosurface, 0)?
+        hal.raw_device().newTextureWithDescriptor_iosurface_plane(&desc, &iosurface, 0)?
     };
     let hal_texture = unsafe {
         wgpu::hal::metal::Device::texture_from_raw(
@@ -89,11 +76,7 @@ pub fn render_target(device: &wgpu::Device, buffer: &CVPixelBuffer) -> Option<wg
             MTLTextureType::Type2D,
             1,
             1,
-            wgpu::hal::CopyExtent {
-                width: w,
-                height: h,
-                depth: 1,
-            },
+            wgpu::hal::CopyExtent { width: w, height: h, depth: 1 },
             None,
         )
     };
@@ -102,11 +85,7 @@ pub fn render_target(device: &wgpu::Device, buffer: &CVPixelBuffer) -> Option<wg
             hal_texture,
             &wgpu::TextureDescriptor {
                 label: Some("encoder buffer"),
-                size: wgpu::Extent3d {
-                    width: w,
-                    height: h,
-                    depth_or_array_layers: 1,
-                },
+                size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
@@ -144,10 +123,7 @@ pub fn sampled(device: &wgpu::Device, buffer: &CVPixelBuffer) -> Option<wgpu::Te
     if CVPixelBufferGetPixelFormatType(buffer) != kCVPixelFormatType_32BGRA {
         return None;
     }
-    let (w, h) = (
-        CVPixelBufferGetWidth(buffer) as u32,
-        CVPixelBufferGetHeight(buffer) as u32,
-    );
+    let (w, h) = (CVPixelBufferGetWidth(buffer) as u32, CVPixelBufferGetHeight(buffer) as u32);
     let iosurface = CVPixelBufferGetIOSurface(Some(buffer))?;
     let raw: Retained<ProtocolObject<dyn MTLTexture>> = {
         let hal = unsafe { device.as_hal::<wgpu::hal::api::Metal>() }?;
@@ -160,8 +136,7 @@ pub fn sampled(device: &wgpu::Device, buffer: &CVPixelBuffer) -> Option<wgpu::Te
             )
         };
         desc.setUsage(MTLTextureUsage::ShaderRead);
-        hal.raw_device()
-            .newTextureWithDescriptor_iosurface_plane(&desc, &iosurface, 0)?
+        hal.raw_device().newTextureWithDescriptor_iosurface_plane(&desc, &iosurface, 0)?
     };
     let hal_texture = unsafe {
         wgpu::hal::metal::Device::texture_from_raw(
@@ -170,11 +145,7 @@ pub fn sampled(device: &wgpu::Device, buffer: &CVPixelBuffer) -> Option<wgpu::Te
             MTLTextureType::Type2D,
             1,
             1,
-            wgpu::hal::CopyExtent {
-                width: w,
-                height: h,
-                depth: 1,
-            },
+            wgpu::hal::CopyExtent { width: w, height: h, depth: 1 },
             None,
         )
     };
@@ -183,11 +154,7 @@ pub fn sampled(device: &wgpu::Device, buffer: &CVPixelBuffer) -> Option<wgpu::Te
             hal_texture,
             &wgpu::TextureDescriptor {
                 label: Some("camera frame"),
-                size: wgpu::Extent3d {
-                    width: w,
-                    height: h,
-                    depth_or_array_layers: 1,
-                },
+                size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
@@ -211,8 +178,7 @@ pub fn test_pool(width: u32, height: u32) -> u64 {
     use objc2_core_foundation::{CFDictionary, CFNumber, CFString, CFType};
     use objc2_core_video::{
         CVPixelBufferPoolCreate, kCVPixelBufferHeightKey, kCVPixelBufferIOSurfacePropertiesKey,
-        kCVPixelBufferMetalCompatibilityKey, kCVPixelBufferPixelFormatTypeKey,
-        kCVPixelBufferWidthKey,
+        kCVPixelBufferMetalCompatibilityKey, kCVPixelBufferPixelFormatTypeKey, kCVPixelBufferWidthKey,
     };
     let empty: CFRetained<CFDictionary<CFString, CFType>> = CFDictionary::from_slices(&[], &[]);
     let keys: [&CFString; 5] = unsafe {
@@ -233,14 +199,7 @@ pub fn test_pool(width: u32, height: u32) -> u64 {
     let values: [&CFType; 5] = [&fmt, &w, &h, empty.as_opaque(), &one];
     let attrs = CFDictionary::from_slices(&keys, &values);
     let mut pool: *mut CVPixelBufferPool = std::ptr::null_mut();
-    let r = unsafe {
-        CVPixelBufferPoolCreate(
-            None,
-            None,
-            Some(attrs.as_opaque()),
-            NonNull::from(&mut pool),
-        )
-    };
+    let r = unsafe { CVPixelBufferPoolCreate(None, None, Some(attrs.as_opaque()), NonNull::from(&mut pool)) };
     assert_eq!(r, 0);
     pool as usize as u64
 }

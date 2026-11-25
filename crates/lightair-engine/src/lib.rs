@@ -42,6 +42,4 @@ pub mod whip;
 pub use device::DeviceInfo;
 pub use host::*;
 pub use project::{ProjectError, Projects, Summary};
-pub use session::{
-    LayoutPatch, NewLayer, Session, ShapeKind, ShapeSpec, State, TextSpec, TimerMode, TimerSpec,
-};
+pub use session::{LayoutPatch, NewLayer, Session, ShapeKind, ShapeSpec, State, TextSpec, TimerMode, TimerSpec};

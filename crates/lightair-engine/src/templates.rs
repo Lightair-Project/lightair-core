@@ -19,18 +19,10 @@ pub const TIMER: &str = "lightair_timer";
 /// A format: Vertical (phones' default) or Landscape, at the device's default size and rate.
 pub fn canvas(vertical: bool, short: u32, fps: u32) -> Canvas {
     let long = short * 16 / 9;
-    let (w, h) = if vertical {
-        (short, long)
-    } else {
-        (long, short)
-    };
+    let (w, h) = if vertical { (short, long) } else { (long, short) };
     Canvas {
         id: Id::new(),
-        name: if vertical {
-            "Vertical".into()
-        } else {
-            "Landscape".into()
-        },
+        name: if vertical { "Vertical".into() } else { "Landscape".into() },
         width: w,
         height: h,
         fps_num: fps,
@@ -58,13 +50,7 @@ pub fn project(name: &str, short: u32, fps: u32) -> Workspace {
 }
 
 pub fn source(name: &str, kind: &str, settings: Value) -> Source {
-    Source {
-        id: Id::new(),
-        name: name.into(),
-        kind: kind.into(),
-        settings,
-        effects: vec![],
-    }
+    Source { id: Id::new(), name: name.into(), kind: kind.into(), settings, effects: vec![] }
 }
 
 /// An object showing `source` over each whole format.
@@ -84,12 +70,7 @@ pub fn object_centred(ws: &Workspace, source: &Source, frac: f32, aspect: f32) -
         let short = c.width.min(c.height) as f32;
         let w = short * frac;
         let h = w / aspect.max(0.01);
-        let mut l = Layout::boxed(
-            (c.width as f32 - w) / 2.0,
-            (c.height as f32 - h) / 2.0,
-            w,
-            h,
-        );
+        let mut l = Layout::boxed((c.width as f32 - w) / 2.0, (c.height as f32 - h) / 2.0, w, h);
         l.fit = Fit::Stretch;
         (c.id, l)
     });
@@ -123,8 +104,7 @@ pub fn text_settings(
     outline: Option<u32>,
     background: Option<u32>,
 ) -> Value {
-    let abgr =
-        |rgb: u32| 0xFF00_0000 | ((rgb & 0xFF) << 16) | (rgb & 0xFF00) | ((rgb >> 16) & 0xFF);
+    let abgr = |rgb: u32| 0xFF00_0000 | ((rgb & 0xFF) << 16) | (rgb & 0xFF00) | ((rgb >> 16) & 0xFF);
     let align = ["left", "center", "right"][align.min(2) as usize];
     let mut s = json!({
         "text": text,

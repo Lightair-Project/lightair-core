@@ -23,10 +23,7 @@ impl Default for Chat {
         let hub = hub();
         // a session hears what's said from now on (the hub outlives sessions)
         let seen = hub.history().last().map_or(0, |e| e.id);
-        Chat {
-            hub,
-            seen: AtomicU64::new(seen),
-        }
+        Chat { hub, seen: AtomicU64::new(seen) }
     }
 }
 
@@ -54,25 +51,18 @@ impl Chat {
 
 /// Sends `text` to every channel read (or only `platform`'s), as the signed-in account, on a
 /// thread of its own; `failed` hears what couldn't be sent.
-pub fn send(
-    chat: &Arc<Chat>,
-    text: String,
-    platform: Option<String>,
-    failed: impl Fn(String) + Send + 'static,
-) {
+pub fn send(chat: &Arc<Chat>, text: String, platform: Option<String>, failed: impl Fn(String) + Send + 'static) {
     let targets: Vec<Channel> = chat
         .channels()
         .into_iter()
         .map(|(c, _)| c)
         .filter(|c| platform.as_ref().is_none_or(|p| *p == c.platform))
         .collect();
-    let _ = std::thread::Builder::new()
-        .name("lightair-chat-send".into())
-        .spawn(move || {
-            for c in targets {
-                if let Err(e) = lightair_live::send::send(&c.platform, &c.channel, &text, None) {
-                    failed(format!("Not sent to {}: {e}", c.platform));
-                }
+    let _ = std::thread::Builder::new().name("lightair-chat-send".into()).spawn(move || {
+        for c in targets {
+            if let Err(e) = lightair_live::send::send(&c.platform, &c.channel, &text, None) {
+                failed(format!("Not sent to {}: {e}", c.platform));
             }
-        });
+        }
+    });
 }
