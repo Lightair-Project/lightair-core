@@ -14,7 +14,7 @@ pub mod srtla;
 pub mod ts;
 
 pub use feed::{Feed, FeedStats, TsSink};
-pub use rtmp::{RtmpSender, RtmpTarget, RtmpTrack, RtmpTracks, RtmpVideo};
+pub use rtmp::{RtmpAudioTrack, RtmpSender, RtmpTarget, RtmpTrack, RtmpTracks, RtmpVideo};
 pub use srt::{SrtSender, SrtTarget};
 pub use srtla::{LinkStats, Relay as SrtlaRelay};
 pub use ts::{AudioConfig, NalFormat, VideoCodec};

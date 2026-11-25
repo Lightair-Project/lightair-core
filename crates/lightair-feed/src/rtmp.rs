@@ -9,6 +9,11 @@
 //! single-track video tags, the others in multitrack tags (one track each, with its track id);
 //! `connect` announces the codecs and multitrack, and `onMetaData` describes every track.
 //!
+//! **Several sound tracks** (Twitch's VOD track after the live sound, in a stream of one picture
+//! track or of several): track 0 goes in FLV's own AAC tags, the others in Enhanced RTMP's
+//! multitrack audio tags (one track each, FourCC `mp4a`, with its track id), each with its own
+//! AAC config ([`RtmpSender::track_audio_config`], [`RtmpSender::track_audio`]).
+//!
 //! The sender runs on its own thread with a bounded queue, like [`crate::srt::SrtSender`]: what
 //! has waited longer than [`MAX_WAIT`] (a network slower than the bitrate) or doesn't fit is
 //! dropped, and the pictures after a dropped one are left out until a keyframe (asked for), so
@@ -351,6 +356,26 @@ fn fourcc(codec: RtmpVideo) -> &'static [u8; 4] {
 /// Enhanced RTMP's video packet type for a multitrack packet, and its one-track kind.
 const PACKET_MULTITRACK: u8 = 6;
 const ONE_TRACK: u8 = 0;
+/// Enhanced RTMP's audio: the sound format that says an extended header follows, and its packet
+/// type for a multitrack packet.
+const AUDIO_EX_HEADER: u8 = 9 << 4;
+const AUDIO_PACKET_MULTITRACK: u8 = 5;
+
+/// An AAC tag's body: `packet` 0 is the AudioSpecificConfig, 1 a raw access unit. Track 0 in
+/// FLV's own AAC tags; another track in an Enhanced RTMP multitrack audio tag carrying one track
+/// (its real packet type after the track kind, the FourCC `mp4a`, the track id).
+fn audio_tag(packet: u8, track: u8, payload: &[u8]) -> Vec<u8> {
+    let mut out = if track == 0 {
+        vec![0xAF, packet]
+    } else {
+        let mut v = vec![AUDIO_EX_HEADER | AUDIO_PACKET_MULTITRACK, (ONE_TRACK << 4) | packet];
+        v.extend(b"mp4a");
+        v.push(track);
+        v
+    };
+    out.extend(payload);
+    out
+}
 
 /// A video tag's body: `packet` 0 is the decoder configuration record, 1 a coded picture
 /// (`cts_ms` its composition time offset). `track`: `None` in a stream of one picture track
@@ -393,14 +418,20 @@ pub struct RtmpTrack {
     pub kbps: u32,
 }
 
-/// What a stream of several picture tracks sends: the tracks in order (track 0 first, the
-/// main one) and the sound.
+/// One AAC sound track of a stream, as `onMetaData` describes it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RtmpAudioTrack {
+    pub kbps: u32,
+    pub sample_rate: u32,
+    pub channels: u8,
+}
+
+/// What a stream of several picture tracks sends: the picture tracks in order (track 0 first,
+/// the main one) and the sound tracks in order (track 0 first, the live sound).
 #[derive(Debug, Clone, PartialEq)]
 pub struct RtmpTracks {
     pub video: Vec<RtmpTrack>,
-    pub audio_kbps: u32,
-    pub sample_rate: u32,
-    pub channels: u8,
+    pub audio: Vec<RtmpAudioTrack>,
 }
 
 /// A FourCC as `onMetaData`'s codec id number.
@@ -408,8 +439,8 @@ fn fourcc_number(codec: RtmpVideo) -> f64 {
     u32::from_be_bytes(*fourcc(codec)) as f64
 }
 
-/// `@setDataFrame onMetaData` for a stream of several picture tracks: track 0 at the top level,
-/// the others in `videoTrackIdInfoMap` by their ids.
+/// `@setDataFrame onMetaData` for a stream of several picture tracks: track 0 of each kind at
+/// the top level, the others in `videoTrackIdInfoMap` and `audioTrackIdInfoMap` by their ids.
 fn metadata(t: &RtmpTracks) -> Vec<u8> {
     let info = |v: &RtmpTrack| {
         vec![
@@ -424,18 +455,39 @@ fn metadata(t: &RtmpTracks) -> Vec<u8> {
     if let Some(first) = t.video.first() {
         fields.extend(info(first));
     }
-    fields.extend([
-        ("audiodatarate".to_string(), Amf::Number(t.audio_kbps as f64)),
-        ("audiosamplerate".to_string(), Amf::Number(t.sample_rate as f64)),
-        ("audiosamplesize".to_string(), Amf::Number(16.0)),
-        ("audiochannels".to_string(), Amf::Number(t.channels as f64)),
-        ("stereo".to_string(), Amf::Bool(t.channels == 2)),
-        ("audiocodecid".to_string(), Amf::Number(10.0)),
-        ("encoder".to_string(), Amf::Str("Lightair".into())),
-    ]);
+    let sound = |a: &RtmpAudioTrack| {
+        vec![
+            ("audiodatarate".to_string(), Amf::Number(a.kbps as f64)),
+            ("audiosamplerate".to_string(), Amf::Number(a.sample_rate as f64)),
+            ("audiosamplesize".to_string(), Amf::Number(16.0)),
+            ("audiochannels".to_string(), Amf::Number(a.channels as f64)),
+            ("stereo".to_string(), Amf::Bool(a.channels == 2)),
+        ]
+    };
+    if let Some(first) = t.audio.first() {
+        fields.extend(sound(first));
+        // FLV's own number for AAC: track 0 goes in FLV's own tags
+        fields.push(("audiocodecid".to_string(), Amf::Number(10.0)));
+    }
+    fields.push(("encoder".to_string(), Amf::Str("Lightair".into())));
     if t.video.len() > 1 {
         let map = t.video.iter().enumerate().skip(1).map(|(i, v)| (i.to_string(), Amf::Object(info(v)))).collect();
         fields.push(("videoTrackIdInfoMap".to_string(), Amf::Object(map)));
+    }
+    if t.audio.len() > 1 {
+        let mp4a = u32::from_be_bytes(*b"mp4a") as f64;
+        let map = t
+            .audio
+            .iter()
+            .enumerate()
+            .skip(1)
+            .map(|(i, a)| {
+                let mut f = sound(a);
+                f.push(("audiocodecid".to_string(), Amf::Number(mp4a)));
+                (i.to_string(), Amf::Object(f))
+            })
+            .collect();
+        fields.push(("audioTrackIdInfoMap".to_string(), Amf::Object(map)));
     }
     let mut out = vec![];
     amf_write(&mut out, &Amf::Str("@setDataFrame".into()));
@@ -448,7 +500,7 @@ fn metadata(t: &RtmpTracks) -> Vec<u8> {
 
 enum Out {
     Video { track: u8, data: Vec<u8>, pts_ms: u32, dts_ms: u32, keyframe: bool, queued_at: Instant },
-    Audio { data: Vec<u8>, pts_ms: u32, queued_at: Instant },
+    Audio { track: u8, data: Vec<u8>, pts_ms: u32, queued_at: Instant },
 }
 
 /// What became of a message handed to the queue.
@@ -474,10 +526,10 @@ struct Counters {
     retry_at: Mutex<Option<std::time::Instant>>,
     /// When the current connection came up (for the backoff).
     connected_at: Mutex<Option<std::time::Instant>>,
-    /// Each picture track's decoder configuration record (`avcC` or `hvcC`) and the audio
-    /// config, sent first after every connect.
+    /// Each picture track's decoder configuration record (`avcC` or `hvcC`) and each sound
+    /// track's AAC config, sent first after every connect.
     video_config: Mutex<Vec<Option<Vec<u8>>>>,
-    audio_config: Mutex<Option<[u8; 2]>>,
+    audio_config: Mutex<Vec<Option<[u8; 2]>>>,
     /// The stream's bitrate (0: not said): the socket's send buffer is sized to it.
     kbps: AtomicU32,
 }
@@ -532,13 +584,18 @@ impl RtmpSender {
     }
 
     /// Publishes several picture tracks and AAC in one stream (Enhanced RTMP's multitrack):
-    /// `tracks.video[i]` is track `i`. Give each track's decoder configuration record
-    /// ([`RtmpSender::track_config_record`]) before its first keyframe, and its pictures with
-    /// [`RtmpSender::track_video`]. The pictures of all tracks are sent in the order given, so
-    /// give them in decode time order.
+    /// `tracks.video[i]` is picture track `i`, `tracks.audio[i]` sound track `i`. Give each
+    /// picture track's decoder configuration record ([`RtmpSender::track_config_record`]) before
+    /// its first keyframe, and its pictures with [`RtmpSender::track_video`]; each sound track's
+    /// config with [`RtmpSender::track_audio_config`] and its sound with
+    /// [`RtmpSender::track_audio`]. Everything is sent in the order given, so give it in decode
+    /// time order.
     pub fn start_multitrack(target: RtmpTarget, tracks: RtmpTracks) -> Result<RtmpSender, String> {
         if tracks.video.is_empty() || tracks.video.len() > 256 {
             return Err("A stream needs between 1 and 256 picture tracks.".into());
+        }
+        if tracks.audio.len() > 256 {
+            return Err("A stream has at most 256 sound tracks.".into());
         }
         let codecs = tracks.video.iter().map(|t| t.codec).collect();
         RtmpSender::start_layout(target, Layout { codecs, multitrack: Some(tracks) })
@@ -547,7 +604,10 @@ impl RtmpSender {
     fn start_layout(target: RtmpTarget, layout: Layout) -> Result<RtmpSender, String> {
         let url = parse_url(&target.url)?;
         let tracks = layout.codecs.len().max(1);
-        let (tx, rx) = sync_channel(QUEUE * tracks);
+        // room for each picture track's messages, and half as many for each sound track after
+        // the first
+        let more_audio = layout.multitrack.as_ref().map_or(0, |t| t.audio.len().saturating_sub(1));
+        let (tx, rx) = sync_channel(QUEUE * tracks + QUEUE / 2 * more_audio);
         let counters = Arc::new(Counters { video_config: Mutex::new(vec![None; tracks]), ..Counters::default() });
         let c = counters.clone();
         let codecs = layout.codecs.clone();
@@ -600,7 +660,21 @@ impl RtmpSender {
 
     /// AAC-LC's sample rate and channels (the audio config tag).
     pub fn audio_config(&self, sample_rate: u32, channels: u8) {
-        *self.counters.audio_config.lock() = Some(aac_config(sample_rate, channels));
+        self.track_audio_config(0, sample_rate, channels);
+    }
+
+    /// [`RtmpSender::audio_config`] for sound track `track` (0 to 255; 1 and on in Enhanced
+    /// RTMP's multitrack audio tags, as Twitch's VOD track goes). A sound track's sound isn't
+    /// sent before its config.
+    pub fn track_audio_config(&self, track: usize, sample_rate: u32, channels: u8) {
+        if track > u8::MAX as usize {
+            return;
+        }
+        let mut configs = self.counters.audio_config.lock();
+        if configs.len() <= track {
+            configs.resize(track + 1, None);
+        }
+        configs[track] = Some(aac_config(sample_rate, channels));
     }
 
     fn ms(&self, us: u64) -> u32 {
@@ -655,8 +729,14 @@ impl RtmpSender {
 
     /// One raw AAC access unit (no ADTS header).
     pub fn audio(&self, data: &[u8], pts_us: u64) {
+        self.track_audio(0, data, pts_us);
+    }
+
+    /// [`RtmpSender::audio`] for sound track `track` (see [`RtmpSender::track_audio_config`]).
+    pub fn track_audio(&self, track: usize, data: &[u8], pts_us: u64) {
+        let Ok(track) = u8::try_from(track) else { return };
         let pts_ms = self.ms(pts_us);
-        self.push(Out::Audio { data: data.to_vec(), pts_ms, queued_at: Instant::now() });
+        self.push(Out::Audio { track, data: data.to_vec(), pts_ms, queued_at: Instant::now() });
     }
 
     fn push(&self, m: Out) -> Pushed {
@@ -833,11 +913,16 @@ fn session(
     if !enhanced.is_empty() {
         fields.push(("fourCcList".into(), Amf::Array(enhanced.iter().map(|n| Amf::Str(n.to_string())).collect())));
     }
-    if layout.multitrack.is_some() {
+    if let Some(t) = &layout.multitrack {
         const CAN_ENCODE: f64 = 2.0;
         const CAPS_MULTITRACK: f64 = 2.0;
         let map = enhanced.iter().map(|n| (n.to_string(), Amf::Number(CAN_ENCODE))).collect();
         fields.push(("videoFourCcInfoMap".into(), Amf::Object(map)));
+        // sound tracks after the first go in Enhanced RTMP's audio tags
+        if t.audio.len() > 1 {
+            let map = vec![("mp4a".to_string(), Amf::Number(CAN_ENCODE))];
+            fields.push(("audioFourCcInfoMap".into(), Amf::Object(map)));
+        }
         fields.push(("capsEx".into(), Amf::Number(CAPS_MULTITRACK)));
     }
     let connect = Amf::Object(fields);
@@ -933,7 +1018,7 @@ fn session(
     // whenever they change; a picture before the video config isn't sent (it can't decode)
     let tracks = layout.codecs.len().max(1);
     let mut sent_video_config: Vec<Option<Vec<u8>>> = vec![None; tracks];
-    let mut sent_audio_config: Option<[u8; 2]> = None;
+    let mut sent_audio_config: Vec<Option<[u8; 2]>> = Vec::new();
     // several tracks: what they are, before anything else
     if let Some(t) = &layout.multitrack {
         send(&mut conn, Message { csid: 5, kind: 18, stream, timestamp: 0, body: metadata(t) })?;
@@ -1032,20 +1117,18 @@ fn session(
                     },
                 )?;
             }
-            Ok(Out::Audio { data, pts_ms, .. }) => {
-                let cfg = *c.audio_config.lock();
-                match cfg {
-                    Some(cfg) if sent_audio_config != Some(cfg) => {
-                        let mut body = vec![0xAF, 0];
-                        body.extend(cfg);
-                        send(&mut conn, Message { csid: 4, kind: 8, stream, timestamp: pts_ms, body })?;
-                        sent_audio_config = Some(cfg);
-                    }
-                    Some(_) => {}
-                    None => continue,
+            Ok(Out::Audio { track, data, pts_ms, .. }) => {
+                let t = track as usize;
+                let Some(cfg) = c.audio_config.lock().get(t).copied().flatten() else { continue };
+                if sent_audio_config.len() <= t {
+                    sent_audio_config.resize(t + 1, None);
                 }
-                let mut body = vec![0xAF, 1];
-                body.extend(data);
+                if sent_audio_config[t] != Some(cfg) {
+                    let body = audio_tag(0, track, &cfg);
+                    send(&mut conn, Message { csid: 4, kind: 8, stream, timestamp: pts_ms, body })?;
+                    sent_audio_config[t] = Some(cfg);
+                }
+                let body = audio_tag(1, track, &data);
                 send(&mut conn, Message { csid: 4, kind: 8, stream, timestamp: pts_ms, body })?;
             }
             Err(RecvTimeoutError::Timeout) => {}
