@@ -8,7 +8,8 @@ use parking_lot::Mutex;
 
 pub const RATE: u32 = 48_000;
 
-/// Nanoseconds on the host clock: `mach_absolute_time` (Apple) or `CLOCK_BOOTTIME` (Android);
+/// Nanoseconds on the host clock: `mach_absolute_time` (Apple), `CLOCK_BOOTTIME` (Android), the
+/// performance counter (Windows, the clock its captures and encoders stamp with);
 /// `CLOCK_MONOTONIC` elsewhere (tests).
 pub fn host_now_ns() -> i64 {
     #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -25,12 +26,25 @@ pub fn host_now_ns() -> i64 {
         });
         (unsafe { mach_absolute_time() } as u128 * n as u128 / d as u128) as i64
     }
-    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    #[cfg(windows)]
     {
-        let mut ts = libc_timespec {
-            tv_sec: 0,
-            tv_nsec: 0,
-        };
+        unsafe extern "system" {
+            fn QueryPerformanceCounter(count: *mut i64) -> i32;
+            fn QueryPerformanceFrequency(frequency: *mut i64) -> i32;
+        }
+        static FREQUENCY: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
+        let frequency = *FREQUENCY.get_or_init(|| {
+            let mut f = 0;
+            unsafe { QueryPerformanceFrequency(&mut f) };
+            f.max(1)
+        });
+        let mut count = 0;
+        unsafe { QueryPerformanceCounter(&mut count) };
+        (count as i128 * 1_000_000_000 / frequency as i128) as i64
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "ios", windows)))]
+    {
+        let mut ts = libc_timespec { tv_sec: 0, tv_nsec: 0 };
         #[cfg(target_os = "android")]
         const CLOCK: i32 = 7; // CLOCK_BOOTTIME
         #[cfg(not(target_os = "android"))]
@@ -41,24 +55,27 @@ pub fn host_now_ns() -> i64 {
 }
 
 /// `CLOCK_MONOTONIC` now (what an Android encoder surface stamps frames with).
-#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+#[cfg(not(any(target_os = "macos", target_os = "ios", windows)))]
 pub fn monotonic_now_ns() -> i64 {
-    let mut ts = libc_timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
+    let mut ts = libc_timespec { tv_sec: 0, tv_nsec: 0 };
     unsafe { clock_gettime(1, &mut ts) };
     ts.tv_sec * 1_000_000_000 + ts.tv_nsec
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+/// The monotonic clock now: on Windows the performance counter, as `host_now_ns` reads it.
+#[cfg(windows)]
+pub fn monotonic_now_ns() -> i64 {
+    host_now_ns()
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "ios", windows)))]
 #[repr(C)]
 struct libc_timespec {
     tv_sec: i64,
     tv_nsec: i64,
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+#[cfg(not(any(target_os = "macos", target_os = "ios", windows)))]
 unsafe extern "C" {
     fn clock_gettime(clock: i32, ts: *mut libc_timespec) -> i32;
 }
@@ -93,11 +110,7 @@ impl ProgramClock {
     pub fn new(start_ns: i64) -> ProgramClock {
         ProgramClock {
             samples: AtomicU64::new(0),
-            fit: Mutex::new(Fit {
-                origin_ns: start_ns as f64,
-                ns_per_sample: NOMINAL,
-                observed: false,
-            }),
+            fit: Mutex::new(Fit { origin_ns: start_ns as f64, ns_per_sample: NOMINAL, observed: false }),
         }
     }
 
@@ -135,8 +148,7 @@ impl ProgramClock {
         f.origin_ns += err / 32.0;
         if at > RATE as u64 {
             let rate_err = err / at as f64;
-            f.ns_per_sample =
-                (f.ns_per_sample + rate_err / 256.0).clamp(NOMINAL * 0.99, NOMINAL * 1.01);
+            f.ns_per_sample = (f.ns_per_sample + rate_err / 256.0).clamp(NOMINAL * 0.99, NOMINAL * 1.01);
         }
     }
 
@@ -173,9 +185,7 @@ mod tests {
         for block in 0..360_000u64 {
             let at = block * 480;
             let truth = start as f64 + at as f64 * NOMINAL * 0.999;
-            seed = seed
-                .wrapping_mul(6364136223846793005)
-                .wrapping_add(1442695040888963407);
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
             let jitter = ((seed >> 33) as f64 / (1u64 << 31) as f64 - 0.5) * 4e6;
             clock.observe(at, (truth + jitter) as i64);
             if block > 1000 {
