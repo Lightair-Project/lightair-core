@@ -68,14 +68,20 @@ pub(crate) fn ffmpeg_decode_range(
     let start = from - lead;
     let map = format!("0:a:{}", track.unwrap_or(0));
     let length = format!("{:.6}", (lead as f64 + frames as f64) / rate as f64 + 0.05);
+    // a fast seek to a second before `start` (FFmpeg 9 lands a seek into AAC a frame late, 896
+    // samples at 48 kHz), then FFmpeg's own sample-exact seek over the rest
+    let exact = start.min(rate as u64);
+    let coarse = start - exact;
     let mut cmd = media::command(media::ffmpeg()?);
     cmd.args(["-v", "error"]);
-    if start > 0 {
-        cmd.args(["-ss", &format!("{:.6}", start as f64 / rate as f64)]);
+    if coarse > 0 {
+        cmd.args(["-ss", &format!("{:.6}", coarse as f64 / rate as f64)]);
+    }
+    cmd.arg("-i").arg(path);
+    if exact > 0 {
+        cmd.args(["-ss", &format!("{:.6}", exact as f64 / rate as f64)]);
     }
     let mut child = cmd
-        .arg("-i")
-        .arg(path)
         .args(["-t", &length, "-map", &map, "-f", "f32le", "-ac", &channels.to_string(), "-ar", &rate.to_string(), "-"])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
