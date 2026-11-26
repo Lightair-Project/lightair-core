@@ -1468,6 +1468,9 @@ mod tests {
     /// up to MBs on a real network: 3 s more delay at 600 kbps, out of reach of the queue's
     /// dropping). The server's own receive buffer holds the same either way.
     #[test]
+    // Windows holds a socket's sends past SO_SNDBUF (86.9 KB sized against 117.9 KB here); the
+    // delay a slow network gives is checked there by the slow-network test above
+    #[cfg_attr(windows, ignore = "Windows holds a socket's sends past its send buffer size")]
     fn the_send_buffer_holds_about_a_second() {
         let sized = std::thread::spawn(|| held_by_the_system(Some(300)));
         let default = held_by_the_system(None);
