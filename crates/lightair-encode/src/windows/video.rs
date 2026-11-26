@@ -885,12 +885,25 @@ fn configure(
             return Err(Error::Unsupported(format!("{} can't take Direct3D 11 textures", info.name)));
         }
     }
-    let live = settings.realtime && !settings.allow_reordering;
+    let codec: ICodecAPI = transform.cast().map_err(platform("the hardware encoder has no codec properties"))?;
+    // B-frames first, and how many it took: an encoder that takes none (Microsoft's DX12
+    // encoder, whatever it's asked) gains nothing from holding frames back, and outside
+    // low-latency mode that one holds ~700 MB of them at 1080p. Without B-frames it runs live.
+    let wanted_b = if settings.allow_reordering { 2 } else { 0 };
+    let b_taken = set_u32(&codec, &CODECAPI_AVEncMPVDefaultBPictureCount, wanted_b);
+    let bframes = if !settings.allow_reordering || !b_taken {
+        0
+    } else {
+        unsafe { codec.GetValue(&CODECAPI_AVEncMPVDefaultBPictureCount) }
+            .ok()
+            .and_then(|v| u32::try_from(&v).ok())
+            .unwrap_or(wanted_b)
+    };
+    let live = settings.realtime && bframes == 0;
     unsafe {
         let _ = attributes.SetUINT32(&MF_LOW_LATENCY, live as u32);
     }
     let (input_id, output_id) = mf::stream_ids(&transform);
-    let codec: ICodecAPI = transform.cast().map_err(platform("the hardware encoder has no codec properties"))?;
     unsafe { transform.ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER, manager.as_raw() as usize) }
         .map_err(platform("the hardware encoder wouldn't take the Direct3D 11 device"))?;
 
@@ -914,8 +927,6 @@ fn configure(
     }
     set_bool(&codec, &CODECAPI_AVLowLatencyMode, live);
     set_u32(&codec, &CODECAPI_AVEncMPVGOPSize, keyframe_frames(settings));
-    let wanted_b = if settings.allow_reordering { 2 } else { 0 };
-    let b_taken = set_u32(&codec, &CODECAPI_AVEncMPVDefaultBPictureCount, wanted_b);
     apply_bitrate(&codec, settings, rate_control, kbps);
 
     // the output type first: an encoder offers its input types for the output it makes
@@ -971,13 +982,14 @@ fn configure(
         converter = Some(Converter::new(device, settings, options.pool_size.max(2) + MAX_QUEUE as u32)?);
     }
 
-    let bframes = if !settings.allow_reordering || !b_taken {
+    // (what it says now its types are set: the same, or fewer)
+    let bframes = if bframes == 0 {
         0
     } else {
         unsafe { codec.GetValue(&CODECAPI_AVEncMPVDefaultBPictureCount) }
             .ok()
             .and_then(|v| u32::try_from(&v).ok())
-            .unwrap_or(wanted_b)
+            .map_or(bframes, |b| b.min(bframes))
     };
     let events: IMFMediaEventGenerator = transform.cast().map_err(platform("the hardware encoder sends no events"))?;
     unsafe {
