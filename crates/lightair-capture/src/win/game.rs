@@ -462,3 +462,140 @@ fn control(shared: Arc<Shared>, sink: Arc<Sink>) {
         status.slow_with_displays = legacy && contract(19) && monitors().len() >= 2;
     }
 }
+
+/// The application filling its monitor in front now (the Game source with no game chosen:
+/// "any full-screen application"): the foreground window's game, when the window covers its
+/// whole monitor. Never the desktop, the taskbar or Lightair.
+pub fn fullscreen() -> Option<Game> {
+    use windows::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetWindowThreadProcessId};
+    let window = unsafe { GetForegroundWindow() };
+    if window.is_invalid() {
+        return None;
+    }
+    let mut class = [0u16; 64];
+    let n = unsafe { GetClassNameW(window, &mut class) }.max(0) as usize;
+    let class = String::from_utf16_lossy(&class[..n]);
+    if matches!(class.as_str(), "Progman" | "WorkerW" | "Shell_TrayWnd" | "Shell_SecondaryTrayWnd") {
+        return None;
+    }
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(window, Some(&mut pid)) };
+    if pid == 0 || pid == std::process::id() {
+        return None;
+    }
+    let frame = frame_of(window)?;
+    let m = monitor_of(window)?.rect;
+    let covers = frame.left <= m.left && frame.top <= m.top && frame.right >= m.right && frame.bottom >= m.bottom;
+    if !covers {
+        return None;
+    }
+    running().into_iter().find(|g| g.pid == pid)
+}
+
+/// How often [`FullscreenCapture`] looks for the full-screen application.
+const FULLSCREEN_TICK: Duration = Duration::from_millis(500);
+
+/// A Game source with no game chosen: captures whatever application is full screen in front,
+/// moving to another when it takes over (the last one stays while none is, say while Lightair
+/// itself is in front). Each is captured as a chosen game is ([`GameCapture`]). Captures until
+/// dropped.
+pub struct FullscreenCapture {
+    shared: Arc<Fullscreen>,
+    thread: Option<JoinHandle<()>>,
+}
+
+struct Fullscreen {
+    config: Mutex<Config>,
+    current: Mutex<Option<GameCapture>>,
+    stop: AtomicBool,
+}
+
+/// The one sink every game captured in turn delivers to.
+struct Forward(Arc<Mutex<Box<dyn VideoSink>>>);
+
+impl VideoSink for Forward {
+    fn frame(&mut self, frame: Frame) {
+        self.0.lock().frame(frame);
+    }
+
+    // a game that went away: the next full-screen application is captured when one comes
+    fn stopped(&mut self, _reason: &str) {}
+}
+
+impl FullscreenCapture {
+    /// Starts looking for a full-screen application, captured into `sink`. Returns at once.
+    pub fn start(config: &Config, sink: impl VideoSink) -> Result<FullscreenCapture, Error> {
+        let sink: Arc<Mutex<Box<dyn VideoSink>>> = Arc::new(Mutex::new(Box::new(sink)));
+        let shared =
+            Arc::new(Fullscreen { config: Mutex::new(config.clone()), current: Mutex::new(None), stop: AtomicBool::new(false) });
+        let watch = shared.clone();
+        let thread = std::thread::Builder::new()
+            .name("lightair-fullscreen".into())
+            .spawn(move || {
+                while !watch.stop.load(Ordering::Relaxed) {
+                    if let Some(game) = fullscreen() {
+                        let same = watch.current.lock().as_ref().is_some_and(|c| same_exe(&c.shared.exe, &game.exe));
+                        if !same {
+                            let config = watch.config.lock().clone();
+                            match GameCapture::start(&game.exe, &config, Forward(sink.clone())) {
+                                Ok(c) => {
+                                    tracing::info!(game = game.name, "game capture: the full-screen application now");
+                                    // (the one before stops as it's dropped)
+                                    *watch.current.lock() = Some(c);
+                                }
+                                Err(e) => tracing::warn!(%e, game = game.name, "game capture: the full-screen application wasn't captured"),
+                            }
+                        }
+                    }
+                    std::thread::sleep(FULLSCREEN_TICK);
+                }
+            })
+            .map_err(|e| Error::Failed(format!("starting the full-screen capture: {e}")))?;
+        Ok(FullscreenCapture { shared, thread: Some(thread) })
+    }
+
+    /// How the application in front is being captured (waiting while there's none yet).
+    pub fn status(&self) -> Status {
+        match self.shared.current.lock().as_ref() {
+            Some(c) => c.status(),
+            None => Status {
+                route: Route::Waiting,
+                present: PresentMode::Unknown,
+                detection: Detection::Events,
+                fso_off_for_user: false,
+                fso_off_for_machine: false,
+                slow_with_displays: false,
+                exe: String::new(),
+            },
+        }
+    }
+
+    /// The fix [`GameCapture::fix`] offers for the application captured now.
+    pub fn fix(&self) -> Option<fso::Change> {
+        self.shared.current.lock().as_ref().and_then(GameCapture::fix)
+    }
+
+    /// As [`GameCapture::reconfigure`], for this application and the ones after it.
+    pub fn reconfigure(&self, config: &Config) -> Result<(), Error> {
+        *self.shared.config.lock() = config.clone();
+        match self.shared.current.lock().as_ref() {
+            Some(c) => c.reconfigure(config),
+            None => Ok(()),
+        }
+    }
+
+    /// The picture's size now.
+    pub fn size(&self) -> (u32, u32) {
+        self.shared.current.lock().as_ref().map_or((0, 0), GameCapture::size)
+    }
+}
+
+impl Drop for FullscreenCapture {
+    fn drop(&mut self) {
+        self.shared.stop.store(true, Ordering::Relaxed);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+        self.shared.current.lock().take();
+    }
+}
