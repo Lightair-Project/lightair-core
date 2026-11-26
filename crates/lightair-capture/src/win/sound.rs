@@ -21,7 +21,7 @@ use windows::Win32::Media::Audio::{
 use windows::Win32::Media::KernelStreaming::WAVE_FORMAT_EXTENSIBLE;
 use windows::Win32::Media::Multimedia::{KSDATAFORMAT_SUBTYPE_IEEE_FLOAT, WAVE_FORMAT_IEEE_FLOAT};
 use windows::Win32::System::Com::StructuredStorage::{PROPVARIANT, PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0};
-use windows::Win32::System::Com::{BLOB, CLSCTX_ALL, CoCreateInstance, CoTaskMemFree};
+use windows::Win32::System::Com::{BLOB, CLSCTX_ALL, CoCreateInstance, CoTaskMemAlloc, CoTaskMemFree};
 use windows::Win32::System::Threading::{
     AvRevertMmThreadCharacteristics, AvSetMmThreadCharacteristicsW, CreateEventW, WaitForSingleObject,
 };
@@ -93,7 +93,7 @@ fn process_client(pid: u32, include: bool) -> Result<IAudioClient, Error> {
     if !contract(10) {
         return Err(Error::Unsupported("an app's sound needs Windows 10 2004 or later".into()));
     }
-    let mut params = AUDIOCLIENT_ACTIVATION_PARAMS {
+    let params = AUDIOCLIENT_ACTIVATION_PARAMS {
         ActivationType: AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
         Anonymous: AUDIOCLIENT_ACTIVATION_PARAMS_0 {
             ProcessLoopbackParams: AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS {
@@ -106,6 +106,16 @@ fn process_client(pid: u32, include: bool) -> Result<IAudioClient, Error> {
             },
         },
     };
+    // The blob is Windows' to free: the activation frees it with CoTaskMemFree once it has read
+    // it (a blob on the stack corrupted the stack, one from Rust's allocator was freed twice;
+    // both crashed Lightair at its first desktop sound). If a Windows version doesn't, 12 bytes
+    // stay behind per capture started.
+    let size = size_of::<AUDIOCLIENT_ACTIVATION_PARAMS>();
+    let blob = unsafe { CoTaskMemAlloc(size) } as *mut AUDIOCLIENT_ACTIVATION_PARAMS;
+    if blob.is_null() {
+        return Err(Error::Failed("opening the process loopback: out of memory".into()));
+    }
+    unsafe { blob.write(params) };
     let variant = PROPVARIANT {
         Anonymous: PROPVARIANT_0 {
             Anonymous: std::mem::ManuallyDrop::new(PROPVARIANT_0_0 {
@@ -115,8 +125,8 @@ fn process_client(pid: u32, include: bool) -> Result<IAudioClient, Error> {
                 wReserved3: 0,
                 Anonymous: PROPVARIANT_0_0_0 {
                     blob: BLOB {
-                        cbSize: size_of::<AUDIOCLIENT_ACTIVATION_PARAMS>() as u32,
-                        pBlobData: &mut params as *mut _ as *mut u8,
+                        cbSize: size as u32,
+                        pBlobData: blob as *mut u8,
                     },
                 },
             }),
