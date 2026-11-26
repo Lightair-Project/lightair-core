@@ -917,11 +917,26 @@ impl Compositor {
         self.transparent = transparent;
     }
 
+    /// The decoder's buffers drawn this frame go back to it once the GPU has finished the frame
+    /// (just submitted), without waiting for that here.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    fn release_held(&mut self) {
+        if !self.held.is_empty() {
+            let held = std::mem::take(&mut self.held);
+            self.queue.on_submitted_work_done(move || drop(held));
+        }
+    }
+
     pub fn layers(&mut self, layers: &[Layer]) -> Vec<u8> {
         let (ow, oh) = (self.size.0 as f32, self.size.1 as f32);
-        // the buffers drawn last time: the GPU is done with them now (each frame waits for it)
+        // the buffers drawn last time: the GPU is done with them now (the paths that read the
+        // frame back wait for it; the others hand them to the queue, released once it's done,
+        // which this poll lets happen without waiting)
         #[cfg(any(target_os = "macos", target_os = "ios"))]
-        self.held.clear();
+        {
+            self.held.clear();
+            let _ = self.device.poll(wgpu::PollType::Poll);
+        }
         for (i, l) in layers.iter().enumerate() {
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             let read_back: Vec<u8>;
@@ -1274,20 +1289,15 @@ impl Compositor {
         if let Some(d) = drawable {
             self.queue.submit([encoder.finish()]);
             self.queue.present(d);
-            // a decoder's buffers drawn: done with before they go back to it
-            if !self.held.is_empty() {
-                let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
-            }
+            self.release_held();
             return Vec::new();
         }
         // kept on the GPU for the caller (its next submission sees it); a decoder's buffers
-        // drawn are waited for, as above
+        // drawn go back to it once the GPU is done, as above
         if self.keep {
             self.queue.submit([encoder.finish()]);
             #[cfg(any(target_os = "ios", target_os = "macos"))]
-            if !self.held.is_empty() {
-                let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
-            }
+            self.release_held();
             return Vec::new();
         }
         #[cfg(target_os = "macos")]
