@@ -51,6 +51,12 @@ pub struct VideoSettings {
     /// H.264's profile (HEVC's is the codec's `main10`). Apple's encoders follow it; the others
     /// keep their own.
     pub h264_profile: H264Profile,
+    /// Constant quality instead of an average bitrate, 0.0 (smallest) to 1.0 (best), under
+    /// `max_bitrate_kbps` when one is given; `None`: the bitrate. Apple's encoders follow it.
+    pub quality: Option<f32>,
+    /// Spatial adaptive quantisation on or off; `None`: the encoder's own choice. Apple's
+    /// encoders follow it (macOS 15 and later).
+    pub spatial_aq: Option<bool>,
 }
 
 impl VideoSettings {
@@ -71,6 +77,8 @@ impl VideoSettings {
             color: Color::BT709,
             hardware: Hardware::Prefer,
             h264_profile: H264Profile::High,
+            quality: None,
+            spatial_aq: None,
         }
     }
 

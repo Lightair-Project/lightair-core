@@ -37,11 +37,12 @@ use objc2_video_toolbox::{
     kVTCompressionPropertyKey_ColorPrimaries, kVTCompressionPropertyKey_DataRateLimits,
     kVTCompressionPropertyKey_ExpectedFrameRate, kVTCompressionPropertyKey_MaxKeyFrameInterval,
     kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, kVTCompressionPropertyKey_ProfileLevel,
-    kVTCompressionPropertyKey_RealTime, kVTCompressionPropertyKey_TransferFunction,
+    kVTCompressionPropertyKey_Quality, kVTCompressionPropertyKey_RealTime,
+    kVTCompressionPropertyKey_SpatialAdaptiveQPLevel, kVTCompressionPropertyKey_TransferFunction,
     kVTCompressionPropertyKey_UsingHardwareAcceleratedVideoEncoder, kVTCompressionPropertyKey_YCbCrMatrix,
     kVTEncodeFrameOptionKey_ForceKeyFrame, kVTInvalidSessionErr, kVTProfileLevel_H264_Baseline_AutoLevel,
     kVTProfileLevel_H264_High_AutoLevel, kVTProfileLevel_H264_Main_AutoLevel, kVTProfileLevel_HEVC_Main_AutoLevel,
-    kVTProfileLevel_HEVC_Main10_AutoLevel,
+    kVTProfileLevel_HEVC_Main10_AutoLevel, kVTQPModulationLevel_Default, kVTQPModulationLevel_Disable,
 };
 use parking_lot::Mutex;
 
@@ -106,6 +107,12 @@ pub struct VideoSettings {
     /// H.264's profile (HEVC's is the codec's `main10`). Apple's encoders follow it; the others
     /// keep their own.
     pub h264_profile: H264Profile,
+    /// Constant quality instead of an average bitrate, 0.0 (smallest) to 1.0 (best), under
+    /// `max_bitrate_kbps` when one is given; `None`: the bitrate. Apple's encoders follow it.
+    pub quality: Option<f32>,
+    /// Spatial adaptive quantisation on or off; `None`: the encoder's own choice. Apple's
+    /// encoders follow it (macOS 15 and later).
+    pub spatial_aq: Option<bool>,
 }
 
 impl VideoSettings {
@@ -126,6 +133,8 @@ impl VideoSettings {
             color: Color::BT709,
             hardware: Hardware::Prefer,
             h264_profile: H264Profile::High,
+            quality: None,
+            spatial_aq: None,
         }
     }
 
@@ -386,6 +395,17 @@ fn apply_bitrate(session: &VTCompressionSession, settings: &VideoSettings, kbps:
     if matches!(settings.codec, VideoCodec::ProRes(_)) {
         return;
     }
+    // constant quality: no average, only the ceiling when one is given
+    if let Some(q) = settings.quality {
+        let quality = CFNumber::new_f64(f64::from(q.clamp(0.0, 1.0)));
+        let _ = unsafe { set(session, kVTCompressionPropertyKey_Quality, &quality) };
+        let Some(max) = settings.max_bitrate_kbps else { return };
+        let bytes = CFNumber::new_i64(max as i64 * 1000 / 8);
+        let seconds = CFNumber::new_f64(1.0);
+        let limits = CFArray::<CFNumber>::from_objects(&[&*bytes, &*seconds]);
+        let _ = unsafe { set(session, kVTCompressionPropertyKey_DataRateLimits, limits.as_ref()) };
+        return;
+    }
     let bps = CFNumber::new_i64(kbps as i64 * 1000);
     unsafe { set(session, kVTCompressionPropertyKey_AverageBitRate, &bps) };
     let ceiling = settings.max_bitrate_kbps.unwrap_or(kbps * 3 / 2).max(kbps) as i64;
@@ -476,6 +496,11 @@ fn make_session(
             let seconds = CFNumber::new_f64(interval_s);
             set(s, kVTCompressionPropertyKey_MaxKeyFrameInterval, &frames);
             set(s, kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, &seconds);
+        }
+        if let Some(on) = settings.spatial_aq {
+            let level = CFNumber::new_i32(if on { kVTQPModulationLevel_Default } else { kVTQPModulationLevel_Disable });
+            // older systems don't know it: the encoder's own choice then
+            let _ = set(s, kVTCompressionPropertyKey_SpatialAdaptiveQPLevel, &level);
         }
         let (primaries, transfer, matrix) = color_keys(&settings.color);
         set(s, kVTCompressionPropertyKey_ColorPrimaries, primaries);
