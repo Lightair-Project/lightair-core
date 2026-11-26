@@ -226,6 +226,10 @@ struct Copier {
     value: u64,
 }
 
+/// `CODECAPI_AVEncVideoEnableSpatialAdaptiveQuantization` (codecapi.h from Windows 11 24H2's SDK, a
+/// BOOL; not in the `windows` crate's bindings yet).
+const CODECAPI_AV_ENC_VIDEO_ENABLE_SPATIAL_AQ: GUID = GUID::from_u128(0x659cb943_15ca_448d_b99a_875619db4de4);
+
 /// Frames that may wait for the transform before the oldest is dropped.
 const MAX_QUEUE: usize = 8;
 /// More input textures when B-frames are allowed: an encoder that takes BGRA itself holds its
@@ -915,8 +919,7 @@ fn configure(
         RateControl::Vbr => eAVEncCommonRateControlMode_PeakConstrainedVBR,
     };
     // constant quality (the plan's CRF and kin) where the encoder takes it, still held under the
-    // settings' ceiling; else the bitrate as asked. Windows' codec properties have no spatial
-    // adaptive quantisation: `spatial_aq` is left to the encoder.
+    // settings' ceiling; else the bitrate as asked
     let quality = settings.quality.filter(|_| {
         set_u32(&codec, &CODECAPI_AVEncCommonRateControlMode, eAVEncCommonRateControlMode_Quality.0 as u32)
     });
@@ -928,6 +931,13 @@ fn configure(
     set_bool(&codec, &CODECAPI_AVLowLatencyMode, live);
     set_u32(&codec, &CODECAPI_AVEncMPVGOPSize, keyframe_frames(settings));
     apply_bitrate(&codec, settings, rate_control, kbps);
+    // spatial adaptive quantisation where the encoder has it (Windows 11 24H2's property)
+    if let Some(on) = settings.spatial_aq {
+        let taken = unsafe { codec.IsSupported(&CODECAPI_AV_ENC_VIDEO_ENABLE_SPATIAL_AQ) }.is_ok()
+            && (set_bool(&codec, &CODECAPI_AV_ENC_VIDEO_ENABLE_SPATIAL_AQ, on)
+                || set_u32(&codec, &CODECAPI_AV_ENC_VIDEO_ENABLE_SPATIAL_AQ, on as u32));
+        tracing::debug!(encoder = %info.name, on, taken, "spatial adaptive quantisation");
+    }
 
     // the output type first: an encoder offers its input types for the output it makes
     let subtype = subtype(settings.codec).ok_or(Error::Unsupported("no such encoder".into()))?;
