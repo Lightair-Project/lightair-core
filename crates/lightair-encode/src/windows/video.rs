@@ -227,6 +227,9 @@ struct Copier {
 
 /// Frames that may wait for the transform before the oldest is dropped.
 const MAX_QUEUE: usize = 8;
+/// More input textures when B-frames are allowed: an encoder that takes BGRA itself holds its
+/// lookahead's pictures in them until they come out (Quick Sync with two B-frames).
+const REORDER_SLOTS: u32 = 4;
 
 pub struct VideoEncoder {
     shared: Arc<Shared>,
@@ -282,7 +285,8 @@ impl VideoEncoder {
         let manager = manager.ok_or(Error::Unsupported("no device manager".into()))?;
         unsafe { manager.ResetDevice(&device, token) }
             .map_err(platform("Media Foundation wouldn't take the Direct3D 11 device"))?;
-        let pool = Pool::new(&device, &settings, options.pool_size)?;
+        let slots = options.pool_size + if settings.allow_reordering { REORDER_SLOTS } else { 0 };
+        let pool = Pool::new(&device, &settings, slots)?;
         let fence = Fence::new(&device)?;
         let shared = Arc::new(Shared {
             sink: Mutex::new(sink),
@@ -355,6 +359,14 @@ impl VideoEncoder {
     /// `pts_ns`, once the shared fence reaches `fence_value` (0: already finished); a keyframe
     /// when `keyframe` or one was asked for. The slot comes free when its picture comes out.
     pub fn encode_slot(&self, index: u32, fence_value: u64, pts_ns: i64, keyframe: bool) -> Result<(), Error> {
+        self.encode_slot_as(index, fence_value, pts_ns, keyframe, false)
+    }
+
+    /// [`VideoEncoder::encode_slot`]; `ours`: the slot was written on this encoder's device's
+    /// immediate context (`encode_copy`), so once the video processor has converted it the slot
+    /// is free again (anything written into it next is ordered after that read on the GPU), and
+    /// the encoder's lookahead holds only the converter's textures.
+    fn encode_slot_as(&self, index: u32, fence_value: u64, pts_ns: i64, keyframe: bool, ours: bool) -> Result<(), Error> {
         let Some(slot) = self.shared.pool.slots.get(index as usize) else {
             return Err(Error::Invalid("no such input slot"));
         };
@@ -372,7 +384,7 @@ impl VideoEncoder {
             }
             None => None,
         };
-        let result = self.submit(&slot.texture, input_view, Some(index), pts_ns, keyframe);
+        let result = self.submit(&slot.texture, input_view, Some(index), pts_ns, keyframe, ours);
         if result.is_err() {
             self.shared.pool.release(index);
         }
@@ -387,7 +399,7 @@ impl VideoEncoder {
             Some(converter) => Some(converter.input_view(texture)?),
             None => None,
         };
-        self.submit(texture, input_view, None, pts_ns, keyframe)
+        self.submit(texture, input_view, None, pts_ns, keyframe, false)
     }
 
     /// Encodes a copy of `source`, a finished BGRA picture on [`VideoEncoder::device`] of any
@@ -425,7 +437,7 @@ impl VideoEncoder {
         c.value = value;
         c.last = Some(index);
         drop(copier);
-        self.encode_slot(index, value, pts_ns, keyframe).map_err(wanted)?;
+        self.encode_slot_as(index, value, pts_ns, keyframe, true).map_err(wanted)?;
         Ok(true)
     }
 
@@ -471,8 +483,10 @@ impl VideoEncoder {
         slot: Option<u32>,
         pts_ns: i64,
         keyframe: bool,
+        free_converted_slot: bool,
     ) -> Result<(), Error> {
         let pipe = &self.pipeline;
+        let mut slot = slot;
         let force = keyframe | self.keyframe_wanted.swap(false, Ordering::AcqRel);
         let restore = |e: Error| {
             if force {
@@ -483,6 +497,9 @@ impl VideoEncoder {
         let (texture, converted) = match (&pipe.converter, input_view) {
             (Some(converter), Some(view)) => {
                 let (index, nv12) = converter.convert(&view).map_err(restore)?;
+                if free_converted_slot && let Some(i) = slot.take() {
+                    self.shared.pool.release(i);
+                }
                 (nv12, Some(index))
             }
             _ => (texture.clone(), None),
@@ -715,6 +732,13 @@ fn apply_bitrate(codec: &ICodecAPI, settings: &VideoSettings, rate_control: Rate
     }
 }
 
+/// What a transform that wouldn't activate fails with.
+const STARTS: &str = "the hardware encoder wouldn't start";
+
+/// Transforms that wouldn't activate in this process (a driver whose encoder is broken or too
+/// old), by name: not tried again.
+static DEAD: Mutex<std::collections::BTreeSet<String>> = Mutex::new(std::collections::BTreeSet::new());
+
 /// Finds and starts an encoder and its event thread.
 fn start(
     shared: &Arc<Shared>,
@@ -734,10 +758,27 @@ fn start(
         return Err(Error::Unsupported(format!("this PC has no hardware {} encoder{fallback}", settings.codec.name())));
     }
     // the device's GPU's encoder first (or the maker asked for): the textures stay on one GPU
-    let wanted = options.vendor.or_else(|| d3d::vendor(device));
+    let on = d3d::vendor(device);
+    let wanted = options.vendor.or(on);
     candidates.sort_by_key(|(_, info)| if info.vendor.is_some() && info.vendor == wanted { 0 } else { 1 });
+    // another GPU maker's encoder never takes this device (E_INVALIDARG), and one that wouldn't
+    // start once won't later: neither is tried (each costs a few hundred milliseconds)
+    let other_gpu = |info: &EncoderInfo| {
+        let gpu = |v: Option<Vendor>| matches!(v, Some(Vendor::Nvidia | Vendor::Intel | Vendor::Amd));
+        gpu(info.vendor) && gpu(on) && info.vendor != on
+    };
+    let skipped: Vec<_> = candidates
+        .iter()
+        .filter(|(_, info)| other_gpu(info) || DEAD.lock().contains(&info.name))
+        .map(|(_, info)| info.name.clone())
+        .collect();
+    if !skipped.is_empty() && skipped.len() < candidates.len() {
+        candidates.retain(|(_, info)| !skipped.contains(&info.name));
+        tracing::debug!(?skipped, "encoders not tried: another GPU's, or they didn't start before");
+    }
     let mut last = None;
     for (activate, info) in candidates {
+        let name = info.name.clone();
         match configure(&activate, info, settings, device, manager, options, kbps) {
             Ok((mft, converter)) => {
                 let pipeline = Arc::new(Pipeline {
@@ -759,6 +800,9 @@ fn start(
                 return Ok((pipeline, thread));
             }
             Err(e) => {
+                if matches!(e, Error::Platform { what: STARTS, .. }) {
+                    DEAD.lock().insert(name);
+                }
                 tracing::warn!(error = %e, "a hardware encoder didn't take the settings; trying the next");
                 let _ = unsafe { activate.ShutdownObject() };
                 last = Some(e);
@@ -825,7 +869,7 @@ fn configure(
     kbps: u32,
 ) -> Result<(Mft, Option<Converter>), Error> {
     let transform: IMFTransform =
-        unsafe { activate.ActivateObject() }.map_err(platform("the hardware encoder wouldn't start"))?;
+        unsafe { activate.ActivateObject() }.map_err(platform(STARTS))?;
     let attributes =
         unsafe { transform.GetAttributes() }.map_err(platform("the hardware encoder has no attributes"))?;
     unsafe {
@@ -1130,6 +1174,8 @@ impl Pipeline {
                     *format = Some((sets, f.clone()));
                     new_format = Some(f);
                 }
+                // Quick Sync repeats a lone PPS before every picture: the keyframe's format stands
+                Err(e) if format.is_some() => tracing::debug!(error = %e, "parameter sets without a format kept"),
                 Err(e) => tracing::warn!(error = %e, "the encoder's parameter sets didn't parse"),
             }
         }
