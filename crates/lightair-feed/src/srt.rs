@@ -25,6 +25,8 @@ use crate::ts::PACKET;
 pub const DATAGRAM: usize = 7 * PACKET;
 /// How many datagrams may wait: about 300 ms at 25 Mb/s.
 const QUEUE: usize = 700;
+/// srt-tokio's sender buffer, bytes.
+const SEND_BUFFER: u64 = 16 * 1024 * 1024;
 
 /// Where the desktop listens for this source.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -307,7 +309,12 @@ async fn run(target: SrtTarget, mut rx: mpsc::Receiver<(Bytes, Option<Instant>)>
         d
     };
     while !c.stop.load(Ordering::Relaxed) {
-        let mut builder = SrtSocket::builder().latency(target.latency);
+        // srt-tokio's own send buffer is 32 packets: a keyframe's datagrams overflowed it, and it
+        // then dropped unsent packets without moving on, never sending again (keepalives and
+        // ACKs went on, so the connection looked up). 16 MB holds seconds of any stream.
+        let mut builder = SrtSocket::builder()
+            .latency(target.latency)
+            .set(|o| o.sender.buffer_size = srt_tokio::options::ByteCount(SEND_BUFFER));
         if let Some(b) = &target.bind {
             match crate::net::udp_for(&target.address, Some(b)).and_then(tokio::net::UdpSocket::from_std) {
                 Ok(s) => builder = builder.socket(s),
