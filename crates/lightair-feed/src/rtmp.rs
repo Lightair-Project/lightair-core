@@ -518,6 +518,9 @@ struct Counters {
     sent_bytes: AtomicU64,
     dropped: AtomicU64,
     keyframe: AtomicBool,
+    /// A picture was offered (sent or dropped): a connection coming up after that needs a
+    /// keyframe asked for; before it, the first picture is one anyway.
+    video_offered: AtomicBool,
     error: Mutex<Option<String>>,
     stop: AtomicBool,
     /// Bytes queued and not yet taken by the connection (congestion).
@@ -742,6 +745,9 @@ impl RtmpSender {
     }
 
     fn push(&self, m: Out) -> Pushed {
+        if matches!(m, Out::Video { .. }) {
+            self.counters.video_offered.store(true, Ordering::Relaxed);
+        }
         if !self.counters.connected.load(Ordering::Relaxed) {
             self.counters.dropped.fetch_add(1, Ordering::Relaxed);
             return Pushed::Away;
@@ -1027,7 +1033,11 @@ fn session(
     }
     conn.flush().map_err(io)?;
     c.connected.store(true, Ordering::Relaxed);
-    c.keyframe.store(true, Ordering::Relaxed);
+    // pictures came before (a reconnect, or a connection slower than the encoders): a keyframe
+    // now, as nothing until one decodes; none yet: the first one is a keyframe anyway
+    if c.video_offered.load(Ordering::Relaxed) {
+        c.keyframe.store(true, Ordering::Relaxed);
+    }
     *c.error.lock() = None;
     *c.retry_at.lock() = None;
     c.connected_at.lock().replace(std::time::Instant::now());
