@@ -47,7 +47,7 @@ impl WindowSurface {
         #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
         {
             let _ = (gpu, size, kind);
-            return None;
+            None
         }
         #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
         {
