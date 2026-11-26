@@ -813,6 +813,17 @@ impl Conn {
             Conn::Tls(t) => &t.sock,
         }
     }
+
+    /// What the server has sent, without waiting (`WouldBlock` when nothing has come). The
+    /// socket is non-blocking only for this read: a short read timeout instead waits a whole
+    /// timer tick on Windows (about 15 ms), which held a 60 fps stream to fewer messages a
+    /// second than it makes.
+    fn read_now(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.tcp().set_nonblocking(true)?;
+        let read = self.read(buf);
+        self.tcp().set_nonblocking(false)?;
+        read
+    }
 }
 
 impl Read for Conn {
@@ -1151,7 +1162,7 @@ fn session(
         }
         conn.flush().map_err(io)?;
         // pings and acknowledgements from the server, without waiting
-        match conn.read(&mut buf) {
+        match conn.read_now(&mut buf) {
             Ok(0) => return Err("The server closed the connection.".into()),
             Ok(n) => {
                 reader.push(&buf[..n]);
