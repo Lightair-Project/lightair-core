@@ -500,7 +500,18 @@ fn gpu() -> Result<(wgpu::Device, wgpu::Queue), String> {
         // what this adapter offers, not wgpu's defaults: those ask for more than some adapters have
         // (16 inter-stage shader variables against the iOS simulator's and some older GPUs' 15),
         // and then there's no device at all
-        let desc = wgpu::DeviceDescriptor { required_limits: adapter.limits(), ..Default::default() };
+        #[allow(unused_mut)]
+        let mut desc = wgpu::DeviceDescriptor { required_limits: adapter.limits(), ..Default::default() };
+        // Windows: every Direct3D 12 heap is charged to the process's memory in full, used or
+        // not. wgpu's default blocks (128 MB, 64 MB where the CPU writes) and a view heap of a
+        // million descriptors made the device alone ~310 MB; small blocks and 100,000 views (the
+        // compositor binds a few dozen at a time) make it ~95 MB.
+        #[cfg(windows)]
+        {
+            desc.memory_hints = wgpu::MemoryHints::MemoryUsage;
+            desc.required_limits.max_non_sampler_bindings =
+                desc.required_limits.max_non_sampler_bindings.min(100_000);
+        }
         pollster::block_on(adapter.request_device(&desc)).map_err(|e| format!("no graphics device: {e}"))
     })
     .clone()
