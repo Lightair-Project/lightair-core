@@ -52,7 +52,8 @@ pub struct VideoSettings {
     /// keep their own.
     pub h264_profile: H264Profile,
     /// Constant quality instead of an average bitrate, 0.0 (smallest) to 1.0 (best), under
-    /// `max_bitrate_kbps` when one is given; `None`: the bitrate. Apple's encoders follow it.
+    /// `max_bitrate_kbps` when one is given; `None`: the bitrate. Apple's encoders follow it, and
+    /// Media Foundation's where the encoder takes constant quality.
     pub quality: Option<f32>,
     /// Spatial adaptive quantisation on or off; `None`: the encoder's own choice. Apple's
     /// encoders follow it (macOS 15 and later).

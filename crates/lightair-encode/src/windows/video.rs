@@ -29,6 +29,7 @@ use windows::Win32::Graphics::Direct3D11::{ID3D11Device, ID3D11DeviceContext4, I
 use windows::Win32::Graphics::Dxgi::{DXGI_ERROR_DEVICE_REMOVED, DXGI_ERROR_DEVICE_RESET};
 use windows::Win32::Media::MediaFoundation::{
     CODECAPI_AVEncCommonBufferSize, CODECAPI_AVEncCommonMaxBitRate, CODECAPI_AVEncCommonMeanBitRate,
+    CODECAPI_AVEncCommonQuality, eAVEncCommonRateControlMode_Quality,
     CODECAPI_AVEncCommonRateControlMode, CODECAPI_AVEncMPVDefaultBPictureCount, CODECAPI_AVEncMPVGOPSize,
     CODECAPI_AVEncVideoForceKeyFrame, CODECAPI_AVLowLatencyMode, ICodecAPI, IMF2DBuffer, IMFActivate,
     IMFDXGIDeviceManager, IMFMediaEventGenerator, IMFMediaType, IMFSample, IMFShutdown, IMFTransform,
@@ -900,7 +901,17 @@ fn configure(
         RateControl::Cbr => eAVEncCommonRateControlMode_CBR,
         RateControl::Vbr => eAVEncCommonRateControlMode_PeakConstrainedVBR,
     };
-    set_u32(&codec, &CODECAPI_AVEncCommonRateControlMode, mode.0 as u32);
+    // constant quality (the plan's CRF and kin) where the encoder takes it, still held under the
+    // settings' ceiling; else the bitrate as asked. Windows' codec properties have no spatial
+    // adaptive quantisation: `spatial_aq` is left to the encoder.
+    let quality = settings.quality.filter(|_| {
+        set_u32(&codec, &CODECAPI_AVEncCommonRateControlMode, eAVEncCommonRateControlMode_Quality.0 as u32)
+    });
+    if let Some(q) = quality {
+        set_u32(&codec, &CODECAPI_AVEncCommonQuality, (q.clamp(0.0, 1.0) * 100.0).round() as u32);
+    } else {
+        set_u32(&codec, &CODECAPI_AVEncCommonRateControlMode, mode.0 as u32);
+    }
     set_bool(&codec, &CODECAPI_AVLowLatencyMode, live);
     set_u32(&codec, &CODECAPI_AVEncMPVGOPSize, keyframe_frames(settings));
     let wanted_b = if settings.allow_reordering { 2 } else { 0 };
