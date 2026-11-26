@@ -20,6 +20,9 @@ pub enum Picture {
     Yuv(Yuv),
     /// RGBA bytes, tightly packed, upright (Android's screen: MediaProjection's ImageReader).
     Rgba(Vec<u8>, (u32, u32)),
+    /// A texture on the engine's own device, upright, drawn as it is (Windows: the host's
+    /// picture, a shared Direct3D texture opened there).
+    Texture(wgpu::Texture),
     /// Android's camera zero-copy: its `AHardwareBuffer`, as captured (size), turned and
     /// mirrored as `push_yuv`'s.
     #[cfg(target_os = "android")]
@@ -37,6 +40,7 @@ impl Picture {
             Picture::Buffer(b, _) => b.size(),
             Picture::Yuv(y) => turn((y.width, y.height), y.rotation),
             Picture::Rgba(_, size) => *size,
+            Picture::Texture(t) => (t.width(), t.height()),
             #[cfg(target_os = "android")]
             Picture::Hardware { size, rotation, .. } => turn(*size, *rotation),
         }

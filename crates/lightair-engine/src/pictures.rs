@@ -212,6 +212,9 @@ impl Frame<'_> {
                 self.cache.converted.insert(feed, (serial, t.clone()));
                 Some(Shot { picture: Picture::Texture(t), size: *size, premultiplied: false })
             }
+            Pushed::Texture(t) => {
+                Some(Shot { picture: Picture::Texture(t.clone()), size: (t.width(), t.height()), premultiplied: false })
+            }
             Pushed::Yuv(y) => {
                 let t = match self.cache.converted.remove(&feed) {
                     Some((s, t)) if s == serial => t,
