@@ -475,7 +475,7 @@ pub fn fullscreen() -> Option<Game> {
     let mut class = [0u16; 64];
     let n = unsafe { GetClassNameW(window, &mut class) }.max(0) as usize;
     let class = String::from_utf16_lossy(&class[..n]);
-    if matches!(class.as_str(), "Progman" | "WorkerW" | "Shell_TrayWnd" | "Shell_SecondaryTrayWnd") {
+    if shell_window(&class) {
         return None;
     }
     let mut pid = 0u32;
@@ -484,12 +484,21 @@ pub fn fullscreen() -> Option<Game> {
         return None;
     }
     let frame = frame_of(window)?;
-    let m = monitor_of(window)?.rect;
-    let covers = frame.left <= m.left && frame.top <= m.top && frame.right >= m.right && frame.bottom >= m.bottom;
-    if !covers {
+    if !fills(&frame, &monitor_of(window)?.rect) {
         return None;
     }
     running().into_iter().find(|g| g.pid == pid)
+}
+
+/// Whether a window of `class` is the shell's: the desktop or a taskbar (never a game).
+fn shell_window(class: &str) -> bool {
+    matches!(class, "Progman" | "WorkerW" | "Shell_TrayWnd" | "Shell_SecondaryTrayWnd")
+}
+
+/// Whether a window's `frame` covers the whole of its `monitor` (full screen, borderless or
+/// exclusive; a maximised window leaves the taskbar out).
+fn fills(frame: &RECT, monitor: &RECT) -> bool {
+    frame.left <= monitor.left && frame.top <= monitor.top && frame.right >= monitor.right && frame.bottom >= monitor.bottom
 }
 
 /// How often [`FullscreenCapture`] looks for the full-screen application.
@@ -597,5 +606,52 @@ impl Drop for FullscreenCapture {
             let _ = thread.join();
         }
         self.shared.current.lock().take();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rect(left: i32, top: i32, right: i32, bottom: i32) -> RECT {
+        RECT { left, top, right, bottom }
+    }
+
+    /// A window covering its whole monitor is full screen (exactly, or overhanging it as a
+    /// borderless window's frame can); a maximised one (the taskbar left out) or a smaller one
+    /// isn't. On a second monitor, its own rectangle counts.
+    #[test]
+    fn a_window_is_full_screen_when_it_covers_its_monitor() {
+        let monitor = rect(0, 0, 1920, 1080);
+        assert!(fills(&rect(0, 0, 1920, 1080), &monitor));
+        assert!(fills(&rect(-8, -8, 1928, 1088), &monitor), "overhanging the edges");
+        assert!(!fills(&rect(0, 0, 1920, 1040), &monitor), "maximised above the taskbar");
+        assert!(!fills(&rect(-8, -8, 1928, 1048), &monitor), "maximised with its frame");
+        assert!(!fills(&rect(100, 100, 1280, 820), &monitor), "a window");
+        assert!(!fills(&rect(1, 0, 1920, 1080), &monitor), "a pixel short");
+        let second = rect(1920, -200, 4480, 1240);
+        assert!(fills(&rect(1920, -200, 4480, 1240), &second));
+        assert!(!fills(&monitor, &second), "full screen on the other monitor");
+    }
+
+    /// The desktop and the taskbars are never the full-screen application, even when in front
+    /// and covering the monitor.
+    #[test]
+    fn the_shell_is_never_a_game() {
+        for class in ["Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd"] {
+            assert!(shell_window(class), "{class}");
+        }
+        for class in ["UnityWndClass", "UnrealWindow", "SDL_app", "Chrome_WidgetWin_1", "", "progman"] {
+            assert!(!shell_window(class), "{class:?}");
+        }
+    }
+
+    /// Whatever is in front while the tests run (a terminal, an editor: this process's own window
+    /// never counts), the answer is a running game or none, never this process.
+    #[test]
+    fn the_full_screen_application_is_never_this_process() {
+        if let Some(game) = fullscreen() {
+            assert_ne!(game.pid, std::process::id());
+        }
     }
 }
