@@ -1794,6 +1794,7 @@ dependencies = [
  "serde",
  "serde_json",
  "spdx",
+ "tempfile",
  "ttf-parser",
  "wgpu",
 ]
@@ -1957,6 +1958,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "tempfile",
  "ureq",
 ]
 
