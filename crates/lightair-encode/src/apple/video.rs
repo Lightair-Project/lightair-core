@@ -614,7 +614,9 @@ unsafe fn read_sample(shared: &Shared, sample: &CMSampleBuffer) -> Option<Encode
     // durations earlier keeps every decode time at or before its presentation time.
     if shared.settings.allow_reordering {
         let s = &shared.settings;
-        dts_ns -= 2 * 1_000_000_000 * i64::from(s.fps_den.max(1)) / i64::from(s.fps_num.max(1));
+        // rounded up: a shift a nanosecond short (30 fps) left a decode time 1 ns after its picture
+        let (num, den) = (i64::from(s.fps_num.max(1)), i64::from(s.fps_den.max(1)));
+        dts_ns -= (2 * 1_000_000_000 * den + num - 1) / num;
     }
     let format = unsafe { sample.format_description() }.and_then(|d| {
         let address = CFRetained::as_ptr(&d).as_ptr() as usize;
