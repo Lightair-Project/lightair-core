@@ -1780,13 +1780,22 @@ dependencies = [
  "base64 0.22.1",
  "goblin",
  "image",
+ "lightair-automation",
+ "lightair-fonts",
+ "lightair-live",
+ "lightair-model",
  "lightair-packages",
+ "lightair-render",
+ "lightair-widgets",
+ "parking_lot",
  "png 0.17.16",
+ "pollster",
  "regex",
  "serde",
  "serde_json",
  "spdx",
  "ttf-parser",
+ "wgpu",
 ]
 
 [[package]]

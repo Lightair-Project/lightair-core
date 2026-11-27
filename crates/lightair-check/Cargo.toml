@@ -21,3 +21,13 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 ttf-parser = { version = "0.25", default-features = false, features = ["std"] }
 goblin = "0.10"
 spdx = "0.13"
+# the headless run (run.rs)
+lightair-model.workspace = true
+lightair-render.workspace = true
+lightair-fonts.workspace = true
+lightair-automation = { path = "../lightair-automation" }
+lightair-widgets.workspace = true
+lightair-live.workspace = true
+wgpu = "30"
+pollster = "0.4"
+parking_lot.workspace = true

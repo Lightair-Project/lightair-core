@@ -10,7 +10,8 @@ use lightair_check::{Output, Verdict};
 const USAGE: &str = "usage:
   lightair-check static <file.airpkg> --json <out> [--url <download address>]
   lightair-check run <file.airpkg> --json <out> [--previews <dir>] [--deep]
-  lightair-check helper-run <file.airpkg> --platform <platform> --json <out>";
+  lightair-check helper-run <file.airpkg> --platform <platform> --json <out> [--runner <lightair-helper-run>]
+  lightair-check widget-pages <file.airpkg> --out <dir>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -24,11 +25,27 @@ fn main() -> ExitCode {
         eprintln!("{USAGE}");
         return ExitCode::from(2);
     };
+    if cmd == "widget-pages" {
+        let Some(out) = flag("--out") else {
+            eprintln!("widget-pages needs --out\n{USAGE}");
+            return ExitCode::from(2);
+        };
+        return match lightair_check::widgets::write_pages(&file, std::path::Path::new(&out)) {
+            Ok(n) => {
+                eprintln!("{n} widget page(s) written to {out}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("couldn't write the widget pages: {e}");
+                ExitCode::from(1)
+            }
+        };
+    }
     let output = match cmd.as_str() {
         "static" => lightair_check::static_checks(&file, &flag("--url").unwrap_or_default()),
-        "run" => lightair_check::run(&file, has("--deep")),
+        "run" => lightair_check::run(&file, has("--deep"), flag("--previews").as_deref().map(std::path::Path::new)),
         "helper-run" => match flag("--platform") {
-            Some(p) => lightair_check::helper_run(&file, &p),
+            Some(p) => lightair_check::helper_run(&file, &p, flag("--runner").as_deref().map(std::path::Path::new)),
             None => {
                 eprintln!("helper-run needs --platform\n{USAGE}");
                 return ExitCode::from(2);
