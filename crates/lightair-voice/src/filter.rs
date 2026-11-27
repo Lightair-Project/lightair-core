@@ -109,6 +109,11 @@ pub fn speakable(text: &str) -> String {
 /// are left out (never read), long numbers too, and anything [`check`] refuses isn't read at all.
 /// At most `max_chars` characters (cut at a word).
 pub fn viewer_text(text: &str, family_friendly: bool, max_chars: usize) -> Option<String> {
+    // Checked before links and domains come out: an email's domain is a bare domain, and taking
+    // it out first would leave the rest of the address to be read.
+    if matches!(check(text, family_friendly), Err(Refused::PersonalData | Refused::Slur | Refused::Profanity)) {
+        return None;
+    }
     let t = LINK.replace_all(text, " ");
     let t = BARE_DOMAIN.replace_all(&t, " ");
     let t = speakable(&t);
