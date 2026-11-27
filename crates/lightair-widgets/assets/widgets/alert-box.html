@@ -44,15 +44,10 @@
     clearTimeout(ending); ending = null;
     box.classList.remove('show'); box.classList.add('hide');
     var a = document.getElementById('sound'); a.pause();
-    if (window.speechSynthesis) speechSynthesis.cancel();
     setTimeout(function () { box.classList.remove('hide'); box.style.opacity = 0; lightair.done(); }, 550);
   }
   lightair.on('skip', end);
-  // automations' voice and sounds
-  lightair.on('speak', function (text) {
-    if (!window.speechSynthesis || !text) return;
-    var u = new SpeechSynthesisUtterance(text); u.volume = Math.min(1, (+lightair.fields.volume || 60) / 100); speechSynthesis.speak(u);
-  });
+  // automations' sounds
   lightair.on('sound', function (m) {
     var a = new Audio(lightair.file(m.file)); a.volume = Math.min(1, (+m.volume || 100) / 100); a.play().catch(function () {});
   });
@@ -72,9 +67,7 @@
     else media.innerHTML = '<div id="badge">' + (BADGES[k] || '✨') + '</div>';
     var snd = f[k + 'Sound'], audio = document.getElementById('sound');
     if (snd) { audio.src = lightair.file(snd); audio.volume = Math.min(1, (+f.volume || 0) / 100); audio.play().catch(function () {}); }
-    if (f.speak && e.text && (k === 'paid' || k === 'cheer') && window.speechSynthesis) {
-      var u = new SpeechSynthesisUtterance(e.text); u.volume = Math.min(1, (+f.volume || 0) / 100); speechSynthesis.speak(u);
-    }
+    if (f.speak && e.text && (k === 'paid' || k === 'cheer')) lightair.speak(e.text);
     box.classList.remove('hide'); void box.offsetWidth; box.classList.add('show');
     ending = setTimeout(end, Math.max(1, +f.duration || 8) * 1000);
   });

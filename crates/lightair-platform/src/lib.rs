@@ -11,4 +11,5 @@ pub mod paths;
 pub mod pick_color;
 pub mod pointer_badge;
 pub mod realtime;
+pub mod speech;
 pub mod system_pointer;

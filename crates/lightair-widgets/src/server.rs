@@ -69,9 +69,14 @@ pub(crate) struct Shared {
     /// Changes a viewer's points for pages (a prediction): (platform, id, name, delta) → balance,
     /// or None when they haven't enough.
     points: Mutex<Option<PointsHook>>,
+    /// Says a viewer's text aloud (`lightair.speak`), through Lightair's voices.
+    speak: Mutex<Option<SpeakHook>>,
 }
 
 pub type PointsHook = Box<dyn Fn(&str, &str, &str, f64) -> Option<f64> + Send + Sync>;
+
+/// Says a page's text aloud (a viewer's message: the hook filters it).
+pub type SpeakHook = Box<dyn Fn(&str) + Send + Sync>;
 
 /// Runs an automation by name or id (the web address's way in).
 pub type RunHook = Box<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
@@ -104,6 +109,7 @@ impl Widgets {
             data: Mutex::new(Map::new()),
             run: Mutex::new(None),
             points: Mutex::new(None),
+            speak: Mutex::new(None),
         });
         tracing::info!(port, "widgets served");
         {
@@ -235,18 +241,8 @@ impl Widgets {
             .collect()
     }
 
-    /// Says `text` on stream (through the alert boxes, whose sound is in the mix). False when
-    /// there's no alert box on screen to say it.
-    pub fn speak(&self, text: &str) -> bool {
-        let shown: Vec<String> = self.shared.conns.lock().iter().map(|c| c.instance.clone()).collect();
-        let boxes: Vec<String> = self.alert_boxes().into_iter().filter(|b| shown.contains(b)).collect();
-        for id in &boxes {
-            self.shared.send_to(id, &json!({"type": "speak", "text": text}).to_string());
-        }
-        !boxes.is_empty()
-    }
-
-    /// Plays a sound file (a path on this machine, or an address) on stream, like `speak`.
+    /// Plays a sound file (a path on this machine, or an address) on stream, through the alert
+    /// boxes on screen (false when there's none).
     pub fn sound(&self, file: &str, volume: f64) -> bool {
         if !file.contains("://") {
             self.shared.files.lock().insert(file.to_string());
@@ -286,6 +282,11 @@ impl Widgets {
     /// Lets pages change viewers' points (`lightair.points`).
     pub fn set_points_hook(&self, hook: PointsHook) {
         *self.shared.points.lock() = Some(hook);
+    }
+
+    /// Lets pages say text aloud (`lightair.speak`: the alert box's read-aloud).
+    pub fn set_speak_hook(&self, hook: SpeakHook) {
+        *self.shared.speak.lock() = Some(hook);
     }
 
     /// The web address that runs `automation` (an id or name).
@@ -656,6 +657,11 @@ fn feed(mut ws: WebSocket<TcpStream>, shared: &Arc<Shared>, instance: &str) -> i
                     let Ok(m) = serde_json::from_str::<Value>(t.as_str()) else { continue };
                     match m["type"].as_str() {
                         Some("done") => shared.done(instance),
+                        Some("speak") => {
+                            if let (Some(text), Some(hook)) = (m["text"].as_str(), shared.speak.lock().as_ref()) {
+                                hook(text);
+                            }
+                        }
                         Some("points") => {
                             let s = |k: &str| m[k].as_str().unwrap_or("").to_string();
                             let delta = m["delta"].as_f64().unwrap_or(0.0);
@@ -678,7 +684,9 @@ fn feed(mut ws: WebSocket<TcpStream>, shared: &Arc<Shared>, instance: &str) -> i
                         // read most addresses itself: they don't allow other sites)
                         Some("fetch") => {
                             let url = m["url"].as_str().unwrap_or("").to_string();
-                            let named = shared.values(instance).is_some_and(|v| v.values().any(|x| x.as_str() == Some(url.as_str())));
+                            let named = shared
+                                .values(instance)
+                                .is_some_and(|v| v.values().any(|x| x.as_str() == Some(url.as_str())));
                             let (me, reference) = (me.clone(), m["ref"].clone());
                             if !named || !(url.starts_with("https://") || url.starts_with("http://")) {
                                 let _ = me.send(json!({"type": "fetched", "ref": reference, "ok": false, "error": "not one of its settings"}).to_string());
@@ -686,7 +694,9 @@ fn feed(mut ws: WebSocket<TcpStream>, shared: &Arc<Shared>, instance: &str) -> i
                                 std::thread::spawn(move || {
                                     let answer = fetch_text(&url);
                                     let reply = match answer {
-                                        Ok((status, body)) => json!({"type": "fetched", "ref": reference, "ok": (200..300).contains(&status), "status": status, "body": body}),
+                                        Ok((status, body)) => {
+                                            json!({"type": "fetched", "ref": reference, "ok": (200..300).contains(&status), "status": status, "body": body})
+                                        }
                                         Err(e) => json!({"type": "fetched", "ref": reference, "ok": false, "error": e}),
                                     };
                                     let _ = me.send(reply.to_string());

@@ -2050,6 +2050,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "lightair-voice"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "lightair-platform",
+ "regex",
+ "rustls",
+ "rustls-platform-verifier",
+ "serde",
+ "serde_json",
+ "tracing",
+ "tungstenite",
+ "ureq",
+ "webpki-roots",
+]
+
+[[package]]
 name = "lightair-widgets"
 version = "0.1.0"
 dependencies = [

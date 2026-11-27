@@ -32,7 +32,7 @@ const HISTORY: usize = 200;
 /// A run stops after this many steps (a loop of automations running each other).
 const MAX_STEPS: usize = 500;
 
-/// Calls a Lightair method (the remote API's) for a step: `chat.send`, `widgets.speak`,
+/// Calls a Lightair method (the remote API's) for a step: `chat.send`, `voice.say`,
 /// `scene.switch`, …
 pub type Host = Arc<dyn Fn(&str, Value) -> Result<Value, String> + Send + Sync>;
 
@@ -716,7 +716,7 @@ impl Automations {
             }
             Step::Speak { text } => {
                 let text = render(text, ctx);
-                self.call("widgets.speak", json!({"text": text}))?;
+                self.call("voice.say", json!({"text": text}))?;
                 Ok(Some(text))
             }
             Step::Sound { file, volume } => {

@@ -1,0 +1,24 @@
+[package]
+name = "lightair-voice"
+description = "Voices and hearing: text to speech (the system's voice, Cartesia, ElevenLabs, Gemini) streamed with mouth shapes, cloud speech to text (ElevenLabs Scribe, OpenRouter), and the filter for what's said aloud"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+base64 = "0.22"
+regex = "1"
+lightair-platform = { path = "../lightair-platform" }
+# One TLS stack everywhere (as lightair-live): rustls with ring, the system's certificate verifier.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-platform-verifier = "0.7"
+tungstenite = { version = "0.30.0", default-features = false, features = ["handshake", "__rustls-tls"] }
+ureq = { version = "3", default-features = false, features = ["rustls-no-provider", "platform-verifier", "gzip"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+ureq = { version = "3", default-features = false, features = ["rustls-no-provider", "rustls-webpki-roots", "gzip"] }
+webpki-roots = "1"

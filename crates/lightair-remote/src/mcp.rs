@@ -384,6 +384,15 @@ const TOOLS: &[Tool] = &[
         read_only: false,
     },
     Tool {
+        name: "say_aloud",
+        method: "voice.say",
+        title: "Say something aloud",
+        description: "Says a text aloud on stream, on the Voice mixer track, with a voice profile from Settings › Voices (default: the one chosen there). Things said wait their turn.",
+        properties: r#"{"text": {"type": "string"}, "profile": {"type": "string", "description": "A voice profile's name or id (default: the default voice)"}}"#,
+        required: &["text"],
+        read_only: false,
+    },
+    Tool {
         name: "test_event",
         method: "widgets.test",
         title: "Send a test event",

@@ -23,6 +23,8 @@
       return api;
     },
     done: function () { send({ type: 'done' }); },
+    // says a viewer's text aloud with Lightair's voice (its Voice track); Lightair filters it
+    speak: function (text) { if (text) send({ type: 'speak', text: String(text) }); },
     // runs this page's handlers as if Lightair had sent it (trying a widget out)
     emit: function (name, data) { emit(name, data); },
     // gives (delta > 0) or takes a viewer's points; cb(ok, balance): not ok when they haven't
