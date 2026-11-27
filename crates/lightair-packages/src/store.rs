@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Problem, Result};
 use crate::hash::{CopyError, Sha256, copy_hashing};
-use crate::manifest::{Manifest, PackageId, Platform, Range};
+use crate::manifest::{Manifest, PackageId, Platform, Range, Tier};
 use crate::package::{FileEntry, Package};
 use crate::paths::{join, now_secs, unique_name, write_atomic};
 
@@ -196,8 +196,14 @@ impl Store {
     /// same contents does nothing ([`Install::already_installed`]); with different contents it
     /// fails ([`Error::VersionConflict`]).
     pub fn install(&self, package: &Package, source: Source) -> Result<Install> {
+        self.install_with(package, source, Tier::Shader)
+    }
+
+    /// [`install`](Self::install) for an app that runs kinds up to `max_tier` (a desktop with
+    /// the helper sandbox installs helpers too).
+    pub fn install_with(&self, package: &Package, source: Source, max_tier: Tier) -> Result<Install> {
         let m = &package.manifest;
-        let problems = m.check_supported();
+        let problems = m.check_supported_up_to(max_tier);
         if !problems.is_empty() {
             return Err(Error::Invalid { problems });
         }
