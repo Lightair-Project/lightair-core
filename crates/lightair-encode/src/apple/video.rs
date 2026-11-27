@@ -12,7 +12,7 @@ use std::ffi::c_void;
 use std::panic::AssertUnwindSafe;
 use std::ptr::{self, NonNull};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
 
 use objc2_core_foundation::{CFArray, CFBoolean, CFDictionary, CFNumber, CFRetained, CFString, CFType};
 use objc2_core_media::{
@@ -203,6 +203,8 @@ struct Shared {
     /// The format description last seen (by address) and the format made from it.
     format: Mutex<Option<(usize, Arc<VideoFormat>)>>,
     packets: AtomicU64,
+    /// The last picture's decode time (B-frames: each one's comes after it).
+    last_dts: AtomicI64,
 }
 
 pub struct VideoEncoder {
@@ -249,6 +251,7 @@ impl VideoEncoder {
             settings: settings.clone(),
             format: Mutex::new(None),
             packets: AtomicU64::new(0),
+            last_dts: AtomicI64::new(i64::MIN),
         });
         let session = make_session(&settings, &shared, settings.bitrate_kbps)?;
         Ok(VideoEncoder {
@@ -617,6 +620,12 @@ unsafe fn read_sample(shared: &Shared, sample: &CMSampleBuffer) -> Option<Encode
         // rounded up: a shift a nanosecond short (30 fps) left a decode time 1 ns after its picture
         let (num, den) = (i64::from(s.fps_num.max(1)), i64::from(s.fps_den.max(1)));
         dts_ns -= (2 * 1_000_000_000 * den + num - 1) / num;
+        // a picture missing from the input (the encoder fell behind) moves the encoder's decode
+        // times a frame on: never after the picture's own presentation time, and still after the
+        // picture before's decode time
+        let last = shared.last_dts.load(Ordering::Relaxed);
+        dts_ns = dts_ns.min(pts_ns).max(last.saturating_add(1));
+        shared.last_dts.store(dts_ns, Ordering::Relaxed);
     }
     let format = unsafe { sample.format_description() }.and_then(|d| {
         let address = CFRetained::as_ptr(&d).as_ptr() as usize;
