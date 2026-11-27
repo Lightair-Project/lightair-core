@@ -22,8 +22,14 @@
 //!   widget, and a set of files (scenes, widgets, looks, presets, media) is written out as a
 //!   package folder or `.airpkg` with its manifest.
 //!
+//! - **Catalogs** ([`catalog`]): the signed index Lightair's catalog and community catalogs
+//!   publish (roots, timestamps, snapshots, shards, attestations, revocations), checked from
+//!   bytes the app fetches, and [`catalog::CatalogState`], what an app trusts between fetches.
+//! - **Permissions** ([`Permission`]): what a package's code may reach, parsed and described.
+//!
 //! Errors are [`Error`]s whose messages can be shown to the user as they are.
 
+pub mod catalog;
 mod error;
 pub mod export;
 mod hash;
@@ -31,14 +37,18 @@ pub mod lwidget;
 mod manifest;
 mod package;
 mod paths;
+mod permission;
 mod project;
 mod store;
 
 pub use error::{Error, Problem, Result};
 pub use hash::Sha256;
-pub use manifest::{Content, Kind, Manifest, PACKAGE_API, PackageId, Platform, Range, Tier, package_api};
+pub use manifest::{
+    Content, Kind, Manifest, PACKAGE_API, PackageId, Platform, Range, SUPPORTED_TIER, Tier, package_api,
+};
 pub use package::{FileEntry, Limits, Package, content_sha256};
 pub use paths::slug;
+pub use permission::Permission;
 pub use project::{
     Conflict, LOCK_FILE, Lock, Locked, Mismatch, Missing, MissingReason, PROJECT_FILE, Project, Requirements,
     Resolution, ResolveOptions, Resolved, Update,

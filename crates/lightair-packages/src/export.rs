@@ -174,7 +174,7 @@ pub fn write_folder(spec: &ExportSpec, items: &[ExportItem], dest: &Path) -> Res
                 Err(reason) => problems.push(Problem::BadPath { path: f.path.clone(), reason }),
             }
         }
-        plan.push((Content { kind: item.kind.clone(), path: folder }, files));
+        plan.push((Content::new(item.kind.clone(), folder), files));
     }
 
     let manifest = Manifest {
@@ -243,7 +243,13 @@ const STORED: &[&str] = &[
 /// package first, and each file is checked again as it's written. The file appears at `out`
 /// only when complete.
 pub fn write_archive(folder: &Path, out: &Path) -> Result<Sha256> {
-    let package = Package::open(folder)?;
+    write_archive_with(folder, out, crate::Limits::default())
+}
+
+/// [`write_archive`] with other limits ([`Limits::every_tier`](crate::Limits::every_tier) for
+/// authors' tools packing scripts and helpers).
+pub fn write_archive_with(folder: &Path, out: &Path, limits: crate::Limits) -> Result<Sha256> {
+    let package = Package::open_with(folder, limits)?;
     let dir = out.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
     let tmp = dir.join(unique_name(".airpkg-"));
     let result = (|| {

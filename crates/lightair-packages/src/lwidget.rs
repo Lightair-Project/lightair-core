@@ -130,7 +130,7 @@ pub fn to_folder(path: &Path, dest: &Path, version: Option<Version>) -> Result<M
         description: format!("A widget imported from {file_name}"),
         platforms: Vec::new(),
         dependencies: Default::default(),
-        contents: vec![Content { kind: Kind::Widget, path: folder }],
+        contents: vec![Content::new(Kind::Widget, folder)],
         permissions: Vec::new(),
     };
     let manifest_path = dest.join(crate::MANIFEST_FILE);

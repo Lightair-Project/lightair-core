@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Problem, Result};
 use crate::hash::{CopyError, Sha256, copy_hashing};
-use crate::manifest::Manifest;
+use crate::manifest::{Manifest, Tier};
 use crate::paths::{clean_path, is_junk_name, is_junk_path, join};
 
 /// How large a package may be. The defaults allow big media packs while refusing archives
@@ -29,6 +29,9 @@ pub struct Limits {
     pub max_depth: usize,
     /// The largest the manifest may be.
     pub max_manifest_size: u64,
+    /// The highest tier of content accepted ([`SUPPORTED_TIER`](crate::SUPPORTED_TIER) by default:
+    /// what this Lightair runs).
+    pub max_tier: Tier,
 }
 
 impl Default for Limits {
@@ -40,7 +43,15 @@ impl Default for Limits {
             max_path_len: 400,
             max_depth: 24,
             max_manifest_size: 1 << 20,
+            max_tier: crate::SUPPORTED_TIER,
         }
+    }
+}
+
+impl Limits {
+    /// The default limits, accepting content of every tier (for the checks and authors' tools).
+    pub fn every_tier() -> Limits {
+        Limits { max_tier: Tier::Native, ..Limits::default() }
     }
 }
 
@@ -118,6 +129,37 @@ impl Package {
     /// Whether it was read from a `.airpkg` (rather than a folder).
     pub fn is_archive(&self) -> bool {
         matches!(self.origin, Origin::Archive { .. })
+    }
+
+    /// The bytes of one of its files (`rel` as in [`Package::files`]), checked against the
+    /// checksum read when the package was opened.
+    pub fn read(&self, rel: &str) -> Result<Vec<u8>> {
+        let entry = self.files.get(rel).ok_or_else(|| Error::NotAPackage(format!("{rel} isn't in the package")))?;
+        let mut bytes = Vec::new();
+        match &self.origin {
+            Origin::Folder(root) => {
+                let src = join(root, rel);
+                File::open(&src)
+                    .and_then(|f| f.take(entry.size + 1).read_to_end(&mut bytes))
+                    .map_err(|e| Error::io("read", &src, e))?;
+            }
+            Origin::Archive { path, prefix } => {
+                let file = File::open(path).map_err(|e| Error::io("open", path, e))?;
+                let mut zip = zip::ZipArchive::new(BufReader::new(file)).map_err(|e| Error::Damaged(e.to_string()))?;
+                let name = format!("{prefix}{rel}");
+                let f = zip.by_name(&name).map_err(|e| Error::Damaged(format!("{rel}: {e}")))?;
+                f.take(entry.size + 1).read_to_end(&mut bytes).map_err(|e| Error::Damaged(format!("{rel}: {e}")))?;
+            }
+        }
+        if bytes.len() as u64 != entry.size || Sha256::of(&bytes) != entry.sha256 {
+            return Err(Error::ChangedDuringInstall { path: rel.to_string() });
+        }
+        Ok(bytes)
+    }
+
+    /// Writes every file under `dest` (which must exist), each checked against its checksum.
+    pub fn extract_to(&self, dest: &Path) -> Result<()> {
+        self.copy_to(dest)
     }
 
     /// Writes every file of the package under `dest` (which must exist), checking each against
@@ -375,12 +417,15 @@ fn finish(
 ) -> Result<Package> {
     let Tally { files, total, .. } = tally;
     let manifest = Manifest::from_json(manifest_bytes)?;
-    let mut problems = manifest.check_supported();
+    let mut problems = manifest.check_supported_up_to(limits.max_tier);
 
     for c in &manifest.contents {
         let folder = format!("{}/", c.path);
         if !files.contains_key(&c.path) && !files.keys().any(|k| k.starts_with(&folder)) {
             problems.push(Problem::MissingContent(c.path.clone()));
+        }
+        if c.kind == crate::Kind::Helper && !c.entry.values().any(|program| files.contains_key(program)) {
+            problems.push(Problem::NoEntryInFile(c.path.clone()));
         }
     }
 

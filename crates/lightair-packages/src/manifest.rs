@@ -19,8 +19,10 @@ pub fn package_api() -> Version {
     Version::parse(PACKAGE_API).expect("PACKAGE_API is a valid version")
 }
 
-/// The highest tier this Lightair installs: data and shaders.
-const SUPPORTED_TIER: Tier = Tier::Shader;
+/// The highest tier this Lightair installs by default: data and shaders. Tools that read
+/// packages of every tier (the checks, `lightair-pack`) pass a higher one to
+/// [`Manifest::check_supported_up_to`].
+pub const SUPPORTED_TIER: Tier = Tier::Shader;
 
 /// The longest a package's name may be, in characters.
 const MAX_NAME: usize = 100;
@@ -433,6 +435,20 @@ impl fmt::Display for Platform {
 pub struct Content {
     pub kind: Kind,
     pub path: String,
+    /// A helper's program per target (`macos-arm64` → `bin/darwin-arm64/piair`), relative to the
+    /// package root. Only helpers have one; each target's file holds that target's entry.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub entry: BTreeMap<String, String>,
+    /// The modes a helper can be started in (its first argument).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modes: Vec<String>,
+}
+
+impl Content {
+    /// A content entry of `kind` at `path`, with no helper entry or modes.
+    pub fn new(kind: Kind, path: impl Into<String>) -> Content {
+        Content { kind, path: path.into(), entry: BTreeMap::new(), modes: Vec::new() }
+    }
 }
 
 /// A package's manifest, checked for structure (see [`Manifest::from_json`]). Whether this
@@ -491,6 +507,10 @@ struct RawContent {
     kind: String,
     #[serde(default)]
     path: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    entry: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    modes: Vec<String>,
 }
 
 /// The deepest and longest a content path may be (the same as the default
@@ -585,6 +605,27 @@ impl Manifest {
                 problems.push(Problem::MissingField("kind for every content entry"));
                 continue;
             }
+            let kind = Kind::parse(c.kind.trim());
+            let mut entry = BTreeMap::new();
+            if !c.entry.is_empty() && kind != Kind::Helper {
+                problems.push(Problem::EntryNotAllowed(c.path.clone()));
+            }
+            for (target, program) in &c.entry {
+                if crate::catalog::Target::parse(target).is_none_or(|t| t == crate::catalog::Target::Any) {
+                    problems.push(Problem::UnknownTarget(target.clone()));
+                    continue;
+                }
+                match clean_path(program, PATH_LEN, PATH_DEPTH) {
+                    Ok(program) => {
+                        entry.insert(target.clone(), program);
+                    }
+                    Err(reason) => problems.push(Problem::BadPath { path: program.clone(), reason }),
+                }
+            }
+            if kind == Kind::Helper && entry.is_empty() {
+                problems.push(Problem::MissingField("entry (the program for each platform) for every helper"));
+            }
+            let modes: Vec<String> = c.modes.iter().map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).collect();
             match clean_path(&c.path, PATH_LEN, PATH_DEPTH) {
                 Ok(path) => {
                     if !seen.insert(path.to_ascii_lowercase()) {
@@ -592,7 +633,7 @@ impl Manifest {
                     } else if path == crate::MANIFEST_FILE {
                         problems.push(Problem::BadPath { path, reason: "is the manifest itself".into() });
                     } else {
-                        contents.push(Content { kind: Kind::parse(c.kind.trim()), path });
+                        contents.push(Content { kind, path, entry, modes });
                     }
                 }
                 Err(reason) => problems.push(Problem::BadPath { path: c.path.clone(), reason }),
@@ -601,6 +642,11 @@ impl Manifest {
 
         let permissions: Vec<String> =
             raw.permissions.iter().map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect();
+        for p in &permissions {
+            if let Err(reason) = crate::Permission::parse(p) {
+                problems.push(Problem::BadPermission { permission: p.clone(), reason });
+            }
+        }
 
         match (id, version, lightair) {
             (Some(id), Some(version), Some(lightair)) if problems.is_empty() => Ok(Manifest {
@@ -625,6 +671,15 @@ impl Manifest {
     /// install (scripts, native code: "needs a newer Lightair"), and permissions asked for by a
     /// package with no code.
     pub fn check_supported(&self) -> Vec<Problem> {
+        self.check_supported_up_to(SUPPORTED_TIER)
+    }
+
+    /// [`Manifest::check_supported`] for a reader that handles content up to `max_tier` (the
+    /// checks and `lightair-pack` read every tier; an app passes what it can run). Also checks
+    /// which permissions the package's tier may ask for: none for shaders, only `network:` for a
+    /// data package holding a widget or a template (the hosts their web content reaches), and
+    /// `full-access` only for helpers.
+    pub fn check_supported_up_to(&self, max_tier: Tier) -> Vec<Problem> {
         let mut problems = Vec::new();
         let api = package_api();
         if !self.lightair.matches(&api) {
@@ -637,16 +692,57 @@ impl Manifest {
         for c in &self.contents {
             match c.kind.tier() {
                 None => problems.push(Problem::UnknownKind { kind: c.kind.to_string(), path: c.path.clone() }),
-                Some(t) if t > SUPPORTED_TIER => {
+                Some(t) if t > max_tier => {
                     problems.push(Problem::NeedsNewerKind { kind: c.kind.to_string(), path: c.path.clone() })
                 }
                 Some(_) => {}
             }
         }
-        if !self.permissions.is_empty() && self.highest_tier().is_some_and(|t| t <= Tier::Shader) {
-            problems.push(Problem::PermissionsNotAllowed(self.permissions.clone()));
+        problems.extend(self.permission_problems());
+        problems
+    }
+
+    /// The permissions this package asks for that its tier may not have.
+    fn permission_problems(&self) -> Vec<Problem> {
+        let parsed: Vec<crate::Permission> =
+            self.permissions.iter().filter_map(|p| crate::Permission::parse(p).ok()).collect();
+        if parsed.is_empty() {
+            return Vec::new();
+        }
+        let has = |k: Kind| self.contents.iter().any(|c| c.kind == k);
+        let mut problems = Vec::new();
+        match self.highest_tier() {
+            Some(Tier::Data) => {
+                let web = has(Kind::Widget) || has(Kind::Template);
+                let not_network: Vec<String> =
+                    parsed.iter().filter(|p| !p.is_network_host()).map(|p| p.to_string()).collect();
+                if !not_network.is_empty() || !web {
+                    let shown = if web { not_network } else { self.permissions.clone() };
+                    problems.push(Problem::PermissionsNotAllowed(shown));
+                }
+            }
+            Some(Tier::Shader) => problems.push(Problem::PermissionsNotAllowed(self.permissions.clone())),
+            _ => {}
+        }
+        if parsed.iter().any(|p| matches!(p, crate::Permission::FullAccess(_))) && !has(Kind::Helper) {
+            problems.push(Problem::FullAccessNotAllowed);
         }
         problems
+    }
+
+    /// The permissions it asks for, parsed (the ones that don't parse are left out; structural
+    /// checks report those).
+    pub fn parsed_permissions(&self) -> Vec<crate::Permission> {
+        self.permissions.iter().filter_map(|p| crate::Permission::parse(p).ok()).collect()
+    }
+
+    /// Whether it asks for full access on `target` (everywhere, or that target's platform).
+    pub fn full_access_on(&self, target: crate::catalog::Target) -> bool {
+        self.parsed_permissions().iter().any(|p| match p {
+            crate::Permission::FullAccess(None) => true,
+            crate::Permission::FullAccess(Some(platform)) => target.platform() == Some(*platform),
+            _ => false,
+        })
     }
 
     /// The highest tier of its contents (`None` if any kind is unknown).
@@ -701,7 +797,12 @@ impl Manifest {
             contents: self
                 .contents
                 .iter()
-                .map(|c| RawContent { kind: c.kind.to_string(), path: c.path.clone() })
+                .map(|c| RawContent {
+                    kind: c.kind.to_string(),
+                    path: c.path.clone(),
+                    entry: c.entry.clone(),
+                    modes: c.modes.clone(),
+                })
                 .collect(),
             permissions: self.permissions.clone(),
         };

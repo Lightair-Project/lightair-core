@@ -121,6 +121,16 @@ pub enum Problem {
     /// Two files whose names differ only by case (one would overwrite the other on macOS and
     /// Windows).
     CaseClash(String, String),
+    /// A permission that isn't one Lightair knows, or is written wrongly.
+    BadPermission { permission: String, reason: String },
+    /// Full access asked for by a package with no helper.
+    FullAccessNotAllowed,
+    /// A content entry other than a helper names programs.
+    EntryNotAllowed(String),
+    /// A helper's entry names a target Lightair doesn't know.
+    UnknownTarget(String),
+    /// A helper names no program this file holds.
+    NoEntryInFile(String),
 }
 
 impl fmt::Display for Problem {
@@ -166,11 +176,27 @@ impl fmt::Display for Problem {
             Problem::MissingContent(path) => {
                 write!(f, "{path} is listed in the contents but isn't in the package")
             }
-            Problem::PermissionsNotAllowed(p) => {
-                write!(f, "data and shader packages can't ask for permissions (this one asks for {})", p.join(", "))
-            }
+            Problem::PermissionsNotAllowed(p) => write!(
+                f,
+                "shader packages can't ask for permissions, and data packages only for the network hosts of their widgets and templates (this one asks for {})",
+                p.join(", ")
+            ),
             Problem::CaseClash(a, b) => {
                 write!(f, "{a} and {b} differ only by capital letters, so one would overwrite the other")
+            }
+            Problem::BadPermission { permission, reason } => {
+                write!(f, "\"{permission}\" isn't a permission Lightair knows ({reason})")
+            }
+            Problem::FullAccessNotAllowed => write!(f, "only helper programs can ask for full access"),
+            Problem::EntryNotAllowed(path) => {
+                write!(f, "{path} names programs to run, but only helpers can")
+            }
+            Problem::UnknownTarget(t) => write!(
+                f,
+                "\"{t}\" isn't a platform Lightair knows for a helper (macos-arm64, macos-x64, windows-x64, windows-arm64, linux-x64)"
+            ),
+            Problem::NoEntryInFile(path) => {
+                write!(f, "the helper at {path} has no program for any platform in this file")
             }
         }
     }

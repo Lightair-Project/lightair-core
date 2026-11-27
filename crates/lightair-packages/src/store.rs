@@ -37,8 +37,15 @@ pub enum Source {
     Folder { name: String },
     /// A `.lwidget` widget file, installed as a package of one widget.
     Lwidget { name: String },
-    /// The catalog (a download address).
-    Catalog { url: String },
+    /// A catalog: the file's download address, the catalog's base URL, and the attestation
+    /// that vouched for it (so the proof stays with the package, offline and on another computer).
+    Catalog {
+        url: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        catalog: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        attestation: Option<crate::catalog::Envelope>,
+    },
     /// A git repository at a tag or commit.
     Git { url: String, rev: String },
     /// Made on this computer with Export as package.
@@ -61,7 +68,8 @@ impl fmt::Display for Source {
             Source::File { name } | Source::Folder { name } | Source::Lwidget { name } => {
                 write!(f, "the file {name}")
             }
-            Source::Catalog { url } => write!(f, "the catalog ({url})"),
+            Source::Catalog { catalog, url, .. } if catalog.is_empty() => write!(f, "the catalog ({url})"),
+            Source::Catalog { catalog, .. } => write!(f, "the catalog {catalog}"),
             Source::Git { url, rev } => write!(f, "{url} at {rev}"),
             Source::Exported => f.write_str("exported on a computer"),
             Source::Unknown => f.write_str("an unknown source"),
