@@ -1,0 +1,25 @@
+[package]
+name = "lightair-pack"
+description = "lightair-pack: the authors' tool for Lightair packages (build with normalised files, check, publish to a GitHub Release) and for community catalogs (keys, init, add, sign, revoke)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "lightair-pack"
+path = "src/main.rs"
+
+[dependencies]
+lightair-packages = { path = "../lightair-packages" }
+lightair-check = { path = "../lightair-check" }
+serde.workspace = true
+serde_json.workspace = true
+semver = "1"
+base64 = "0.22"
+getrandom = "0.3"
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+rpassword = "7"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+ureq = { version = "3", default-features = false, features = ["rustls-no-provider", "platform-verifier", "gzip"] }

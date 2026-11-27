@@ -29,6 +29,8 @@ exceptions = [
   { name = "lightair-pngtuber",    allow = ["GPL-3.0-or-later"] },
   { name = "lightair-packages",    allow = ["GPL-3.0-or-later"] },
   { name = "lightair-capture",     allow = ["GPL-3.0-or-later"] },
+  { name = "lightair-check",       allow = ["GPL-3.0-or-later"] },
+  { name = "lightair-pack",        allow = ["GPL-3.0-or-later"] },
   { name = "xtask",                allow = ["GPL-3.0-or-later"] },
 ]
 
