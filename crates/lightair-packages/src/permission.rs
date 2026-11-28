@@ -179,7 +179,16 @@ impl Permission {
             Permission::ChatWrite => "Send messages to your stream's chat".into(),
             Permission::ApiCall => "Control Lightair (scenes, sources, outputs)".into(),
             Permission::ComputerControl => "Use your mouse and keyboard, when you turn on AI drives".into(),
-            Permission::AppsRun(a) => format!("Run your {a} app"),
+            Permission::AppsRun(a) => {
+                let name = match a.as_str() {
+                    "codex" => "Codex",
+                    "claude" => "Claude Code",
+                    "agy" => "Antigravity",
+                    "grok" => "Grok",
+                    other => other,
+                };
+                format!("Run your {name} app")
+            }
             Permission::SpeechRead => "Hear what's said on your tracks, as text".into(),
             Permission::Secrets => "Keep its own keys in your Keychain".into(),
             Permission::FullAccess(None) => {
