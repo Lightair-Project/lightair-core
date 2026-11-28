@@ -291,7 +291,7 @@ impl Widgets {
         *self.shared.points.lock() = Some(hook);
     }
 
-    /// Lets pages say text aloud (`lightair.speak`: the alert box's read-aloud).
+    /// Where pages' messages to Lightair go (`lightair.send`: a script's overlay talking to it).
     pub fn set_message_hook(&self, hook: MessageHook) {
         *self.shared.message.lock() = Some(hook);
     }
@@ -301,6 +301,7 @@ impl Widgets {
         self.shared.send_to(id, &json!({"type": "message", "message": message}).to_string());
     }
 
+    /// Lets pages say text aloud (`lightair.speak`: the alert box's read-aloud).
     pub fn set_speak_hook(&self, hook: SpeakHook) {
         *self.shared.speak.lock() = Some(hook);
     }
