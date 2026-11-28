@@ -43,6 +43,14 @@ pub enum Permission {
     ChatWrite,
     /// `api.call`: Lightair's own methods (the remote API's).
     ApiCall,
+    /// `computer.control`: the mouse and keyboard, through Lightair's AI drives and its gates
+    /// (helpers only).
+    ComputerControl,
+    /// `apps.run:<app>`: one of the user's own apps, started by Lightair outside the sandbox
+    /// (helpers only; Lightair decides which apps it will start).
+    AppsRun(String),
+    /// `speech.read`: what's said on the tracks Lightair hears, as text (helpers only).
+    SpeechRead,
     /// `secrets`: its own place in the Keychain.
     Secrets,
     /// `full-access`, everywhere (`None`) or on one platform (`full-access:windows`).
@@ -74,6 +82,8 @@ impl Permission {
             "chat.read" => Some(Permission::ChatRead),
             "chat.write" => Some(Permission::ChatWrite),
             "api.call" => Some(Permission::ApiCall),
+            "computer.control" => Some(Permission::ComputerControl),
+            "speech.read" => Some(Permission::SpeechRead),
             "secrets" => Some(Permission::Secrets),
             "full-access" => Some(Permission::FullAccess(None)),
             _ => None,
@@ -96,6 +106,7 @@ impl Permission {
             "network.listen" => port_of(rest).map(Permission::Listen),
             "ipc" => name_ok(rest, "a socket or pipe name").map(|n| Permission::Ipc(n.to_string())),
             "automation" => name_ok(rest, "an app id").map(|n| Permission::Automation(n.to_string())),
+            "apps.run" => name_ok(rest, "an app's name").map(|n| Permission::AppsRun(n.to_string())),
             "device.hid" => vendor_ok(rest).map(Permission::DeviceHid),
             "device.usb" => vendor_ok(rest).map(Permission::DeviceUsb),
             "full-access" => Platform::parse(rest)
@@ -134,6 +145,9 @@ impl Permission {
                 | Permission::Camera
                 | Permission::Mic
                 | Permission::Automation(_)
+                | Permission::ComputerControl
+                | Permission::AppsRun(_)
+                | Permission::SpeechRead
                 | Permission::FsReadPicked
                 | Permission::FsWritePicked
                 | Permission::FullAccess(_)
@@ -164,6 +178,9 @@ impl Permission {
             Permission::ChatRead => "Read your stream's chat".into(),
             Permission::ChatWrite => "Send messages to your stream's chat".into(),
             Permission::ApiCall => "Control Lightair (scenes, sources, outputs)".into(),
+            Permission::ComputerControl => "Use your mouse and keyboard, when you turn on AI drives".into(),
+            Permission::AppsRun(a) => format!("Run your {a} app"),
+            Permission::SpeechRead => "Hear what's said on your tracks, as text".into(),
             Permission::Secrets => "Keep its own keys in your Keychain".into(),
             Permission::FullAccess(None) => {
                 "Full access: runs like any app you install, outside Lightair's sandbox".into()
@@ -208,6 +225,9 @@ impl fmt::Display for Permission {
             Permission::ChatRead => f.write_str("chat.read"),
             Permission::ChatWrite => f.write_str("chat.write"),
             Permission::ApiCall => f.write_str("api.call"),
+            Permission::ComputerControl => f.write_str("computer.control"),
+            Permission::AppsRun(a) => write!(f, "apps.run:{a}"),
+            Permission::SpeechRead => f.write_str("speech.read"),
             Permission::Secrets => f.write_str("secrets"),
             Permission::FullAccess(None) => f.write_str("full-access"),
             Permission::FullAccess(Some(p)) => write!(f, "full-access:{p}"),

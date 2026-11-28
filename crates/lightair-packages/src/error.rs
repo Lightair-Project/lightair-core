@@ -125,6 +125,8 @@ pub enum Problem {
     BadPermission { permission: String, reason: String },
     /// Full access asked for by a package with no helper.
     FullAccessNotAllowed,
+    /// Permissions only helper programs may ask for (`computer.control`, `apps.run`, `speech.read`).
+    HelperOnly(Vec<String>),
     /// A content entry other than a helper names programs.
     EntryNotAllowed(String),
     /// A helper's entry names a target Lightair doesn't know.
@@ -188,6 +190,7 @@ impl fmt::Display for Problem {
                 write!(f, "\"{permission}\" isn't a permission Lightair knows ({reason})")
             }
             Problem::FullAccessNotAllowed => write!(f, "only helper programs can ask for full access"),
+            Problem::HelperOnly(p) => write!(f, "only helper programs can ask for {}", p.join(", ")),
             Problem::EntryNotAllowed(path) => {
                 write!(f, "{path} names programs to run, but only helpers can")
             }

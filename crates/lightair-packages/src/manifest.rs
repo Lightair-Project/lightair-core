@@ -727,6 +727,19 @@ impl Manifest {
         if parsed.iter().any(|p| matches!(p, crate::Permission::FullAccess(_))) && !has(Kind::Helper) {
             problems.push(Problem::FullAccessNotAllowed);
         }
+        let helper_only: Vec<String> = parsed
+            .iter()
+            .filter(|p| {
+                matches!(
+                    p,
+                    crate::Permission::ComputerControl | crate::Permission::AppsRun(_) | crate::Permission::SpeechRead
+                )
+            })
+            .map(|p| p.to_string())
+            .collect();
+        if !helper_only.is_empty() && !has(Kind::Helper) {
+            problems.push(Problem::HelperOnly(helper_only));
+        }
         problems
     }
 
