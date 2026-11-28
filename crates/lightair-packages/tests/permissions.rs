@@ -174,3 +174,60 @@ fn a_store_installs_a_helper_only_when_asked_to_take_native_code() {
     assert!(store.install(&p, src()).is_err(), "a helper installed without asking for native code");
     assert!(store.install_with(&p, src(), Tier::Native).is_ok());
 }
+
+// ---------------------------------------------------------------- optional permissions
+
+fn with_optional(contents: &str, optional: &str) -> Result<Manifest, lightair_packages::Error> {
+    Manifest::from_json(
+        format!(
+            r#"{{"id":"io.github.nova.p","name":"P","version":"1.0.0","lightair":">=1.0 <2",
+               "contents":[{contents}],"permissions":[],"optional_permissions":[{optional}]}}"#
+        )
+        .as_bytes(),
+    )
+}
+
+const HELPER: &str = r#"{"kind":"helper","path":"h","entry":{"macos-arm64":"h/bin"},"modes":["run"]}"#;
+const SCRIPT: &str = r#"{"kind":"extension","path":"s"}"#;
+
+#[test]
+fn helpers_and_scripts_may_ask_for_permissions_later() {
+    let helper = with_optional(HELPER, r#""chat.write""#).unwrap();
+    assert!(allowed(&helper), "{:?}", helper.check_supported_up_to(Tier::Native));
+    let script = with_optional(SCRIPT, r#""chat.write""#).unwrap();
+    assert!(allowed(&script), "{:?}", script.check_supported_up_to(Tier::Native));
+}
+
+#[test]
+fn a_package_without_code_may_not_ask_for_anything_later() {
+    for contents in [r#"{"kind":"widget","path":"w"}"#, r#"{"kind":"shader-effect","path":"s"}"#] {
+        let m = with_optional(contents, r#""network:example.com""#).unwrap();
+        let problems = m.check_supported_up_to(Tier::Native);
+        assert!(problems.iter().any(|p| matches!(p, Problem::OptionalNotAllowed(_))), "{contents}: {problems:?}");
+    }
+}
+
+#[test]
+fn full_access_can_never_be_asked_for_later() {
+    let m = with_optional(HELPER, r#""full-access""#).unwrap();
+    let problems = m.check_supported_up_to(Tier::Native);
+    assert!(problems.iter().any(|p| matches!(p, Problem::FullAccessOptional)), "{problems:?}");
+}
+
+#[test]
+fn acting_on_its_own_is_only_for_helpers_and_announced_every_time() {
+    let script = with_optional(SCRIPT, r#""computer.autonomous""#).unwrap();
+    let problems = script.check_supported_up_to(Tier::Native);
+    assert!(
+        problems.iter().any(|p| matches!(p, Problem::HelperOnly(n) if n == &["computer.autonomous".to_string()])),
+        "{problems:?}"
+    );
+    let helper = with_optional(HELPER, r#""computer.autonomous""#).unwrap();
+    assert!(allowed(&helper), "{:?}", helper.check_supported_up_to(Tier::Native));
+    assert!(Permission::parse("computer.autonomous").unwrap().is_sensitive());
+}
+
+#[test]
+fn an_unknown_optional_permission_is_refused_when_the_manifest_is_read() {
+    assert!(with_optional(HELPER, r#""mind.read""#).is_err());
+}

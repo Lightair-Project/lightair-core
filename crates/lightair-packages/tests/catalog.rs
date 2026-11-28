@@ -283,6 +283,7 @@ fn attestation_for(p: &Package, version: &str, permissions: &[&str]) -> (Attesta
         publisher: "nova".into(),
         tier: 1,
         permissions: permissions.iter().map(|s| s.to_string()).collect(),
+        optional_permissions: vec![],
         full_access: false,
         lightair: ">=1.0 <2".into(),
         files: vec![file.clone()],
@@ -366,6 +367,7 @@ fn attestation_for_files(files: Vec<AttestedFile>) -> Attestation {
         publisher: "nova".into(),
         tier: 4,
         permissions: vec![],
+        optional_permissions: vec![],
         full_access: false,
         lightair: ">=1.0 <2".into(),
         files,
@@ -441,4 +443,14 @@ fn id_and_publisher_entries_dont_reach_packages_from_another_source() {
     };
     assert!(list.find(&query(&sha, &v, false), true).is_none());
     assert!(list.find(&query(&sha, &v, true), true).is_some());
+}
+
+#[test]
+fn a_package_that_may_ask_later_for_other_permissions_than_listed_is_refused() {
+    let t = tempfile::tempdir().unwrap();
+    let p = package(&t.path().join("neon"), "");
+    let (mut a, f) = attestation_for(&p, "1.0.0", &[]);
+    a.optional_permissions = vec!["chat.write".into()];
+    let why = a.check_package(&f, &p).unwrap_err();
+    assert!(why.iter().any(|w| w.contains("ask later")), "{why:?}");
 }

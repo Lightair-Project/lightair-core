@@ -49,3 +49,25 @@ fn a_script_calling_a_method_it_didnt_declare_fails_naming_it() {
     assert_eq!(c.verdict(), Verdict::Fail, "{c:?}");
     assert!(c.results.iter().any(|r| r.message.contains("output.start")), "the failure names the method: {c:?}");
 }
+
+#[test]
+fn a_method_covered_by_a_permission_it_may_ask_for_later_passes() {
+    let t = tempfile::tempdir().unwrap();
+    let dir = t.path();
+    std::fs::create_dir_all(dir.join("script")).unwrap();
+    std::fs::write(
+        dir.join("script/main.js"),
+        r#"lightair.command({ id: "go", title: "Go live", run: () => lightair.call("output.start", {}) });"#,
+    )
+    .unwrap();
+    std::fs::write(dir.join("LICENSE"), "MIT").unwrap();
+    std::fs::write(
+        dir.join("lightair-package.json"),
+        r#"{"id":"io.github.nova.s","name":"S","version":"1.0.0","lightair":">=1.0 <2","licence":"MIT",
+            "contents":[{"kind":"extension","path":"script"}],"permissions":["project.read"],
+            "optional_permissions":["outputs.control"]}"#,
+    )
+    .unwrap();
+    let c = run_check(dir);
+    assert_ne!(c.verdict(), Verdict::Fail, "{c:?}");
+}

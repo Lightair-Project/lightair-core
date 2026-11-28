@@ -36,6 +36,7 @@ fn start(code: &str, permissions: &[&str], budget: Budget, data_dir: Option<Path
         name: "Test".into(),
         code: code.into(),
         permissions: permissions.iter().map(|p| p.to_string()).collect(),
+        optional: vec![],
         data_dir,
         settings: json!({}),
     };
@@ -191,4 +192,84 @@ fn a_steps_result_is_what_its_handler_returns_or_resolves_to() {
     assert_eq!(s.step("later", json!({})).unwrap(), json!("done"));
     let steps: Vec<String> = s.declared().steps.iter().map(|d| d.id.clone()).collect();
     assert_eq!(steps, vec!["add", "later"], "both steps are offered to the automations");
+}
+
+// ---------------------------------------------------------------- optional permissions
+
+/// A Lightair whose user grants the listed optional permissions when asked, and nothing else.
+#[derive(Default)]
+struct Granting {
+    grants: Vec<String>,
+    calls: Mutex<Vec<String>>,
+    released: Mutex<Vec<String>>,
+}
+
+impl Host for Granting {
+    fn call(&self, method: &str, _params: Value) -> Result<Value, String> {
+        self.calls.lock().unwrap().push(method.to_string());
+        Ok(json!({"ok": true}))
+    }
+    fn fetch(&self, _req: &FetchRequest) -> Result<FetchResponse, String> {
+        Err("no network here".into())
+    }
+    fn request_permissions(&self, permissions: &[String], _reason: &str) -> Vec<String> {
+        permissions.iter().filter(|p| self.grants.contains(p)).cloned().collect()
+    }
+    fn release_permissions(&self, permissions: &[String]) {
+        self.released.lock().unwrap().extend(permissions.iter().cloned());
+    }
+}
+
+const GO_LIVE: &str = r#"
+lightair.command({ id: "go", title: "Go live", run: () => lightair.call("output.start", {}) });
+lightair.command({ id: "ask", title: "Ask", run: () => lightair.permissions.request(["outputs.control"], "to go live for you") });
+lightair.command({ id: "ask-chat", title: "Ask chat", run: () => lightair.permissions.request(["chat.write"], "to talk") });
+lightair.command({ id: "give-back", title: "Give back", run: () => lightair.permissions.release(["outputs.control"]) });
+"#;
+
+fn start_optional(grants: &[&str]) -> (Script, Arc<Granting>) {
+    let host = Arc::new(Granting { grants: grants.iter().map(|g| g.to_string()).collect(), ..Default::default() });
+    let package = Package {
+        id: "io.github.nova.live".into(),
+        name: "Live".into(),
+        code: GO_LIVE.into(),
+        permissions: vec![],
+        optional: vec!["outputs.control".into()],
+        data_dir: None,
+        settings: json!({}),
+    };
+    (Script::start(package, host.clone(), Budget::default()), host)
+}
+
+#[test]
+fn a_method_needing_an_optional_permission_works_only_once_the_user_grants_it() {
+    let (s, host) = start_optional(&["outputs.control"]);
+    assert!(s.command("go").is_err(), "an optional permission isn't held before it's asked for");
+    assert!(host.calls.lock().unwrap().is_empty());
+    assert_eq!(s.command("ask").unwrap(), json!(["outputs.control"]));
+    s.command("go").expect("granted now");
+    assert_eq!(*host.calls.lock().unwrap(), ["output.start"]);
+}
+
+#[test]
+fn when_the_user_says_no_the_method_stays_refused() {
+    let (s, host) = start_optional(&[]);
+    assert_eq!(s.command("ask").unwrap(), json!([]));
+    assert!(s.command("go").is_err());
+    assert!(host.calls.lock().unwrap().is_empty());
+}
+
+#[test]
+fn a_script_cant_ask_for_a_permission_it_didnt_list_as_optional() {
+    let (s, _host) = start_optional(&["chat.write"]);
+    assert!(s.command("ask-chat").is_err());
+}
+
+#[test]
+fn giving_a_permission_back_refuses_the_method_again_and_tells_lightair() {
+    let (s, host) = start_optional(&["outputs.control"]);
+    s.command("ask").unwrap();
+    s.command("give-back").unwrap();
+    assert!(s.command("go").is_err());
+    assert_eq!(*host.released.lock().unwrap(), ["outputs.control"]);
 }
