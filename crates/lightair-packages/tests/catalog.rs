@@ -273,8 +273,8 @@ fn attestation_for(p: &Package, version: &str, permissions: &[&str]) -> (Attesta
         platform: "any".into(),
         url: "https://github.com/nova/neon/releases/download/v1/neon.airpkg".into(),
         size: 0,
-        archive_sha256: p.archive_sha256.clone().unwrap(),
-        content_sha256: p.content_sha256.clone(),
+        archive_sha256: p.archive_sha256.unwrap(),
+        content_sha256: p.content_sha256,
     };
     let a = Attestation {
         format: 1,
@@ -404,7 +404,7 @@ fn query<'a>(content: &'a Sha256, version: &'a semver::Version, from_this_catalo
 fn lightairs_list_revokes_a_file_by_checksum_whatever_its_source() {
     let sha = Sha256::of(b"evil");
     let v = semver::Version::new(1, 0, 0);
-    let list = Revoked { format: 1, version: 1, entries: vec![entry(Some(sha.clone()), None, None, None)] };
+    let list = Revoked { format: 1, version: 1, entries: vec![entry(Some(sha), None, None, None)] };
     assert!(list.find(&query(&sha, &v, false), true).is_some(), "a sideloaded copy escaped Lightair's list");
 }
 
@@ -412,7 +412,7 @@ fn lightairs_list_revokes_a_file_by_checksum_whatever_its_source() {
 fn a_community_list_doesnt_reach_packages_from_elsewhere() {
     let sha = Sha256::of(b"evil");
     let v = semver::Version::new(1, 0, 0);
-    let list = Revoked { format: 1, version: 1, entries: vec![entry(Some(sha.clone()), None, None, None)] };
+    let list = Revoked { format: 1, version: 1, entries: vec![entry(Some(sha), None, None, None)] };
     assert!(list.find(&query(&sha, &v, false), false).is_none());
     assert!(list.find(&query(&sha, &v, true), false).is_some());
 }
