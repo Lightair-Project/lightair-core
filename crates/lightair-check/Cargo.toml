@@ -26,6 +26,7 @@ lightair-model.workspace = true
 lightair-render.workspace = true
 lightair-fonts.workspace = true
 lightair-automation = { path = "../lightair-automation" }
+lightair-script = { path = "../lightair-script" }
 lightair-widgets.workspace = true
 lightair-live.workspace = true
 wgpu = "30"

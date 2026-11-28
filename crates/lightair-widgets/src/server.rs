@@ -71,12 +71,18 @@ pub(crate) struct Shared {
     points: Mutex<Option<PointsHook>>,
     /// Says a viewer's text aloud (`lightair.speak`), through Lightair's voices.
     speak: Mutex<Option<SpeakHook>>,
+    /// A page's `lightair.send(message)`: (instance id, message), for the script plugin whose
+    /// overlay the page is.
+    message: Mutex<Option<MessageHook>>,
 }
 
 pub type PointsHook = Box<dyn Fn(&str, &str, &str, f64) -> Option<f64> + Send + Sync>;
 
 /// Says a page's text aloud (a viewer's message: the hook filters it).
 pub type SpeakHook = Box<dyn Fn(&str) + Send + Sync>;
+
+/// A page's message to Lightair (`lightair.send`): its instance id and the message.
+pub type MessageHook = Box<dyn Fn(&str, Value) + Send + Sync>;
 
 /// Runs an automation by name or id (the web address's way in).
 pub type RunHook = Box<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
@@ -110,6 +116,7 @@ impl Widgets {
             run: Mutex::new(None),
             points: Mutex::new(None),
             speak: Mutex::new(None),
+            message: Mutex::new(None),
         });
         tracing::info!(port, "widgets served");
         {
@@ -285,6 +292,15 @@ impl Widgets {
     }
 
     /// Lets pages say text aloud (`lightair.speak`: the alert box's read-aloud).
+    pub fn set_message_hook(&self, hook: MessageHook) {
+        *self.shared.message.lock() = Some(hook);
+    }
+
+    /// A message to one instance's pages (`lightair.on('message', fn)`).
+    pub fn send_message(&self, id: &str, message: &Value) {
+        self.shared.send_to(id, &json!({"type": "message", "message": message}).to_string());
+    }
+
     pub fn set_speak_hook(&self, hook: SpeakHook) {
         *self.shared.speak.lock() = Some(hook);
     }
@@ -657,6 +673,11 @@ fn feed(mut ws: WebSocket<TcpStream>, shared: &Arc<Shared>, instance: &str) -> i
                     let Ok(m) = serde_json::from_str::<Value>(t.as_str()) else { continue };
                     match m["type"].as_str() {
                         Some("done") => shared.done(instance),
+                        Some("message") => {
+                            if let Some(hook) = shared.message.lock().as_ref() {
+                                hook(instance, m.get("message").cloned().unwrap_or(Value::Null));
+                            }
+                        }
                         Some("speak") => {
                             if let (Some(text), Some(hook)) = (m["text"].as_str(), shared.speak.lock().as_ref()) {
                                 hook(text);

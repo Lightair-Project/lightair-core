@@ -3,6 +3,8 @@
 //   lightair.on('event', fn)    every event (chat messages included)
 //   lightair.on('alert', fn)    the alert box's queue: call lightair.done() when it has gone
 //   lightair.on('session'|'fields'|'button'|'storage', fn)
+//   lightair.on('message', fn)  a message from the script plugin whose overlay this is
+//   lightair.send(message)      a message to that script
 (function () {
   var m = location.pathname.match(/^\/w\/([^/]+)/);
   var id = m ? m[1] : '';
@@ -23,6 +25,7 @@
       return api;
     },
     done: function () { send({ type: 'done' }); },
+    send: function (message) { send({ type: 'message', message: message }); },
     // says a viewer's text aloud with Lightair's voice (its Voice track); Lightair filters it
     speak: function (text) { if (text) send({ type: 'speak', text: String(text) }); },
     // runs this page's handlers as if Lightair had sent it (trying a widget out)
@@ -114,6 +117,7 @@
         case 'event': emit('event', msg.event); break;
         case 'alert': emit('alert', msg.event); break;
         case 'button': emit('button', msg.name); break;
+        case 'message': emit('message', msg.message); break;
         case 'skip': emit('skip'); break;
         case 'speak': emit('speak', msg.text); break;
         case 'data': api.data[msg.key] = msg.value; emit('data', { key: msg.key, value: msg.value }); break;

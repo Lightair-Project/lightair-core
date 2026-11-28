@@ -66,9 +66,8 @@ pub fn run(path: &Path, deep: bool, previews: Option<&Path>) -> Output {
                 Some(rel),
             ),
             Kind::Helper => c.note("helpers are started by the helper run on macOS and Windows", Some(rel)),
-            Kind::Extension | Kind::WasmEffect | Kind::WasmSource => {
-                c.note("scripts and WebAssembly have no runtime to run in yet", Some(rel))
-            }
+            Kind::Extension => crate::script_run::script(&mut c, &folder, rel, &package.manifest),
+            Kind::WasmEffect | Kind::WasmSource => c.note("WebAssembly has no runtime to run in yet", Some(rel)),
             Kind::EffectPreset | Kind::Theme | Kind::Font | Kind::Other(_) => {}
         }
     }

@@ -19,6 +19,7 @@ pub mod filetype;
 pub mod normalise;
 pub mod report;
 mod run;
+mod script_run;
 pub mod widgets;
 
 use std::path::Path;
