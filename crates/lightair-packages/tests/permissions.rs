@@ -1,7 +1,7 @@
 //! What a package may ask for, by what it holds, and which tiers an app installs.
 
 use lightair_packages::catalog::Target;
-use lightair_packages::{Manifest, Package, Permission, Source, Store, Tier};
+use lightair_packages::{Manifest, Package, Permission, Problem, Source, Store, Tier};
 
 fn manifest(contents: &str, permissions: &str) -> Manifest {
     Manifest::from_json(
@@ -58,6 +58,42 @@ fn full_access_is_only_for_helpers() {
 }
 
 #[test]
+fn the_co_hosts_powers_are_only_for_helpers_and_the_refusal_names_them() {
+    let asks = r#""computer.control","apps.run:codex","speech.read""#;
+    let widget = manifest(r#"{"kind":"widget","path":"w"}"#, asks);
+    let named: Vec<String> = widget
+        .check_supported_up_to(Tier::Native)
+        .into_iter()
+        .filter_map(|p| match p {
+            Problem::HelperOnly(names) => Some(names),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    assert_eq!(named, ["computer.control", "apps.run:codex", "speech.read"]);
+
+    let helper = manifest(r#"{"kind":"helper","path":"h","entry":{"macos-arm64":"h/bin"}}"#, asks);
+    assert!(allowed(&helper), "{:?}", helper.check_supported_up_to(Tier::Native));
+}
+
+#[test]
+fn the_co_hosts_powers_are_announced_every_time_they_are_used() {
+    for text in ["computer.control", "apps.run:claude", "speech.read"] {
+        assert!(Permission::parse(text).unwrap().is_sensitive(), "{text}");
+    }
+}
+
+#[test]
+fn the_install_screen_names_each_ai_app_as_people_know_it() {
+    for (app, name) in [("codex", "Codex"), ("claude", "Claude Code"), ("agy", "Antigravity"), ("grok", "Grok")] {
+        let said = Permission::parse(&format!("apps.run:{app}")).unwrap().describe();
+        assert!(said.contains(name), "{app}: {said}");
+    }
+    // an app Lightair has no name for is shown as written, not dropped
+    assert!(Permission::parse("apps.run:ollama").unwrap().describe().contains("ollama"));
+}
+
+#[test]
 fn full_access_for_one_platform_applies_only_there() {
     let m = manifest(r#"{"kind":"helper","path":"h","entry":{"windows-x64":"h/x.exe"}}"#, r#""full-access:windows""#);
     assert!(m.full_access_on(Target::WindowsX64));
@@ -108,6 +144,9 @@ fn a_permission_written_back_reads_the_same() {
         "network.listen:1455",
         "full-access:windows",
         "device.hid:0fd9",
+        "computer.control",
+        "apps.run:codex",
+        "speech.read",
     ] {
         let p = Permission::parse(text).unwrap();
         assert_eq!(Permission::parse(&p.to_string()).unwrap(), p, "{text}");
