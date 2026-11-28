@@ -18,8 +18,10 @@ pub enum Permission {
     Lan,
     /// `network.lan.discovery`: Bonjour/mDNS discovery on the home network.
     LanDiscovery,
-    /// `network.listen:<port>`: listening on that port.
+    /// `network.listen:<port>`: listening on that port (one an outside service fixed).
     Listen(u16),
+    /// `network.listen:any`: listening on a free port Lightair picks when the helper starts.
+    ListenAny,
     /// `ipc:<name>`: one local socket or named pipe.
     Ipc(String),
     /// `automation:<app id>`: scripting one other app.
@@ -107,6 +109,7 @@ impl Permission {
                 host_ok(rest)?;
                 Ok(Permission::Network(rest.to_ascii_lowercase()))
             }
+            "network.listen" if rest == "any" => Ok(Permission::ListenAny),
             "network.listen" => port_of(rest).map(Permission::Listen),
             "ipc" => name_ok(rest, "a socket or pipe name").map(|n| Permission::Ipc(n.to_string())),
             "automation" => name_ok(rest, "an app id").map(|n| Permission::Automation(n.to_string())),
@@ -179,6 +182,7 @@ impl Permission {
             Permission::Lan => "Talk to devices on your home network".into(),
             Permission::LanDiscovery => "Find devices on your home network".into(),
             Permission::Listen(p) => format!("Accept connections on port {p}"),
+            Permission::ListenAny => "Accept connections from other apps".into(),
             Permission::Ipc(n) => format!("Talk to another app through \"{n}\""),
             Permission::Automation(a) => format!("Control {a}"),
             Permission::FsReadPicked => "Read files and folders you choose".into(),
@@ -238,6 +242,7 @@ impl fmt::Display for Permission {
             Permission::Lan => f.write_str("network.lan"),
             Permission::LanDiscovery => f.write_str("network.lan.discovery"),
             Permission::Listen(p) => write!(f, "network.listen:{p}"),
+            Permission::ListenAny => f.write_str("network.listen:any"),
             Permission::Ipc(n) => write!(f, "ipc:{n}"),
             Permission::Automation(a) => write!(f, "automation:{a}"),
             Permission::FsReadPicked => f.write_str("fs.read:picked"),
