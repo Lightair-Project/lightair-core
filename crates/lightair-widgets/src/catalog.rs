@@ -357,9 +357,14 @@ pub fn button(
                 "awayDown" => vec![("away".into(), json!((n("away") - 1).max(0)))],
                 "resetScore" => vec![("home".into(), json!(0)), ("away".into(), json!(0)), ("period".into(), json!(1))],
                 "periodUp" => vec![("period".into(), json!(n("period").max(1) + 1))],
-                "clockStart" if !running => vec![("clockRunning".into(), json!(true)), ("clockSince".into(), json!(now_ms()))],
+                "clockStart" if !running => {
+                    vec![("clockRunning".into(), json!(true)), ("clockSince".into(), json!(now_ms()))]
+                }
                 "clockPause" if running => {
-                    vec![("clockRunning".into(), json!(false)), ("clockUsed".into(), json!(used + (now_ms() - since).max(0)))]
+                    vec![
+                        ("clockRunning".into(), json!(false)),
+                        ("clockUsed".into(), json!(used + (now_ms() - since).max(0))),
+                    ]
                 }
                 "clockReset" => vec![
                     ("clockRunning".into(), json!(false)),
