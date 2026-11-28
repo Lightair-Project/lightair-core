@@ -89,7 +89,8 @@ pub fn helper_run(path: &Path, platform: &str, runner: Option<&Path>) -> Output 
     let mut cmd = std::process::Command::new(&runner);
     cmd.arg("--package-dir").arg(&dir).arg("--entry").arg(&entry).arg("--id").arg(package.manifest.id.as_str());
     cmd.arg("--platform").arg(platform).arg("--json").arg(&json);
-    for p in &package.manifest.permissions {
+    // the run grants what it may ask for later too, so the helper's whole behaviour is seen
+    for p in package.manifest.permissions.iter().chain(&package.manifest.optional_permissions) {
         cmd.arg("--permission").arg(p);
     }
     if let Ok(l) = std::env::var("LIGHTAIR_SANDBOX") {

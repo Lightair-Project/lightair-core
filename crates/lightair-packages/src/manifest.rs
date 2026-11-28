@@ -471,6 +471,9 @@ pub struct Manifest {
     pub contents: Vec<Content>,
     /// What its code may do (scripts and native code only; data and shader packages have none).
     pub permissions: Vec<String>,
+    /// What it may ask for later, while it runs (`permissions.request`), never granted at install
+    /// (helpers and scripts only; never `full-access`).
+    pub optional_permissions: Vec<String>,
 }
 
 /// The manifest as written, every field optional, so missing and malformed fields are reported
@@ -499,6 +502,8 @@ struct RawManifest {
     contents: Vec<RawContent>,
     #[serde(default)]
     permissions: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    optional_permissions: Vec<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -647,6 +652,17 @@ impl Manifest {
                 problems.push(Problem::BadPermission { permission: p.clone(), reason });
             }
         }
+        let optional_permissions: Vec<String> = raw
+            .optional_permissions
+            .iter()
+            .map(|p| p.trim().to_string())
+            .filter(|p| !p.is_empty() && !permissions.contains(p))
+            .collect();
+        for p in &optional_permissions {
+            if let Err(reason) = crate::Permission::parse(p) {
+                problems.push(Problem::BadPermission { permission: p.clone(), reason });
+            }
+        }
 
         match (id, version, lightair) {
             (Some(id), Some(version), Some(lightair)) if problems.is_empty() => Ok(Manifest {
@@ -661,6 +677,7 @@ impl Manifest {
                 dependencies,
                 contents,
                 permissions,
+                optional_permissions,
             }),
             _ => Err(problems),
         }
@@ -699,7 +716,36 @@ impl Manifest {
             }
         }
         problems.extend(self.permission_problems());
+        problems.extend(self.optional_problems());
         problems
+    }
+
+    /// What's wrong with its optional permissions: only code (scripts and helpers) asks for
+    /// anything later, and never for full access, which is asked at install or not at all.
+    fn optional_problems(&self) -> Vec<Problem> {
+        if self.optional_permissions.is_empty() {
+            return Vec::new();
+        }
+        let parsed: Vec<crate::Permission> =
+            self.optional_permissions.iter().filter_map(|p| crate::Permission::parse(p).ok()).collect();
+        let mut problems = Vec::new();
+        if self.highest_tier().is_none_or(|t| t < Tier::Script) {
+            problems.push(Problem::OptionalNotAllowed(self.optional_permissions.clone()));
+        }
+        if parsed.iter().any(|p| matches!(p, crate::Permission::FullAccess(_))) {
+            problems.push(Problem::FullAccessOptional);
+        }
+        let has_helper = self.contents.iter().any(|c| c.kind == Kind::Helper);
+        let helper_only: Vec<String> = parsed.iter().filter(|p| p.helper_only()).map(|p| p.to_string()).collect();
+        if !helper_only.is_empty() && !has_helper {
+            problems.push(Problem::HelperOnly(helper_only));
+        }
+        problems
+    }
+
+    /// The optional permissions, parsed.
+    pub fn parsed_optional(&self) -> Vec<crate::Permission> {
+        self.optional_permissions.iter().filter_map(|p| crate::Permission::parse(p).ok()).collect()
     }
 
     /// The permissions this package asks for that its tier may not have.
@@ -727,16 +773,7 @@ impl Manifest {
         if parsed.iter().any(|p| matches!(p, crate::Permission::FullAccess(_))) && !has(Kind::Helper) {
             problems.push(Problem::FullAccessNotAllowed);
         }
-        let helper_only: Vec<String> = parsed
-            .iter()
-            .filter(|p| {
-                matches!(
-                    p,
-                    crate::Permission::ComputerControl | crate::Permission::AppsRun(_) | crate::Permission::SpeechRead
-                )
-            })
-            .map(|p| p.to_string())
-            .collect();
+        let helper_only: Vec<String> = parsed.iter().filter(|p| p.helper_only()).map(|p| p.to_string()).collect();
         if !helper_only.is_empty() && !has(Kind::Helper) {
             problems.push(Problem::HelperOnly(helper_only));
         }
@@ -818,6 +855,7 @@ impl Manifest {
                 })
                 .collect(),
             permissions: self.permissions.clone(),
+            optional_permissions: self.optional_permissions.clone(),
         };
         let mut out = serde_json::to_vec_pretty(&raw).unwrap_or_default();
         out.push(b'\n');

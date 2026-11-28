@@ -275,6 +275,9 @@ pub struct Attestation {
     pub tier: u8,
     #[serde(default)]
     pub permissions: Vec<String>,
+    /// What the package may ask for later (`permissions.request`); never granted at install.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub optional_permissions: Vec<String>,
     #[serde(default)]
     pub full_access: bool,
     pub lightair: String,
@@ -333,6 +336,14 @@ impl Attestation {
             .collect();
         if mine != theirs {
             out.push("the package asks for other permissions than the catalog listed".to_string());
+        }
+        let norm = |list: &[String]| -> BTreeSet<String> {
+            list.iter()
+                .map(|p| crate::Permission::parse(p).map_or_else(|_| p.trim().to_string(), |p| p.to_string()))
+                .collect()
+        };
+        if norm(&m.optional_permissions) != norm(&self.optional_permissions) {
+            out.push("the package may ask later for other permissions than the catalog listed".to_string());
         }
         if m.lightair.as_str() != self.lightair.trim() {
             out.push("the package's Lightair range isn't the one the catalog listed".to_string());

@@ -234,7 +234,8 @@ fn glb_ok(bytes: &[u8]) -> Result<(), String> {
 fn permission_check(package: &Package, files: &Files) -> (Check, Vec<Code>) {
     let mut c = Check::new("permissions");
     let m = &package.manifest;
-    let granted: Vec<Permission> = m.parsed_permissions();
+    // code may use what it declares now and what it may ask for later
+    let granted: Vec<Permission> = m.parsed_permissions().into_iter().chain(m.parsed_optional()).collect();
     let mut code_out = Vec::new();
     let mut code_size = 0usize;
     let is_script = |k: &Option<Kind>| matches!(k, Some(Kind::Extension));

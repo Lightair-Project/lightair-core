@@ -189,6 +189,7 @@ pub fn write_folder(spec: &ExportSpec, items: &[ExportItem], dest: &Path) -> Res
         dependencies: spec.dependencies.clone(),
         contents: plan.iter().map(|(c, _)| c.clone()).collect(),
         permissions: Vec::new(),
+        optional_permissions: Vec::new(),
     };
     if manifest.dependencies.contains_key(&manifest.id) {
         problems.push(Problem::DependsOnItself);

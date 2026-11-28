@@ -51,7 +51,9 @@ pub fn script(c: &mut Check, folder: &Path, rel: &str, manifest: &Manifest) {
         id: manifest.id.to_string(),
         name: manifest.name.clone(),
         code,
-        permissions: manifest.permissions.clone(),
+        // what it may ask for later is granted in the run, so every call it can make is seen
+        permissions: manifest.permissions.iter().chain(&manifest.optional_permissions).cloned().collect(),
+        optional: manifest.optional_permissions.clone(),
         data_dir: None,
         settings: json!({}),
     };

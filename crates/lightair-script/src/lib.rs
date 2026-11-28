@@ -142,6 +142,14 @@ pub trait Host: Send + Sync + 'static {
     fn pick(&self) -> Option<PathBuf> {
         None
     }
+    /// It asks for some of its optional permissions, with its reason: Lightair asks the user and
+    /// returns the ones granted (none by default). Called on the script's thread; waiting isn't
+    /// counted against its budget.
+    fn request_permissions(&self, _permissions: &[String], _reason: &str) -> Vec<String> {
+        Vec::new()
+    }
+    /// It gives optional permissions back.
+    fn release_permissions(&self, _permissions: &[String]) {}
     fn log(&self, _level: &str, _text: &str) {}
     /// Its state changed (started, suspended, failed).
     fn state(&self, _s: &State) {}
@@ -154,8 +162,10 @@ pub struct Package {
     pub name: String,
     /// Its `main.js`.
     pub code: String,
-    /// Granted permissions (declared minus taken back).
+    /// Granted permissions (declared minus taken back, plus optional ones granted earlier).
     pub permissions: Vec<String>,
+    /// The optional permissions it may ask for while it runs (`lightair.permissions.request`).
+    pub optional: Vec<String>,
     /// Its own folder for storage; `None` keeps storage in memory (the checker).
     pub data_dir: Option<PathBuf>,
     /// Its settings' current values.
@@ -310,11 +320,13 @@ struct Inner {
     timers: RefCell<BTreeMap<(Instant, u64), (u64, bool)>>,
     storage: RefCell<Option<serde_json::Map<String, Value>>>,
     picked: RefCell<Vec<PathBuf>>,
+    /// What it holds now: the granted permissions, plus optional ones granted while it runs.
+    granted: RefCell<Vec<String>>,
 }
 
 impl Inner {
     fn has(&self, permission: &str) -> bool {
-        self.package.permissions.iter().any(|p| p == permission)
+        self.granted.borrow().iter().any(|p| p == permission)
     }
 
     fn record(&self, permission: &str, what: &str, allowed: bool, reason: &str) {
@@ -369,7 +381,7 @@ impl Inner {
             }
             "fetch" => {
                 let req: FetchRequest = serde_json::from_value(arg).map_err(|e| e.to_string())?;
-                if let Err(why) = may_fetch(&self.package.permissions, &req.url) {
+                if let Err(why) = may_fetch(&self.granted.borrow(), &req.url) {
                     self.record("network", &req.url, false, &why);
                     return Err(format!("This plugin can't reach {}: {why}.", req.url));
                 }
@@ -415,6 +427,47 @@ impl Inner {
                 self.host.notify(&text);
                 Ok(Value::Null)
             }
+            "permissions.request" => {
+                // only its declared optional permissions, and only the ones it doesn't hold yet
+                let wanted: Vec<String> = arg["permissions"]
+                    .as_array()
+                    .map(|a| a.iter().filter_map(|p| p.as_str().map(str::to_string)).collect())
+                    .unwrap_or_default();
+                let undeclared: Vec<&String> = wanted.iter().filter(|p| !self.package.optional.contains(p)).collect();
+                if let Some(p) = undeclared.first() {
+                    self.record(p, "asked for it", false, "not one of its optional permissions");
+                    return Err(format!("{p} isn't one of the permissions this package may ask for"));
+                }
+                let ask: Vec<String> = wanted.into_iter().filter(|p| !self.has(p)).collect();
+                if !ask.is_empty() {
+                    let reason: String = arg["reason"].as_str().unwrap_or_default().chars().take(300).collect();
+                    let given = self.host.request_permissions(&ask, &reason);
+                    for p in &ask {
+                        let ok = given.contains(p);
+                        self.record(p, "asked for it", ok, if ok { "" } else { "the user said no" });
+                        if ok {
+                            self.granted.borrow_mut().push(p.clone());
+                        }
+                    }
+                }
+                let held: Vec<String> = self.package.optional.iter().filter(|p| self.has(p)).cloned().collect();
+                Ok(json!({ "granted": held }))
+            }
+            "permissions.release" => {
+                let gone: Vec<String> = arg["permissions"]
+                    .as_array()
+                    .map(|a| a.iter().filter_map(|p| p.as_str().map(str::to_string)).collect::<Vec<String>>())
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|p| self.package.optional.contains(p) && self.has(p))
+                    .collect();
+                if !gone.is_empty() {
+                    self.granted.borrow_mut().retain(|p| !gone.contains(p));
+                    self.host.release_permissions(&gone);
+                }
+                Ok(Value::Null)
+            }
+            "permissions.has" => Ok(json!(self.has(arg["permission"].as_str().unwrap_or_default()))),
             "declare" => self.declare(&arg),
             "panel.update" => {
                 let id = arg["id"].as_str().unwrap_or_default().to_string();
@@ -565,6 +618,7 @@ fn set_state(inner: &Inner, s: State) {
 
 fn run(package: Package, host: Arc<dyn Host>, budget: Budget, rx: Receiver<Job>, shared: Arc<Shared>) {
     let deadline = Arc::new(AtomicI64::new(i64::MAX));
+    let granted = package.permissions.clone();
     let base = Instant::now();
     let inner = Rc::new(Inner {
         package,
@@ -577,6 +631,7 @@ fn run(package: Package, host: Arc<dyn Host>, budget: Budget, rx: Receiver<Job>,
         timers: RefCell::new(BTreeMap::new()),
         storage: RefCell::new(None),
         picked: RefCell::new(Vec::new()),
+        granted: RefCell::new(granted),
     });
 
     let rt = match rquickjs::Runtime::new() {

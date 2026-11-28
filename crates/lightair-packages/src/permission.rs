@@ -51,6 +51,9 @@ pub enum Permission {
     AppsRun(String),
     /// `speech.read`: what's said on the tracks Lightair hears, as text (helpers only).
     SpeechRead,
+    /// `computer.autonomous`: acting on the computer on its own and on chat's requests, within
+    /// the user's stream policy (helpers only).
+    ComputerAutonomous,
     /// `secrets`: its own place in the Keychain.
     Secrets,
     /// `full-access`, everywhere (`None`) or on one platform (`full-access:windows`).
@@ -84,6 +87,7 @@ impl Permission {
             "api.call" => Some(Permission::ApiCall),
             "computer.control" => Some(Permission::ComputerControl),
             "speech.read" => Some(Permission::SpeechRead),
+            "computer.autonomous" => Some(Permission::ComputerAutonomous),
             "secrets" => Some(Permission::Secrets),
             "full-access" => Some(Permission::FullAccess(None)),
             _ => None,
@@ -117,6 +121,17 @@ impl Permission {
         }
     }
 
+    /// Whether only helper programs may ask for it.
+    pub fn helper_only(&self) -> bool {
+        matches!(
+            self,
+            Permission::ComputerControl
+                | Permission::AppsRun(_)
+                | Permission::SpeechRead
+                | Permission::ComputerAutonomous
+        )
+    }
+
     /// Whether it's a `network:` host permission (the only kind a widget may ask for).
     pub fn is_network_host(&self) -> bool {
         matches!(self, Permission::Network(_) | Permission::NetworkAny)
@@ -148,6 +163,7 @@ impl Permission {
                 | Permission::ComputerControl
                 | Permission::AppsRun(_)
                 | Permission::SpeechRead
+                | Permission::ComputerAutonomous
                 | Permission::FsReadPicked
                 | Permission::FsWritePicked
                 | Permission::FullAccess(_)
@@ -190,6 +206,9 @@ impl Permission {
                 format!("Run your {name} app")
             }
             Permission::SpeechRead => "Hear what's said on your tracks, as text".into(),
+            Permission::ComputerAutonomous => {
+                "Act on the computer on its own and on chat's requests, within your stream policy".into()
+            }
             Permission::Secrets => "Keep its own keys in your Keychain".into(),
             Permission::FullAccess(None) => {
                 "Full access: runs like any app you install, outside Lightair's sandbox".into()
@@ -237,6 +256,7 @@ impl fmt::Display for Permission {
             Permission::ComputerControl => f.write_str("computer.control"),
             Permission::AppsRun(a) => write!(f, "apps.run:{a}"),
             Permission::SpeechRead => f.write_str("speech.read"),
+            Permission::ComputerAutonomous => f.write_str("computer.autonomous"),
             Permission::Secrets => f.write_str("secrets"),
             Permission::FullAccess(None) => f.write_str("full-access"),
             Permission::FullAccess(Some(p)) => write!(f, "full-access:{p}"),

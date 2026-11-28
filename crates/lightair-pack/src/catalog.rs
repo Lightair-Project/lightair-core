@@ -236,6 +236,7 @@ fn add_inputs(
         publisher: publisher.clone(),
         tier: m.highest_tier().map_or(0, |t| t as u8),
         permissions: m.permissions.clone(),
+        optional_permissions: m.optional_permissions.clone(),
         full_access: m.parsed_permissions().iter().any(|p| matches!(p, Permission::FullAccess(_))),
         lightair: m.lightair.to_string(),
         files,

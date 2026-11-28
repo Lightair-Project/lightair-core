@@ -61,10 +61,18 @@
       read: (path) => op("files.read", { path: String(path) }),
     },
     notify: (text) => op("notify", { text: String(text) }),
+    permissions: {
+      // asks the user for some of its optional permissions; resolves to the ones it holds
+      request: (list, reason) =>
+        op("permissions.request", { permissions: [].concat(list).map(String), reason: String(reason ?? "") }).granted,
+      release: (list) => op("permissions.release", { permissions: [].concat(list).map(String) }),
+      has: (permission) => op("permissions.has", { permission: String(permission) }),
+    },
   };
   Object.freeze(lightair.settings);
   Object.freeze(lightair.storage);
   Object.freeze(lightair.files);
+  Object.freeze(lightair.permissions);
   globalThis.lightair = Object.freeze(lightair);
 
   const log = (level) => (...args) => op("log", { level, text: args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ") });

@@ -127,6 +127,10 @@ pub enum Problem {
     FullAccessNotAllowed,
     /// Permissions only helper programs may ask for (`computer.control`, `apps.run`, `speech.read`).
     HelperOnly(Vec<String>),
+    /// Optional permissions asked for by a package with no code.
+    OptionalNotAllowed(Vec<String>),
+    /// `full-access` among the optional permissions (it's asked at install or not at all).
+    FullAccessOptional,
     /// A content entry other than a helper names programs.
     EntryNotAllowed(String),
     /// A helper's entry names a target Lightair doesn't know.
@@ -191,6 +195,10 @@ impl fmt::Display for Problem {
             }
             Problem::FullAccessNotAllowed => write!(f, "only helper programs can ask for full access"),
             Problem::HelperOnly(p) => write!(f, "only helper programs can ask for {}", p.join(", ")),
+            Problem::OptionalNotAllowed(p) => {
+                write!(f, "only scripts and helper programs can ask for permissions later ({})", p.join(", "))
+            }
+            Problem::FullAccessOptional => write!(f, "full access can't be asked for later: put it in permissions"),
             Problem::EntryNotAllowed(path) => {
                 write!(f, "{path} names programs to run, but only helpers can")
             }

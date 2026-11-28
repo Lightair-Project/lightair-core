@@ -132,6 +132,7 @@ pub fn to_folder(path: &Path, dest: &Path, version: Option<Version>) -> Result<M
         dependencies: Default::default(),
         contents: vec![Content::new(Kind::Widget, folder)],
         permissions: Vec::new(),
+        optional_permissions: Vec::new(),
     };
     let manifest_path = dest.join(crate::MANIFEST_FILE);
     fs::write(&manifest_path, manifest.to_json()).map_err(|e| Error::io("write", &manifest_path, e))?;
